@@ -326,8 +326,11 @@ class OmniRunner:
         raw = self.device.screenshot()
         frame = normalize(raw)
         self.last_frame = frame
-        if self.device_size is None:
-            self.device_size = self.device.size()
+        # ADB `wm size` may report the portrait base resolution even when
+        # Android has rotated the display. Input coordinates follow the
+        # screenshot's current orientation, not that base resolution.
+        # Refresh on *every* capture so rotations mid-workflow stay aligned.
+        self.device_size = (raw.shape[1], raw.shape[0])
         observation = self.detector.detect(frame)
         self.last_observation = observation
         self.on_image(observation, frame)

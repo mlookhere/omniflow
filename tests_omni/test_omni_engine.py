@@ -93,8 +93,8 @@ class EngineTests(unittest.TestCase):
         device=Device(self.match);runs=[]
         r=OmniRunner(device,self.folder,'com.game.demo',completed=runs.append)
         for t in range(100,120):r.step(float(t))
-        self.assertEqual(device.taps,[(800,1600)])
-        self.assertEqual(device.swipes,[(400,400,400,1200,650),(800,1600,800,1600,700)])
+        self.assertEqual(device.taps,[(200,400)])
+        self.assertEqual(device.swipes,[(100,100,100,300,650),(200,400,200,400,700)])
         self.assertEqual(device.keys,[4]);self.assertEqual(device.texts,['hi world']);self.assertEqual(runs,[1])
 
     def test_pre_action_delay_stays_nonblocking(self):
