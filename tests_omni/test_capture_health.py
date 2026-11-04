@@ -22,13 +22,32 @@ class CaptureHealthTests(unittest.TestCase):
         health.record_error(102, 'EINVAL (22)')
         health.observe(102, 'snapshot')
         report = health.summary(103)
-        self.assertEqual((report['error22_events'], report['error22_unresolved']), (2, 1))
+        self.assertEqual((report['error22_events'], report['error22_windows'],
+                          report['error22_unresolved']), (2, 1, 1))
         self.assertTrue(evaluate_capture(report, allow_snapshot_only=True))
         health.observe(106, 'video')
         report = health.summary(107)
         self.assertEqual(report['error22_recovered'], 1)
+        self.assertEqual(report['error22_windows'], 1)
         self.assertEqual(report['error22_unresolved'], 0)
         self.assertEqual(report['max_error22_recovery_seconds'], 5)
+
+    def test_repeated_error_messages_are_one_recovery_window(self):
+        health = CaptureHealth(100)
+        health.record_error(101, 'MediaCodec error 22')
+        health.record_error(102, 'EINVAL (22)')
+        health.observe(103, 'video')
+        health.record_error(104, 'MediaCodec error 22')
+        health.record_error(105, 'MediaCodec error 22')
+        report = health.summary(106)
+        self.assertEqual(report['error22_events'], 4)
+        self.assertEqual(report['error22_windows'], 2)
+        self.assertEqual(report['error22_recovered'], 1)
+        self.assertEqual(report['error22_unresolved'], 1)
+        health.observe(107, 'video')
+        report = health.summary(108)
+        self.assertEqual(report['error22_recovered'], 2)
+        self.assertEqual(report['error22_unresolved'], 0)
 
     def test_preview_blackout_and_fps_fail_closed(self):
         health = CaptureHealth(0)

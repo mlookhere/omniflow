@@ -16,7 +16,7 @@ def samples(*, devices=10, workflow='MyWorkflow'):
         'elapsed_seconds': 120.02, 'displayed_video_frames': 3000,
         'displayed_video_fps': 25.0, 'fallback_snapshots': 2,
         'max_preview_gap_seconds': 1.1, 'max_video_gap_seconds': 3.4,
-        'error22_events': 2,
+        'error22_events': 2, 'error22_windows': 1,
         'error22_recovered': 1, 'error22_unresolved': 0,
         'max_error22_recovery_seconds': 2.8,
     }
@@ -61,6 +61,25 @@ class HardwareEvidenceTests(unittest.TestCase):
         video, bench = samples()
         bench['devices'][3].update(elapsed_seconds=3, frames=3, effective_fps=1)
         self.assertIn('measured only', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
+    def test_unreconciled_error22_windows_fail_even_with_pass_flag(self):
+        video, bench = samples()
+        video.update(error22_windows=2, error22_recovered=1, error22_unresolved=0)
+        self.assertIn('not fully reconciled',
+                      ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+        video.update(error22_windows=1, error22_recovered=1, error22_unresolved=0)
+        self.assertTrue(evaluate_hardware_evidence(video, bench)['passed'])
+
+    def test_missing_or_invalid_window_counters_fail_closed(self):
+        video, bench = samples()
+        video.pop('error22_windows')
+        self.assertFalse(evaluate_hardware_evidence(video, bench)['passed'])
+        video['error22_windows'] = 1.5
+        self.assertIn('whole numbers',
+                      ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+        video['error22_windows'] = 3
+        self.assertIn('exceed logged',
+                      ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
 
     def test_video_stall_fails_even_if_snapshots_hide_blackout(self):
         video, bench = samples()

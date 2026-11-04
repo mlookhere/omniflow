@@ -69,6 +69,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     preview_gap = _number(video, 'max_preview_gap_seconds', 'video', failures)
     video_gap = _number(video, 'max_video_gap_seconds', 'video', failures)
     error_events = _number(video, 'error22_events', 'video', failures)
+    error_windows = _number(video, 'error22_windows', 'video', failures)
     error_recovered = _number(video, 'error22_recovered', 'video', failures)
     error_unresolved = _number(video, 'error22_unresolved', 'video', failures)
     if elapsed < criteria.seconds:
@@ -84,6 +85,18 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         failures.append(f'Preview blackout {preview_gap:.2f}s exceeds {criteria.max_preview_gap:.2f}s')
     if video_gap > criteria.max_video_gap:
         failures.append(f'H.264 stream stalled {video_gap:.2f}s, exceeding {criteria.max_video_gap:.2f}s')
+    # Multiple log messages from the same encoder failure form one recovery
+    # window. The number of windows must equal recovered + still pending,
+    # rather than comparing raw log counts with recovery counts.
+    if any(not count.is_integer() for count in
+           (error_events, error_windows, error_recovered, error_unresolved)):
+        failures.append('Error 22 counters must be whole numbers')
+    if error_windows > error_events:
+        failures.append('Error 22 recovery windows exceed logged Error 22 events')
+    if error_recovered + error_unresolved != error_windows:
+        failures.append('Error 22 recovery windows are not fully reconciled')
+    if error_unresolved > 1:
+        failures.append('Error 22 can have at most one unresolved recovery window')
     if error_unresolved:
         failures.append('Unresolved Error 22 event remains')
     recovery_seconds = video.get('max_error22_recovery_seconds')
@@ -92,8 +105,6 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             failures.append('Recovered Error 22 lacks measured recovery duration')
         elif _number(video, 'max_error22_recovery_seconds', 'video', failures) > criteria.max_error22_recovery:
             failures.append(f'Error 22 recovery exceeded {criteria.max_error22_recovery:g}s')
-    if error_events and not error_recovered and not error_unresolved:
-        failures.append('Error 22 events are not reconciled with recovery evidence')
     # Reuse the underlying diagnostic's safety rules; do not rely on its pass flag.
     if all(isinstance(video.get(k), (int, float)) for k in
            ('displayed_video_frames', 'fallback_snapshots', 'displayed_video_fps',

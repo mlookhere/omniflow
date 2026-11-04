@@ -1,9 +1,9 @@
 name: OmniFlow CI
 on:
   push:
-    branches: [main, 'work/**']
+    branches: [main, dev, 'work/**']
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 jobs:
   python-tests:
     runs-on: ubuntu-latest

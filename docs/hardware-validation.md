@@ -110,3 +110,15 @@ input/rotation, Windows CPU/RAM/GPU utilization, and Error 22 recovery if it
 was not observed. It deliberately never marks full hardware acceptance complete.
 Attach the JSON reports to control issue #1 after live measurement; do not use
 CI-generated/mock data as a substitute.
+
+### Error 22 log messages versus recovery attempts
+
+Multiple MediaCodec `Error 22` messages can describe **one** failed encoder
+startup. New diagnostics distinguish `error22_events` (log messages) from
+`error22_windows` (distinct recovery attempts). Every recovery window must be
+accounted for by either `error22_recovered` (followed by a real H.264 frame) or
+`error22_unresolved` (still pending). The evidence verifier rejects missing
+window counts and inconsistent accounting, even if the original diagnostic
+reported `passed: true`. Reports written before this field existed must be
+recollected using the updated diagnostic; do not infer recovery from legacy
+logs or from screenshot fallback alone.

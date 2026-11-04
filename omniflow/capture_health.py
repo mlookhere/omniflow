@@ -23,6 +23,7 @@ class CaptureHealth:
     max_video_gap: float = 0.0
     errors: list[str] = field(default_factory=list)
     error22_events: int = 0
+    error22_windows: int = 0
     error22_recovered: int = 0
     recovery_seconds: list[float] = field(default_factory=list)
     _error22_pending_at: float | None = None
@@ -52,6 +53,7 @@ class CaptureHealth:
             self.error22_events += 1
             # Consecutive Error 22 logs are one unresolved recovery window.
             if self._error22_pending_at is None:
+                self.error22_windows += 1
                 self._error22_pending_at = now
 
     def summary(self, now: float) -> dict:
@@ -65,6 +67,7 @@ class CaptureHealth:
             'max_preview_gap_seconds': round(self.max_preview_gap, 2),
             'max_video_gap_seconds': round(self.max_video_gap, 2),
             'error22_events': self.error22_events,
+            'error22_windows': self.error22_windows,
             'error22_recovered': self.error22_recovered,
             'error22_unresolved': int(self._error22_pending_at is not None),
             'max_error22_recovery_seconds': (round(max(self.recovery_seconds), 2)
