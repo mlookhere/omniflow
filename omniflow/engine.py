@@ -333,7 +333,10 @@ class OmniRunner:
         self.device_size = (raw.shape[1], raw.shape[0])
         observation = self.detector.detect(frame)
         self.last_observation = observation
-        self.on_image(observation, frame)
+        # Recognition intentionally uses a fixed coordinate canvas for saved
+        # workflows. The dashboard must display the *original* screen aspect
+        # ratio instead of the stretched recognition image.
+        self.on_image(observation, raw)
         if observation.key != self._stable_key:
             self._stable_key, self._streak = observation.key, 1
         else:

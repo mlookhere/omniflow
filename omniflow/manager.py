@@ -169,10 +169,15 @@ class InstanceManager:
 
     def _image(self, session: Session, match: Match, frame: np.ndarray) -> None:
         session.current, session.confidence = match.label, match.confidence
-        # A single 270x480 image per session, only last frame retained.
-        # This is reuse of the OCR frame, not an extra emulator capture.
+        # Reuse the runner's captured screenshot rather than requesting another
+        # ADB frame. Preserve its real orientation and aspect ratio, keeping
+        # just a bounded thumbnail per session (not ten full-resolution frames).
+        height, width = frame.shape[:2]
+        scale = min(1.0, 480 / max(height, width))
+        target = (max(1, round(width * scale)), max(1, round(height * scale)))
+        thumbnail = cv2.resize(frame, target, interpolation=cv2.INTER_AREA)
         with session._image_lock:
-            session.image = cv2.resize(frame, (270, 480), interpolation=cv2.INTER_AREA)
+            session.image = thumbnail
 
     def stop(self, serial: str) -> None:
         with self._lock:
