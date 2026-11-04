@@ -204,7 +204,13 @@ class PassiveGuiTests(unittest.TestCase):
                 editor.canvas.load(self.cancel)
                 editor.canvas.boxes[0] = self.button
                 editor.passive.setChecked(True)
-                editor.save.click()
+                self.assertTrue(editor._folder() == self.folder)
+                self.assertTrue(editor.save.isEnabled(), editor.save_status.text())
+                with patch('swordx.recorder.QMessageBox.warning') as warning, \
+                     patch('swordx.recorder.QMessageBox.information') as information:
+                    editor.save.click()
+                self.assertFalse(warning.called, str(warning.call_args_list))
+                self.assertFalse(information.called, str(information.call_args_list))
                 data = json.loads((self.folder/'manifest.json').read_text())
                 saved = [v for v in data['actions'].values() if v['label'] == 'Cancel — wait']
                 self.assertEqual(len(saved), 1)
