@@ -4,6 +4,32 @@
 that MediaCodec Error 22 never occurs or that 10 Windows emulator processes are
 sustainable on a particular PC. Keep control issue #1 and PR #2 open.
 
+## 0. Collect a complete read-only evidence set (Windows)
+
+With all ten MuMu instances running and a changing game screen selected, run
+from the OmniFlow repository in the installed Python virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe tools\collect_hardware_evidence.py --workflow "path\to\workflow"
+```
+
+The optional `--serial 127.0.0.1:16384` selects the video instance;
+omitting `--workflow` still benchmarks capture but leaves real OCR/image
+recognition unverified. The command sequentially runs the existing 120-second
+video diagnostic, 120-second ten-instance capture benchmark, and strict verifier.
+It sends no game touches, never weakens the fixed FPS/recovery thresholds, and
+creates a unique ignored `hardware-evidence/run-*` folder for each attempt.
+The folder contains the three JSON reports, per-step logs, and a manifest
+recording exact exit codes and incomplete/missing artifacts. A zero collector
+exit code means **only** the read-only report gates succeeded; it never
+claims full hardware acceptance. Missing files and timed-out steps fail closed.
+
+Review the reports and attach evidence to [control issue #1](https://github.com/mlookhere/omniflow/issues/1).
+Manual touch/swipe/orientation, Error 22 reproduction where applicable,
+per-emulator resource analysis and GitHub branch protection remain separate
+acceptance requirements. The run manifest is observational, not authenticated
+same-host attestation.
+
 ## 1. Diagnose selected emulator video
 
 Run in the installed OmniFlow virtual environment, with the intended MuMu
