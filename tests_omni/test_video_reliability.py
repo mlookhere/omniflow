@@ -1,6 +1,7 @@
 """Raw H.264 decoding and bounded automatic recovery, without a live emulator."""
 import errno
 import io
+import subprocess
 import sys
 import types
 import unittest
@@ -160,6 +161,54 @@ class StreamFailureTests(unittest.TestCase):
             with AndroidVideoStream('127.0.0.1:16384') as stream:
                 stream.stderr_file.write(b'MediaCodec error: EINVAL (22)')
                 self.assertIn('MediaCodec error', stream.error())
+
+    def test_two_termination_timeouts_preserve_error_and_release_pipes(self):
+        stream = AndroidVideoStream('127.0.0.1:16384')
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdout = io.BytesIO(b'incomplete h264')
+        proc.wait.side_effect = [subprocess.TimeoutExpired('adb', 2),
+                                 subprocess.TimeoutExpired('adb', 2)]
+        log = io.BytesIO(b'MediaCodec error 22')
+        stream.process, stream.stderr_file = proc, log
+
+        stream.close()
+        self.assertTrue(proc.stdout.closed)
+        self.assertTrue(log.closed)
+        self.assertIsNone(stream.process)
+        self.assertIsNone(stream.stderr_file)
+        self.assertIn('MediaCodec error 22', stream.error())
+        self.assertIn('teardown incomplete', stream.error())
+        self.assertEqual(proc.wait.call_count, 2)
+        stream.close()  # Cleanup is idempotent after a failed kill/wait.
+
+    def test_process_exits_during_second_kill_and_still_closes_stream(self):
+        stream = AndroidVideoStream('127.0.0.1:16384')
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdout = io.BytesIO(b'')
+        proc.kill.side_effect = [None, ProcessLookupError('already gone')]
+        proc.wait.side_effect = [subprocess.TimeoutExpired('adb', 2)]
+        stream.process, stream.stderr_file = proc, io.BytesIO()
+
+        stream.close()
+        self.assertTrue(proc.stdout.closed)
+        self.assertIsNone(stream.process)
+        self.assertIn('teardown incomplete', stream.error())
+
+    def test_wait_oserror_does_not_skip_stream_cleanup(self):
+        stream = AndroidVideoStream('127.0.0.1:16384')
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdout = io.BytesIO()
+        proc.wait.side_effect = OSError('invalid process handle')
+        stream.process, stream.stderr_file = proc, io.BytesIO(b'encoder failed')
+
+        stream.close()
+        self.assertTrue(proc.stdout.closed)
+        self.assertIsNone(stream.process)
+        self.assertIn('invalid process handle', stream.error())
+        self.assertIn('encoder failed', stream.error())
 
     def test_normal_stream_exit_and_error_do_not_leak_process(self):
         fake = MagicMock()

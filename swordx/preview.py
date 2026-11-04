@@ -242,27 +242,44 @@ class AndroidVideoStream:
                 pass  # Process may have exited between poll() and kill().
 
     def close(self):
-        # Retain Android's actual diagnostic across context-manager cleanup.
-        if self.stderr_file:
+        """Bound teardown even when ADB ignores termination; always release pipes.
+
+        A stuck Windows adb.exe can outlive the second kill/wait. Never let its
+        timeout abort the preview worker's cleanup or hide the MediaCodec log.
+        """
+        proc, stderr = self.process, self.stderr_file
+        if stderr is not None:
             try:
-                self.stderr_file.flush()
-                self.stderr_file.seek(0)
-                self._last_error = self.stderr_file.read(1600).decode(errors='replace').strip()
-            except OSError:
+                stderr.flush()
+                stderr.seek(0)
+                self._last_error = (stderr.read(1600).decode(errors='replace').strip()
+                                    or self._last_error)
+            except (OSError, ValueError):
                 pass
-        self.interrupt()
-        if self.process:
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=2)
-            if self.process.stdout:
-                self.process.stdout.close()
+        try:
+            if proc is not None:
+                self.interrupt()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+            detail = f'ADB screenrecord teardown incomplete: {type(exc).__name__}: {exc}'
+            self._last_error = f'{self._last_error} | {detail}' if self._last_error else detail
+        finally:
             self.process = None
-        if self.stderr_file:
-            self.stderr_file.close()
             self.stderr_file = None
+            if proc is not None and proc.stdout is not None:
+                try:
+                    proc.stdout.close()
+                except (OSError, ValueError):
+                    pass  # The child pipe may already be closed during termination.
+            if stderr is not None:
+                try:
+                    stderr.close()
+                except (OSError, ValueError):
+                    pass
 
     def __exit__(self, *_):
         self.close()
