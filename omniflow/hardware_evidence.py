@@ -64,7 +64,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     failures: list[str] = []
     outstanding = [
         'Manual live-game tap/swipe and rotation accuracy not measured',
-        'Windows CPU/RAM/GPU load and long-term resource stability not measured',
+        'Long-term host resource stability and per-emulator allocation not verified',
         'Same-host hardware identity and measurement timestamps not verified',
     ]
     if video.get('passed') is not True:
@@ -98,6 +98,9 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     # Multiple log messages from the same encoder failure form one recovery
     # window. The number of windows must equal recovered + still pending,
     # rather than comparing raw log counts with recovery counts.
+    if any(not count.is_integer() for count in
+           (error_events, error_windows, error_recovered, error_unresolved)):
+        failures.append('Error 22 counters must be whole numbers')
     if error_windows > error_events:
         failures.append('Error 22 recovery windows exceed logged Error 22 events')
     if error_recovered + error_unresolved != error_windows:
@@ -186,6 +189,70 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     else:
         outstanding.append('Real workflow OCR/image recognition load not measured')
 
+    # Optional whole-host resource evidence accompanies (but does not replace)
+    # the capture benchmark. Missing NVIDIA telemetry is explicitly outstanding,
+    # not fabricated as zero GPU load or a pass of a hardware acceptance gate.
+    resources = benchmark.get('host_resources')
+    resource_coverage = {'cpu': False, 'ram': False, 'gpu': False}
+    if resources is None:
+        outstanding.append('Windows CPU/RAM/GPU utilization not recorded by benchmark')
+    elif not isinstance(resources, dict):
+        failures.append('Host resource report must be an object')
+    else:
+        duration = _number(resources, 'duration_seconds', 'resources', failures)
+        interval = _number(resources, 'interval_seconds', 'resources', failures)
+        count = _number(resources, 'sample_count', 'resources', failures)
+        if not interval:
+            failures.append('Resource sampling interval is zero')
+        if not count.is_integer():
+            failures.append('Resource sample count must be a whole number')
+        if duration < criteria.seconds * .95:
+            failures.append('Host resource coverage is shorter than benchmark duration')
+        # Allow for bounded NVIDIA queries to take extra time, but reject a
+        # brief snapshot presented as a sustained resource-monitoring session.
+        minimum_samples = max(2, int(criteria.seconds / (interval * 3))) if interval else 2
+        if count < minimum_samples:
+            failures.append(f'Host resources contain only {count:g} samples; need {minimum_samples}')
+        metrics = resources.get('metrics')
+        if not isinstance(metrics, dict):
+            failures.append('Host resource metric summaries are missing')
+            metrics = {}
+        valid = {}
+        for name in ('cpu_percent', 'ram_percent', 'ram_used_mib',
+                     'gpu_utilization_percent', 'gpu_memory_used_mib'):
+            metric = metrics.get(name)
+            if not isinstance(metric, dict):
+                failures.append(f'Resource metric {name} is missing or invalid')
+                continue
+            label = f'resource.{name}'
+            samples = _number(metric, 'samples', label, failures)
+            if not samples.is_integer() or samples > count:
+                failures.append(f'{label}: inconsistent sample count')
+                continue
+            if not samples:
+                valid[name] = False
+                continue
+            average = _number(metric, 'average', label, failures)
+            peak = _number(metric, 'peak', label, failures)
+            if peak < average or (name.endswith('percent') and peak > 100):
+                failures.append(f'{label}: impossible average/peak values')
+                continue
+            valid[name] = samples >= minimum_samples
+        sufficient_duration = duration >= criteria.seconds * .95
+        resource_coverage = {
+            'cpu': bool(valid.get('cpu_percent') and sufficient_duration),
+            'ram': bool(valid.get('ram_percent') and valid.get('ram_used_mib') and sufficient_duration),
+            'gpu': bool(valid.get('gpu_utilization_percent') and
+                        valid.get('gpu_memory_used_mib') and sufficient_duration),
+        }
+        missing = [name.upper() for name, covered in resource_coverage.items() if not covered]
+        if missing:
+            outstanding.append('Host utilization telemetry unavailable/insufficient for: ' + ', '.join(missing))
+        else:
+            outstanding.append('Whole-host CPU/RAM/GPU observed; acceptable limits and per-emulator attribution not verified')
+        if resources.get('errors'):
+            outstanding.append('Host telemetry reported probe errors; inspect host_resources.errors')
+
     # These are read-only capture gates, not approval to merge. Resource load,
     # real gestures and recovery observability have separate acceptance steps.
     return {
@@ -193,6 +260,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         'failures': list(dict.fromkeys(failures)),
         'error22_recovery_observed': recovery_observed,
         'workflow_recognition_measured': workflow_measured,
+        'host_resource_coverage': resource_coverage,
         'hardware_acceptance_complete': False,
         'outstanding': outstanding,
         'criteria': {

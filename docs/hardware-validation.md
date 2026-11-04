@@ -40,11 +40,21 @@ The JSON includes per-device effective FPS and p95 capture/recognition latency.
 If discovery fails or fewer than ten devices are connected, `--output` still
 records an atomic `passed: false` report with the discovered and actually
 measured instance counts; it never preserves an older successful report.
-The benchmark **does not** measure H.264 preview throughput or GPU load.
+The benchmark **does not** measure H.264 preview throughput. It now also
+records low-rate **whole-host** CPU and RAM via `psutil` and NVIDIA GPU/VRAM
+via the optional `nvidia-smi` command. If NVIDIA telemetry is unavailable,
+`host_resources` reports missing GPU samples and the reason; it never reports
+unmeasured GPU usage as 0%. These metrics cover the entire Windows host, not
+individual MuMu processes or GPU video-encode engine usage.
 
 ## 3. Observe resources and recovery
 
-While all ten devices are active, monitor Windows Task Manager GPU video encode,
+While all ten devices are active, review `host_resources` in `capture-ten.json`.
+Check `host_resources.metrics` for average/peak CPU, RAM, GPU and VRAM, and
+`host_resources.errors` for unavailable counters. The companion evidence verifier
+checks sample coverage and metric consistency, but does not choose acceptable
+CPU/GPU budgets for your particular PC. **Task Manager remains necessary** to
+inspect per-emulator processes and GPU video encode. Monitor Windows Task Manager GPU video encode,
 GPU 3D, CPU, RAM, and per-emulator performance. Observe multiple minutes of
 actual workflows, interaction accuracy, state transition retries and failed
 process relaunches. Confirm only the selected emulator starts an H.264 video
@@ -109,8 +119,10 @@ should reflect the actual workload; a static menu should not be used to judge
 
 A passing `hardware-evidence.json` means **only** the read-only capture criteria
 were demonstrated. The result explicitly preserves missing evidence for real
-input/rotation, Windows CPU/RAM/GPU utilization, and Error 22 recovery if it
-was not observed. It deliberately never marks full hardware acceptance complete.
+input/rotation, sustained host CPU/RAM/GPU utilization when not sufficiently
+sampled, and Error 22 recovery if it was not observed. Even when resource
+telemetry is available, GPU-encode load, per-process attribution and acceptable
+operational limits require separate real-PC review. It deliberately never marks full hardware acceptance complete.
 Attach the JSON reports to control issue #1 after live measurement; do not use
 CI-generated/mock data as a substitute.
 

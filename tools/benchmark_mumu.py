@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 
 from omniflow.devices import Device, discover_mumu
+from omniflow.resources import HostResourceMonitor
 from swordx.detection import normalize
 
 
@@ -201,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         'passed': False,
         'failures': [],
         'devices': [],
+        'host_resources': None,
     }
 
     def fail_before_measurement(message: str) -> int:
@@ -224,10 +226,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Benchmarking {len(serials)} emulator(s) for {args.seconds}s; '
           f'poll={args.poll}s; workflow={args.workflow or "none"}; read-only.', flush=True)
     barrier = threading.Barrier(len(serials)) if len(serials) > 1 else None
-    with ThreadPoolExecutor(max_workers=len(serials)) as pool:
-        futures = [pool.submit(measure, serial, args.seconds, args.poll, barrier,
-                               detector_factory=detector_factory) for serial in serials]
-        results = [future.result() for future in futures]
+    monitor = HostResourceMonitor()
+    monitor.start()
+    try:
+        with ThreadPoolExecutor(max_workers=len(serials)) as pool:
+            futures = [pool.submit(measure, serial, args.seconds, args.poll, barrier,
+                                   detector_factory=detector_factory) for serial in serials]
+            results = [future.result() for future in futures]
+    finally:
+        resources = monitor.stop()
 
     for result in results:
         print(f'{result.serial:<23} frames={result.frames:>4} '
@@ -241,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         passed=not failures,
         failures=failures,
         devices=[asdict(result) for result in results],
+        host_resources=resources,
     )
     if args.output:
         write_json(args.output, report)
@@ -248,8 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     if failures:
         print('Benchmark NOT PASSED: ' + '; '.join(failures), file=sys.stderr)
         return 1
-    print('Capture benchmark passed the requested coverage/error criteria. '
-          'This does not measure H.264 preview FPS or GPU load.')
+    print('Capture benchmark passed its requested coverage/error criteria. '
+          'Host CPU/RAM and optional NVIDIA GPU measurements are in the JSON; '
+          'this does not test H.264 FPS or gesture accuracy.')
     return 0
 
 

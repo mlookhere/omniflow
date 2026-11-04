@@ -155,6 +155,55 @@ class HardwareEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             EvidenceCriteria(min_video_fps=float('nan'))
 
+    def test_sustained_host_resources_are_reported_without_approving_hardware(self):
+        video, bench = samples()
+        metrics = {}
+        for name, value in [('cpu_percent', 35), ('ram_percent', 55),
+                            ('ram_used_mib', 16384), ('gpu_utilization_percent', 70),
+                            ('gpu_memory_used_mib', 7500)]:
+            metrics[name] = {'samples': 40, 'average': value * .8, 'peak': value}
+        bench['host_resources'] = {'duration_seconds': 122, 'interval_seconds': 2,
+                                   'sample_count': 40, 'metrics': metrics, 'errors': []}
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertTrue(result['passed'], result['failures'])
+        self.assertEqual(result['host_resource_coverage'],
+                         {'cpu': True, 'ram': True, 'gpu': True})
+        self.assertFalse(result['hardware_acceptance_complete'])
+        self.assertTrue(any('per-emulator' in x for x in result['outstanding']))
+
+    def test_missing_gpu_telemetry_remains_outstanding_not_fabricated(self):
+        video, bench = samples()
+        metrics = {}
+        for name in ('cpu_percent', 'ram_percent', 'ram_used_mib'):
+            metrics[name] = {'samples': 40, 'average': 20, 'peak': 40}
+        for name in ('gpu_utilization_percent', 'gpu_memory_used_mib'):
+            metrics[name] = {'samples': 0, 'average': None, 'peak': None}
+        bench['host_resources'] = {'duration_seconds': 122, 'interval_seconds': 2,
+                                   'sample_count': 40, 'metrics': metrics,
+                                   'errors': ['GPU unavailable: nvidia-smi not found']}
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertTrue(result['passed'], result['failures'])
+        self.assertFalse(result['host_resource_coverage']['gpu'])
+        self.assertIn('GPU', ' '.join(result['outstanding']))
+
+    def test_short_or_impossible_host_resource_report_fails_closed(self):
+        video, bench = samples()
+        bench['host_resources'] = {'duration_seconds': 12, 'interval_seconds': 2,
+                                   'sample_count': 1, 'metrics': {}, 'errors': []}
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertIn('shorter', ' '.join(result['failures']))
+        video, bench = samples()
+        metrics = {name: {'samples': 50, 'average': 30, 'peak': 40}
+                   for name in ('cpu_percent', 'ram_percent', 'ram_used_mib',
+                                'gpu_utilization_percent', 'gpu_memory_used_mib')}
+        metrics['gpu_utilization_percent']['peak'] = 150
+        bench['host_resources'] = {'duration_seconds': 125, 'interval_seconds': 2,
+                                   'sample_count': 50, 'metrics': metrics, 'errors': []}
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertTrue(any('impossible' in x for x in result['failures']))
+
     def test_cli_always_writes_failure_evidence_for_missing_input(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / 'result.json'

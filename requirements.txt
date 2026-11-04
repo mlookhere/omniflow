@@ -6,3 +6,6 @@ av>=14,<18
 
 # Windows Python has no built-in IANA timezone database.
 tzdata>=2025.2,<2028
+
+# Read-only host CPU/RAM telemetry during MuMu hardware benchmark.
+psutil>=7,<9
