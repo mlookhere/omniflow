@@ -1,15 +1,12 @@
-"""Keep one Qt application alive for the complete offscreen GUI test session.
+"""Own and explicitly drain the offscreen Qt application during test teardown.
 
-Legacy SwordXAuto and OmniFlow GUI suites historically create QApplication
-independently in individual unittest classes. On Windows/PySide6, releasing the
-first class-owned application while other widgets still exist can trigger a
-native Qt process-abort *after* pytest has printed an all-passed summary.
-
-One process-scoped owner gives the suite stable Qt object lifetime. This only
-runs in an explicitly offscreen test environment and does not affect the app.
+PySide's implicit Python interpreter shutdown can run after Qt's native
+libraries start unloading; that previously caused intermittent Windows aborts
+*after* a passed suite. Never suppress pytest or native subprocess exit codes.
 """
 from __future__ import annotations
 
+import gc
 import os
 
 _qt_app = None
@@ -27,9 +24,20 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    if _qt_app is not None:
-        # Dispose any still-open top-level widgets while QApplication remains
-        # alive, rather than letting PySide tear them down during interpreter
-        # shutdown after pytest has finished reporting its result.
-        _qt_app.closeAllWindows()
-        _qt_app.processEvents()
+    if _qt_app is None:
+        return
+    # Destroy widgets while their QApplication and native Qt plugins remain
+    # alive. Closing alone leaves deleteLater()/DeferredDelete events queued,
+    # which otherwise execute at unpredictable points during Python teardown.
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    _qt_app.closeAllWindows()
+    for widget in _qt_app.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    _qt_app.processEvents()
+    gc.collect()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    _qt_app.processEvents()
+    _qt_app.quit()
