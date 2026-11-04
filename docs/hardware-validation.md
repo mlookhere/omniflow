@@ -40,6 +40,9 @@ The JSON includes per-device effective FPS and p95 capture/recognition latency.
 If discovery fails or fewer than ten devices are connected, `--output` still
 records an atomic `passed: false` report with the discovered and actually
 measured instance counts; it never preserves an older successful report.
+If host telemetry cannot start or finish, the benchmark records an explicit
+`passed: false` report rather than leaving an earlier successful JSON artifact.
+Device captures already completed are retained in that failure report.
 The benchmark **does not** measure H.264 preview throughput. It now also
 records low-rate **whole-host** CPU and RAM via `psutil` and NVIDIA GPU/VRAM
 via the optional `nvidia-smi` command. If NVIDIA telemetry is unavailable,

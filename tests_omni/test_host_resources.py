@@ -63,6 +63,49 @@ class HostResourceTests(unittest.TestCase):
         self.assertEqual(data['metrics']['gpu_utilization_percent']['samples'], 0)
         self.assertTrue(any('gpu query failed' in msg for msg in data['errors']))
 
+    def test_telemetry_start_failure_writes_failure_over_stale_success(self):
+        class StartFailureMonitor:
+            def start(self):
+                raise OSError('host sampler cannot start')
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'result.json'
+            benchmark.write_json(path, {'passed': True, 'devices': [{'serial': 'stale'}]})
+            with patch.object(benchmark, 'discover_mumu', return_value=['127.0.0.1:16384']), \\
+                 patch.object(benchmark, 'HostResourceMonitor', return_value=StartFailureMonitor()), \\
+                 patch.object(benchmark, 'measure') as measure:
+                code = benchmark.main(['--instances', '1', '--seconds', '3', '--output', str(path)])
+            self.assertEqual(code, 1)
+            measure.assert_not_called()
+            data = json.loads(path.read_text())
+            self.assertFalse(data['passed'])
+            self.assertEqual(data['tested_instances'], 0)
+            self.assertIsNone(data['host_resources'])
+            self.assertIn('host sampler cannot start', ' '.join(data['failures']))
+
+    def test_telemetry_stop_failure_preserves_capture_but_fails_report(self):
+        class StopFailureMonitor:
+            def start(self):
+                pass
+            def stop(self):
+                raise RuntimeError('GPU sampler shutdown failed')
+
+        serial = '127.0.0.1:16384'
+        sample = benchmark.DeviceResult(serial, 3, 0, 3.0, 1.0, 20.0, 30.0, None)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'result.json'
+            with patch.object(benchmark, 'discover_mumu', return_value=[serial]), \\
+                 patch.object(benchmark, 'HostResourceMonitor', return_value=StopFailureMonitor()), \\
+                 patch.object(benchmark, 'measure', return_value=sample):
+                code = benchmark.main(['--instances', '1', '--seconds', '3', '--output', str(path)])
+            self.assertEqual(code, 1)
+            data = json.loads(path.read_text())
+            self.assertFalse(data['passed'])
+            self.assertEqual(data['tested_instances'], 1)
+            self.assertEqual(data['devices'][0]['frames'], 3)
+            self.assertIsNone(data['host_resources'])
+            self.assertIn('GPU sampler shutdown failed', ' '.join(data['failures']))
+
     def test_benchmark_records_host_resources_without_affecting_capture_success(self):
         with tempfile.TemporaryDirectory() as folder:
             report = Path(folder) / 'result.json'

@@ -226,13 +226,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Benchmarking {len(serials)} emulator(s) for {args.seconds}s; '
           f'poll={args.poll}s; workflow={args.workflow or "none"}; read-only.', flush=True)
     barrier = threading.Barrier(len(serials)) if len(serials) > 1 else None
-    monitor = HostResourceMonitor()
-    monitor.start()
+    try:
+        monitor = HostResourceMonitor()
+        monitor.start()
+    except Exception as exc:
+        return fail_before_measurement(
+            f'Host telemetry could not start: {type(exc).__name__}: {exc}')
+
+    results: list[DeviceResult] = []
+    setup_error = ''
+    resources = None
     try:
         with ThreadPoolExecutor(max_workers=len(serials)) as pool:
             futures = [pool.submit(measure, serial, args.seconds, args.poll, barrier,
                                    detector_factory=detector_factory) for serial in serials]
-            results = []
             for serial, future in zip(serials, futures):
                 try:
                     results.append(future.result())
@@ -242,8 +249,14 @@ def main(argv: list[str] | None = None) -> int:
                     results.append(DeviceResult(
                         serial, 0, 1, 0.0, 0.0, None, None, None,
                         f'Unexpected worker failure: {type(exc).__name__}: {exc}'))
+    except Exception as exc:
+        setup_error = f'Capture worker pool failed: {type(exc).__name__}: {exc}'
     finally:
-        resources = monitor.stop()
+        try:
+            resources = monitor.stop()
+        except Exception as exc:
+            setup_error += (('; ' if setup_error else '') +
+                            f'Host telemetry could not stop: {type(exc).__name__}: {exc}')
 
     for result in results:
         print(f'{result.serial:<23} frames={result.frames:>4} '
@@ -252,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
               f'detect_p95={result.detection_p95_ms if result.detection_p95_ms is not None else "—"}ms '
               f'errors={result.errors} {result.last_error}')
     failures = evaluate(results, args.instances, args.min_fps)
+    if setup_error:
+        failures.append(setup_error)
     report.update(
         tested_instances=len(results),
         passed=not failures,
