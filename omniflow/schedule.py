@@ -219,9 +219,20 @@ class ScheduleStore:
         return claimed
 
     def mark(self, job_id: str, intended_at: float, outcome: str) -> None:
+        """Update run history without clobbering the newest scheduled status.
+
+        A long-running occurrence may finish after a newer occurrence has been
+        claimed (or skipped because the emulator was busy). Only the latest
+        claimed occurrence controls the status shown in the scheduler UI.
+        """
         with self._connect() as db:
-            db.execute('UPDATE runs SET outcome=? WHERE job_id=? AND intended_at=?', (outcome, job_id, intended_at))
-            db.execute('UPDATE jobs SET last_status=? WHERE id=?', (outcome, job_id))
+            db.execute('BEGIN IMMEDIATE')
+            updated = db.execute('UPDATE runs SET outcome=? WHERE job_id=? AND intended_at=?',
+                                 (outcome, job_id, intended_at))
+            if updated.rowcount:
+                db.execute('UPDATE jobs SET last_status=? WHERE id=? AND NOT EXISTS '
+                           '(SELECT 1 FROM runs WHERE job_id=? AND intended_at>?)',
+                           (outcome, job_id, job_id, intended_at))
 
     def history(self, limit: int = 100) -> list[tuple]:
         with self._connect() as db:
