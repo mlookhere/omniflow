@@ -9,6 +9,8 @@ import math
 from dataclasses import dataclass
 from typing import Mapping
 
+from swordx.adb import ADB
+
 from .devices import canonical_mumu_serial
 from .capture_health import evaluate_capture
 
@@ -43,6 +45,14 @@ def _number(source: Mapping, key: str, label: str, failures: list[str]) -> float
     return float(value)
 
 
+def _count(source: Mapping, key: str, label: str, failures: list[str]) -> float:
+    """Reject fractional observation totals even when a report claims success."""
+    value = _number(source, key, label, failures)
+    if not value.is_integer():
+        failures.append(f'{label}: {key} must be a whole number')
+    return value
+
+
 def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
                                criteria: EvidenceCriteria = EvidenceCriteria()) -> dict:
     """Verify read-only evidence; never claim untested GPU/gesture behavior.
@@ -64,14 +74,14 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
 
     elapsed = _number(video, 'elapsed_seconds', 'video', failures)
     fps = _number(video, 'displayed_video_fps', 'video', failures)
-    frames = _number(video, 'displayed_video_frames', 'video', failures)
-    _number(video, 'fallback_snapshots', 'video', failures)
+    frames = _count(video, 'displayed_video_frames', 'video', failures)
+    _count(video, 'fallback_snapshots', 'video', failures)
     preview_gap = _number(video, 'max_preview_gap_seconds', 'video', failures)
     video_gap = _number(video, 'max_video_gap_seconds', 'video', failures)
-    error_events = _number(video, 'error22_events', 'video', failures)
-    error_windows = _number(video, 'error22_windows', 'video', failures)
-    error_recovered = _number(video, 'error22_recovered', 'video', failures)
-    error_unresolved = _number(video, 'error22_unresolved', 'video', failures)
+    error_events = _count(video, 'error22_events', 'video', failures)
+    error_windows = _count(video, 'error22_windows', 'video', failures)
+    error_recovered = _count(video, 'error22_recovered', 'video', failures)
+    error_unresolved = _count(video, 'error22_unresolved', 'video', failures)
     if elapsed < criteria.seconds:
         failures.append(f'Video ran {elapsed:.1f}s, below the {criteria.seconds:g}s minimum')
     if elapsed and abs(frames / elapsed - fps) > 0.06:
@@ -88,9 +98,6 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     # Multiple log messages from the same encoder failure form one recovery
     # window. The number of windows must equal recovered + still pending,
     # rather than comparing raw log counts with recovery counts.
-    if any(not count.is_integer() for count in
-           (error_events, error_windows, error_recovered, error_unresolved)):
-        failures.append('Error 22 counters must be whole numbers')
     if error_windows > error_events:
         failures.append('Error 22 recovery windows exceed logged Error 22 events')
     if error_recovered + error_unresolved != error_windows:
@@ -115,8 +122,8 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     if not recovery_observed:
         outstanding.append('Recovery from a real Error 22 event has not been demonstrated')
 
-    requested = _number(benchmark, 'requested_instances', 'benchmark', failures)
-    tested = _number(benchmark, 'tested_instances', 'benchmark', failures)
+    requested = _count(benchmark, 'requested_instances', 'benchmark', failures)
+    tested = _count(benchmark, 'tested_instances', 'benchmark', failures)
     benchmark_duration = _number(benchmark, 'duration_seconds', 'benchmark', failures)
     if requested != criteria.instances:
         failures.append(f'Benchmark requested {requested:g}, expected {criteria.instances}')
@@ -140,13 +147,15 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         if not isinstance(serial, str) or not serial.strip():
             failures.append(f'{label}: missing serial')
             continue
+        if not ADB.is_mumu_serial(serial):
+            failures.append(f'{label}: {serial} is not a MuMu ADB device')
         serial = canonical_mumu_serial(serial)
         if serial in serials:
             failures.append(f'{label}: duplicate emulator {serial}')
         serials.add(serial)
         actual = _number(device, 'elapsed_seconds', label, failures)
-        frames_captured = _number(device, 'frames', label, failures)
-        errors = _number(device, 'errors', label, failures)
+        frames_captured = _count(device, 'frames', label, failures)
+        errors = _count(device, 'errors', label, failures)
         capture_fps = _number(device, 'effective_fps', label, failures)
         _number(device, 'capture_p95_ms', label, failures)
         if actual < criteria.seconds * .95:
@@ -163,8 +172,11 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     video_serial = video.get('device')
     if not isinstance(video_serial, str) or not video_serial:
         failures.append('Video device serial missing')
-    elif canonical_mumu_serial(video_serial) not in serials:
-        failures.append('Video diagnostic device not present in benchmark')
+    else:
+        if not ADB.is_mumu_serial(video_serial):
+            failures.append('Video diagnostic serial is not a MuMu ADB device')
+        if canonical_mumu_serial(video_serial) not in serials:
+            failures.append('Video diagnostic device not present in benchmark')
 
     workflow_measured = bool(benchmark.get('workflow'))
     if workflow_measured:

@@ -81,6 +81,38 @@ class HardwareEvidenceTests(unittest.TestCase):
         self.assertIn('exceed logged',
                       ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
 
+    def test_fractional_counts_never_pass_hardware_evidence(self):
+        for report, key in (
+            ('video', 'displayed_video_frames'),
+            ('video', 'fallback_snapshots'),
+            ('video', 'error22_events'),
+            ('video', 'error22_windows'),
+            ('video', 'error22_recovered'),
+            ('video', 'error22_unresolved'),
+            ('benchmark', 'requested_instances'),
+            ('benchmark', 'tested_instances'),
+            ('device', 'frames'),
+            ('device', 'errors'),
+        ):
+            with self.subTest(report=report, key=key):
+                video, bench = samples()
+                target = (video if report == 'video' else bench if report == 'benchmark'
+                          else bench['devices'][0])
+                target[key] = 1.5
+                failures = evaluate_hardware_evidence(video, bench)['failures']
+                self.assertTrue(any(key in failure and 'whole number' in failure
+                                    for failure in failures), failures)
+
+    def test_non_mumu_adb_devices_cannot_substitute_for_mumu(self):
+        video, bench = samples()
+        bench['devices'][0]['serial'] = 'emulator-5554'
+        failures = evaluate_hardware_evidence(video, bench)['failures']
+        self.assertTrue(any('not a MuMu' in failure for failure in failures), failures)
+        video, bench = samples()
+        video['device'] = 'emulator-5554'
+        failures = evaluate_hardware_evidence(video, bench)['failures']
+        self.assertTrue(any('not a MuMu' in failure for failure in failures), failures)
+
     def test_video_stall_fails_even_if_snapshots_hide_blackout(self):
         video, bench = samples()
         video['max_video_gap_seconds'] = 24
