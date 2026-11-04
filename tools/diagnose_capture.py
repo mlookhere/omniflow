@@ -38,15 +38,31 @@ def main(argv: list[str] | None = None) -> int:
         if not math.isfinite(val) or val < 0:
             parser.error(f'--{name.replace("_", "-")} must be nonnegative and finite')
 
-    from PySide6.QtCore import QCoreApplication
     from omniflow.devices import discover_mumu
-    from omniflow.ui import VideoThread
 
-    serials = [args.serial] if args.serial else discover_mumu()
-    if not serials:
-        print('No MuMu emulator found. Start MuMu and check ADB first.', file=sys.stderr)
+    def fail_before_capture(message: str) -> int:
+        # Do not retain stale successful output from an earlier diagnostic.
+        now = time.monotonic()
+        report = {'device': args.serial or None,
+                  **CaptureHealth(now).summary(now),
+                  'passed': False, 'failures': [message]}
+        if args.output:
+            write_json(args.output, report)
+            print(f'JSON evidence: {args.output}')
+        print(message, file=sys.stderr)
         return 2
+
+    try:
+        serials = [args.serial] if args.serial else discover_mumu()
+    except Exception as exc:
+        return fail_before_capture(f'MuMu discovery failed: {exc}')
+    if not serials:
+        return fail_before_capture('No MuMu emulator found. Start MuMu and check ADB first.')
     serial = serials[0]
+
+    # Qt is only needed after a usable target has been discovered.
+    from PySide6.QtCore import QCoreApplication
+    from omniflow.ui import VideoThread
     app = QCoreApplication.instance() or QCoreApplication([])
     video = VideoThread(serial)
     started = time.monotonic()

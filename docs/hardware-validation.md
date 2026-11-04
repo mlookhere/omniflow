@@ -94,6 +94,10 @@ H.264 frames arrive. Unresolved Error 22 events, missing preview frames,
 failed thresholds, unexpected thread termination, and unfinished worker
 shutdown all fail the diagnostic. JSON is written atomically even when
 acceptance fails so the result can be attached to issue #1.
+If the requested MuMu device cannot be discovered or ADB discovery raises,
+`--output` still overwrites any old success artifact with a
+`passed: false` JSON report and zero observed frames; it does not imply
+video or screenshot capture was attempted.
 
 ## 5. Combine real video and ten-instance evidence without false passes
 
