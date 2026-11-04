@@ -33,6 +33,13 @@ class VideoGuiTests(unittest.TestCase):
         self.assertEqual(image.pixelColor(0, 0).red(), 130)
         self.assertIsNone(stream.take()[0])
 
+    def test_landscape_preview_uses_available_display_area(self):
+        stream = VideoThread('127.0.0.1:16384')
+        stream._publish(np.full((270,480,3), 120, np.uint8), 'video')
+        image, kind = stream.take()
+        self.assertEqual((image.width(), image.height(), kind), (480, 270, 'video'))
+        self.assertTrue(stream.landscape)
+
     def test_stream_startup_grace_and_stall_interrupt(self):
         stream = VideoThread('127.0.0.1:16384')
         encoder = MagicMock()

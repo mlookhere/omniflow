@@ -40,9 +40,10 @@ class StreamRetry:
     """Retry without a permanent failure latch; reduce encoder load if needed."""
     failures: int = 0
 
-    def profile(self) -> tuple[tuple[int, int], int]:
+    def profile(self, landscape: bool = False) -> tuple[tuple[int, int], int]:
         index = min(self.failures, len(STREAM_SIZES) - 1)
-        return STREAM_SIZES[index], STREAM_BITRATES[index]
+        width, height = STREAM_SIZES[index]
+        return ((height, width) if landscape else (width, height), STREAM_BITRATES[index])
 
     def complete(self, decoded_frames: int, elapsed: float) -> float:
         # A few decoding glitches must not permanently degrade a good source.

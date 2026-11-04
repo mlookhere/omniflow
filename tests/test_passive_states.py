@@ -190,6 +190,7 @@ except ImportError:
 @unittest.skipUnless(QT_AVAILABLE, 'PySide6 unavailable')
 class PassiveGuiTests(unittest.TestCase):
     setUp = PassiveTests.setUp
+    _frame = staticmethod(PassiveTests._frame)  # Reuse the real test fixture.
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

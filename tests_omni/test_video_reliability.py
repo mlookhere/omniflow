@@ -32,6 +32,12 @@ class VideoReliabilityTests(unittest.TestCase):
         self.assertEqual(retry.failures, 2)
         self.assertFalse(retry.should_log() is False and retry.failures == 1)
 
+    def test_landscape_encoder_profile_has_correct_orientation(self):
+        retry = StreamRetry()
+        self.assertEqual(retry.profile(landscape=True), ((768, 432), STREAM_BITRATES[0]))
+        retry.complete(0, .1)
+        self.assertEqual(retry.profile(landscape=True), ((512, 288), STREAM_BITRATES[1]))
+
     def test_low_profile_is_device_scoped(self):
         cmd = screenrecord_command('127.0.0.1:16384', STREAM_SIZES[1],
                                    'adb.exe', STREAM_BITRATES[1])

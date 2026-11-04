@@ -26,6 +26,8 @@ packets are not flushed as if they were complete video frames.
 
 - The selected emulator's video stream is monitored in a separate watchdog
   thread, so a blocking ADB read is interrupted even if the UI is busy.
+- Portrait and landscape games get appropriately oriented encoder and
+  preview dimensions, rather than forcing every game into a portrait stream.
 - The video worker **does not give up after a fixed number of failures**. It
   retries indefinitely while enabled, with exponential backoff capped at 8s,
   using a lower-resolution/lower-bitrate profile after failed starts.

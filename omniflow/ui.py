@@ -59,6 +59,7 @@ class VideoThread(QThread):
         self.lock = threading.Lock()
         self.latest = None
         self.latest_kind = 'video'
+        self.landscape = False
         self.last_rgb = None
         self.stream = None
         self.stream_started_at = 0.0
@@ -80,8 +81,10 @@ class VideoThread(QThread):
         return image, kind
 
     def _publish(self, rgb, kind: str):
-        rgb = fit_preview(rgb, 270, 480)
-        image = QImage(rgb.data, 270, 480, rgb.strides[0], QImage.Format_RGB888).copy()
+        self.landscape = rgb.shape[1] > rgb.shape[0]
+        width, height = (480, 270) if self.landscape else (270, 480)
+        rgb = fit_preview(rgb, width, height)
+        image = QImage(rgb.data, width, height, rgb.strides[0], QImage.Format_RGB888).copy()
         with self.lock:
             self.latest = image
             self.latest_kind = kind
@@ -167,6 +170,11 @@ class VideoThread(QThread):
             self.error.emit('PyAV not installed; showing the latest detector image.')
             return
         retry = StreamRetry()
+        try:
+            width, height = ADB(serial=self.serial).size()
+            self.landscape = width > height
+        except (ADBError, OSError, ValueError):
+            pass  # Fallback screenshots will establish the actual orientation.
         # One small watchdog thread for the one selected device. It stops as
         # soon as the preview stops, even if an H.264 read is blocked.
         watchdog = threading.Thread(target=self._watchdog, name='OmniFlow-video-watchdog',
@@ -177,7 +185,7 @@ class VideoThread(QThread):
                 count = 0
                 started = time.monotonic()
                 reason = ''
-                size, bitrate = retry.profile()
+                size, bitrate = retry.profile(self.landscape)
                 stream = None
                 try:
                     with AndroidVideoStream(self.serial, size, bitrate=bitrate) as stream:
@@ -990,11 +998,3 @@ QPushButton#regionTool[selected="true"] { background:#286b48; color:#fff; }
 QPushButton#gestureTool[selected="true"] { background:#ae8744; color:#17130c; }
 QPushButton#primary { background:#cba85b; color:#18140d; }
 QScrollBar:vertical { background:#242526; width:11px; }
-QScrollBar::handle:vertical { background:#665332; border-radius:5px; }
-QStatusBar { color:#b9b0a0; }
-'''
-
-
-def main():
-    import sys
-    # Do not spin up dozens of OpenCV worker threads for ten independent instances.
