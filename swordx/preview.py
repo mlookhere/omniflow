@@ -6,9 +6,11 @@ Android's screenrecord H.264 output is decoded by PyAV in a separate thread.
 from __future__ import annotations
 
 import errno
+import time
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -56,6 +58,31 @@ class StreamRetry:
     def should_log(self) -> bool:
         # Report first, second and exponentially spaced failures, not every loop.
         return self.failures in (1, 2) or self.failures & (self.failures - 1) == 0
+
+
+
+def snapshot_during_retry(stopped, delay: float, capture: Callable[[], None],
+                          *, interval: float = 1.5) -> None:
+    """Keep one low-rate preview alive while the selected H.264 stream recovers.
+
+    A retry delay can grow to eight seconds after MediaCodec errors. Capturing
+    only once before sleeping leaves a frozen picture for that whole period.
+    This helper uses no extra encoder, respects Stop, and never extends the
+    retry deadline merely because a screenshot took time to capture.
+    """
+    if interval <= 0:
+        raise ValueError('Snapshot interval must be positive')
+    deadline = time.monotonic() + max(0.0, delay)
+    first = True
+    while not stopped.is_set():
+        if not first and time.monotonic() >= deadline:
+            return
+        first = False
+        capture()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or stopped.wait(min(interval, remaining)):
+            return
+
 
 
 def should_seed_preview(enabled: bool, video_active: bool, elapsed: float) -> bool:

@@ -226,3 +226,20 @@ Run both regression suites:
 ```
 
 This build passed its local non-GUI tests, including scheduling, ten mocked sessions, old-workflow storage, action chains and engine safety. **Desktop Qt tests were not run here because PySide6 was not available in the build environment.** Actual MuMu connectivity, codec compatibility, OCR model installation, timezone behavior on Windows, and ten-emulator load must be verified on the target PC. Back up your previous workflow data before switching.
+
+
+## Live-preview fallback during MediaCodec failures
+
+Only the **selected** emulator uses H.264 video encoding. If Android's encoder
+rejects the stream (including Error 22), OmniFlow retains a usable preview
+through low-rate ADB screenshots approximately every 1.5 seconds during
+bounded decoder/encoder retry backoff (up to eight seconds). Screenshot
+fallback does not create a second encoder or touch the game.
+
+If PyAV is missing, the preview stays in ADB screenshot mode instead of
+going blank, and reports the missing dependency. Repeated identical
+fallback errors are rate-limited in the activity log.
+
+For a read-only hardware report run `tools/diagnose_capture.py` as
+documented above. Encoder reliability and ten-instance throughput must
+still be validated on actual Windows/MuMu hardware.

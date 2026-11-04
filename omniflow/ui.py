@@ -21,6 +21,7 @@ from swordx.adb import ADB, ADBError
 from swordx.stats import format_duration
 from swordx.preview import (AndroidVideoStream, StreamRetry, TARGET_FPS,
                             VIDEO_STALE_SECONDS, VIDEO_STARTUP_SECONDS, fit_preview,
+                            snapshot_during_retry,
                             screen_is_unchanged)
 from swordx.storage import export_backup, import_backup
 from swordx.config import ProfileStore
@@ -76,6 +77,8 @@ class VideoThread(QThread):
         self.last_frame_at = 0.0
         self.interrupted = False
         self.frame_times = deque(maxlen=90)
+        self._last_snapshot_error = ''
+        self._last_snapshot_error_at = 0.0
 
     def stop(self):
         self.stopped.set()
@@ -115,9 +118,15 @@ class VideoThread(QThread):
             frame = ADB(serial=self.serial).screenshot(timeout=4)
             self._publish(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), 'snapshot')
         except (ADBError, OSError, ValueError) as exc:
-            # Preserve the streaming retry even if this backup also fails.
+            # Keep retrying video, but do not flood the log every 1.5 seconds
+            # when a device is disconnected or screenshots are unsupported.
             if not self.stopped.is_set():
-                self.error.emit(f'{self.serial}: screenshot fallback unavailable: {exc}')
+                message = f'{self.serial}: screenshot fallback unavailable: {exc}'
+                now = time.monotonic()
+                if message != self._last_snapshot_error or now - self._last_snapshot_error_at >= 15:
+                    self._last_snapshot_error = message
+                    self._last_snapshot_error_at = now
+                    self.error.emit(message)
 
     def _watchdog(self):
         """Recover blocked H.264 reads without mistaking static screens for failure."""
@@ -175,7 +184,9 @@ class VideoThread(QThread):
             import av  # noqa: F401
         except ImportError:
             self.decoder_unavailable = True
-            self.error.emit('PyAV not installed; showing the latest detector image.')
+            self.error.emit('PyAV not installed; using low-rate ADB screenshots for the selected emulator.')
+            while not self.stopped.is_set():
+                snapshot_during_retry(self.stopped, 1.5, self._fallback_screenshot)
             return
         retry = StreamRetry()
         try:
@@ -240,11 +251,13 @@ class VideoThread(QThread):
                                     f'{size[0]}x{size[1]}, {bitrate // 1000} kbps; '
                                     f'{reason or "no decoded frames"}. '
                                     f'Next attempt in {delay:g}s')
+                # Continue taking screenshots during long encoder backoffs,
+                # rather than freezing at the first image for up to 8 seconds.
+                # Only the selected device incurs these ADB snapshot calls.
                 if retry.failures:
-                    self._fallback_screenshot()
-                # Never permanently disable video after a fixed error count;
-                # keep a bounded delay so unavailable encoders cost almost zero CPU.
-                self.stopped.wait(delay)
+                    snapshot_during_retry(self.stopped, delay, self._fallback_screenshot)
+                else:
+                    self.stopped.wait(delay)
         finally:
             self.stopped.set()
             watchdog.join(timeout=1)
@@ -717,7 +730,9 @@ class OmniWindow(QMainWindow):
     def _video_error(self, message: str):
         self._log(message)
         if self.video_switch.isChecked():
-            self.video_status.setText('Reconnecting video · detector fallback')
+            self.video_status.setText('ADB snapshot fallback · PyAV missing' if
+                                      getattr(self.video, 'decoder_unavailable', False) else
+                                      'Reconnecting H.264 · ADB snapshot fallback')
 
     def _frame(self):
         serial = self._selected_serial()
