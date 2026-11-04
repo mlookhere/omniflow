@@ -1,0 +1,129 @@
+"""Hardware acceptance must not be inferred from a green CI or report flag."""
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from omniflow.hardware_evidence import EvidenceCriteria, evaluate_hardware_evidence
+from tools.verify_hardware_evidence import main
+
+
+def samples(*, devices=10, workflow='MyWorkflow'):
+    video = {
+        'device': 'localhost:16384', 'passed': True,
+        'elapsed_seconds': 120.02, 'displayed_video_frames': 3000,
+        'displayed_video_fps': 25.0, 'fallback_snapshots': 2,
+        'max_preview_gap_seconds': 1.1, 'max_video_gap_seconds': 3.4,
+        'error22_events': 2,
+        'error22_recovered': 1, 'error22_unresolved': 0,
+        'max_error22_recovery_seconds': 2.8,
+    }
+    benchmark = {
+        'passed': True, 'requested_instances': devices,
+        'tested_instances': devices, 'duration_seconds': 120,
+        'workflow': workflow,
+        'devices': [{
+            'serial': f'127.0.0.1:{16384 + i * 32}',
+            'frames': 120, 'errors': 0, 'elapsed_seconds': 120.0,
+            'effective_fps': 1.0, 'capture_p95_ms': 180,
+            'detection_p95_ms': 40 if workflow else None,
+        } for i in range(devices)],
+    }
+    return video, benchmark
+
+
+class HardwareEvidenceTests(unittest.TestCase):
+    def test_valid_read_only_evidence_is_not_live_game_approval(self):
+        video, bench = samples()
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertTrue(result['passed'], result['failures'])
+        self.assertTrue(result['error22_recovery_observed'])
+        self.assertTrue(result['workflow_recognition_measured'])
+        self.assertFalse(result['hardware_acceptance_complete'])
+        self.assertTrue(any('GPU' in x for x in result['outstanding']))
+
+    def test_snapshot_only_must_fail_even_with_source_pass_flag(self):
+        video, bench = samples()
+        video.update(displayed_video_frames=0, displayed_video_fps=0, fallback_snapshots=100)
+        self.assertFalse(evaluate_hardware_evidence(video, bench)['passed'])
+
+    def test_tenth_emulator_missing_or_repeated_alias_fails(self):
+        video, bench = samples()
+        bench['devices'].pop()
+        self.assertFalse(evaluate_hardware_evidence(video, bench)['passed'])
+        video, bench = samples()
+        bench['devices'][1]['serial'] = 'localhost:16384'
+        self.assertIn('duplicate', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
+    def test_early_shutdown_cannot_pass_a_requested_long_benchmark(self):
+        video, bench = samples()
+        bench['devices'][3].update(elapsed_seconds=3, frames=3, effective_fps=1)
+        self.assertIn('measured only', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
+    def test_video_stall_fails_even_if_snapshots_hide_blackout(self):
+        video, bench = samples()
+        video['max_video_gap_seconds'] = 24
+        video['max_preview_gap_seconds'] = 1
+        self.assertIn('stream stalled', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
+    def test_error22_unresolved_and_slow_recovery_fail(self):
+        video, bench = samples()
+        video.update(error22_unresolved=1)
+        self.assertFalse(evaluate_hardware_evidence(video, bench)['passed'])
+        video['error22_unresolved'] = 0
+        video['max_error22_recovery_seconds'] = 30
+        self.assertFalse(evaluate_hardware_evidence(video, bench)['passed'])
+
+    def test_video_serial_mismatch_and_fps_inconsistency_fail(self):
+        video, bench = samples()
+        video['device'] = 'localhost:16673'
+        video['displayed_video_fps'] = 100
+        errors = evaluate_hardware_evidence(video, bench)['failures']
+        self.assertTrue(any('not present' in e for e in errors))
+        self.assertTrue(any('disagree' in e for e in errors))
+
+    def test_absent_workflow_is_outstanding_and_not_fabricated(self):
+        video, bench = samples(workflow=None)
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertTrue(result['passed'])
+        self.assertFalse(result['workflow_recognition_measured'])
+        self.assertTrue(any('recognition' in note for note in result['outstanding']))
+        video['error22_events'] = video['error22_recovered'] = 0
+        video['max_error22_recovery_seconds'] = None
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['error22_recovery_observed'])
+        self.assertTrue(any('Error 22' in note for note in result['outstanding']))
+
+    def test_missing_or_invalid_fields_cannot_pass(self):
+        video, bench = samples()
+        video.pop('max_preview_gap_seconds')
+        bench['devices'][0]['capture_p95_ms'] = float('nan')
+        self.assertFalse(evaluate_hardware_evidence(video, bench)['passed'])
+        with self.assertRaises(ValueError):
+            EvidenceCriteria(min_video_fps=float('nan'))
+
+    def test_cli_always_writes_failure_evidence_for_missing_input(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'result.json'
+            status = main(['--video', str(Path(d) / 'absent.json'), '--benchmark',
+                           str(Path(d) / 'missing.json'), '--output', str(path)])
+            self.assertEqual(status, 1)
+            self.assertFalse(json.loads(path.read_text())['passed'])
+
+    def test_cli_writes_passing_read_only_evidence(self):
+        video, bench = samples()
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d)
+            (folder / 'video.json').write_text(json.dumps(video))
+            (folder / 'bench.json').write_text(json.dumps(bench))
+            result = folder / 'result.json'
+            status = main(['--video', str(folder / 'video.json'), '--benchmark',
+                           str(folder / 'bench.json'), '--output', str(result)])
+            self.assertEqual(status, 0)
+            self.assertFalse(json.loads(result.read_text())['hardware_acceptance_complete'])
+
+
+if __name__ == '__main__':
+    unittest.main()

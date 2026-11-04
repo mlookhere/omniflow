@@ -81,3 +81,32 @@ H.264 frames arrive. Unresolved Error 22 events, missing preview frames,
 failed thresholds, unexpected thread termination, and unfinished worker
 shutdown all fail the diagnostic. JSON is written atomically even when
 acceptance fails so the result can be attached to issue #1.
+
+## 5. Combine real video and ten-instance evidence without false passes
+
+Run the video and ten-emulator diagnostics above **on the actual Windows/MuMu PC**,
+keeping their JSON outputs. Then evaluate them together (read-only):
+
+```powershell
+.\.venv\Scripts\python.exe tools\verify_hardware_evidence.py `
+    --video video-health.json --benchmark capture-ten.json `
+    --instances 10 --seconds 120 --min-video-fps 20 `
+    --max-preview-gap 3 --max-video-gap 6 --min-capture-fps 0.8 `
+    --output hardware-evidence.json
+```
+
+The verifier checks each device's **measured** duration (not merely the requested
+command duration), unique devices across localhost aliases, screenshot FPS/errors, longest H.264
+stream stall (distinct from screenshot fallback blackouts),
+and consistency with the video's observed H.264 frames. No report may pass just
+because its embedded `passed` flag says so. Missing/invalid input reports write a
+failure artifact and return a nonzero exit code. Thresholds are explicit and
+should reflect the actual workload; a static menu should not be used to judge
+20 FPS video delivery.
+
+A passing `hardware-evidence.json` means **only** the read-only capture criteria
+were demonstrated. The result explicitly preserves missing evidence for real
+input/rotation, Windows CPU/RAM/GPU utilization, and Error 22 recovery if it
+was not observed. It deliberately never marks full hardware acceptance complete.
+Attach the JSON reports to control issue #1 after live measurement; do not use
+CI-generated/mock data as a substitute.
