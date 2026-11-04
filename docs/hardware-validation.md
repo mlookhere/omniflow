@@ -53,3 +53,31 @@ Record actual hardware evidence in issue #1. No missing observations count as
 passes. Merge only when required CI is green **and** live preview/recovery and
 multi-instance operation have been verified. Never infer flawless encoder
 operation from mocked tests or the absence of a reported error.
+
+## 4. Record failure/recovery evidence, not just average FPS
+
+The read-only video diagnostic now reports the **actual displayed** H.264
+frames separately from fallback screenshots. It also measures the longest
+period with no preview frame, the longest period with no video frame,
+Error 22 occurrences, and time until video returns after Error 22.
+
+```powershell
+.\.venv\Scripts\python.exe tools\diagnose_capture.py --seconds 120 `
+    --serial 127.0.0.1:16384 --output video-health.json
+```
+
+For a changing game screen, use a measured acceptance threshold:
+
+```powershell
+.\.venv\Scripts\python.exe tools\diagnose_capture.py --seconds 120 `
+    --min-video-fps 20 --max-preview-gap 3 --output video-health.json
+```
+
+A static game menu may legitimately render fewer H.264 frames; in that case,
+omit the video-FPS threshold but still inspect frame gaps and recovery. To
+**explicitly** accept the slower screenshot fallback without claiming the
+video stream works, use `--allow-snapshot-only`. The default fails when no
+H.264 frames arrive. Unresolved Error 22 events, missing preview frames,
+failed thresholds, unexpected thread termination, and unfinished worker
+shutdown all fail the diagnostic. JSON is written atomically even when
+acceptance fails so the result can be attached to issue #1.
