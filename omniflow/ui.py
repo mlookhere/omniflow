@@ -998,3 +998,16 @@ QPushButton#regionTool[selected="true"] { background:#286b48; color:#fff; }
 QPushButton#gestureTool[selected="true"] { background:#ae8744; color:#17130c; }
 QPushButton#primary { background:#cba85b; color:#18140d; }
 QScrollBar:vertical { background:#242526; width:11px; }
+QScrollBar::handle:vertical { background:#665332; border-radius:5px; }
+QStatusBar { color:#b9b0a0; }
+'''
+
+
+def main():
+    import sys
+    # Do not spin up dozens of OpenCV worker threads for ten independent instances.
+    cv2.setNumThreads(1)
+    app=QApplication(sys.argv)
+    app.setStyleSheet(STYLE)
+    window=OmniWindow();window.show()
+    return app.exec()

@@ -54,6 +54,20 @@ release recovers automatically and maintains a lower-rate screenshot preview
 when video is unavailable. Actual continuous 30 FPS and ten-emulator load
 must be measured on the target Windows/MuMu installation.
 
+### Diagnose an emulator's video capture
+
+From a Windows terminal inside your OmniFlow installation:
+
+```powershell
+.\.venv\Scripts\python.exe tools\diagnose_capture.py --seconds 30
+```
+
+Supply `--serial 127.0.0.1:16384` to test a specific MuMu instance. The tool
+measures video frames delivered to the preview, recovery snapshots, and recent
+H.264 errors. **It does not send any taps or run automation.** If the FPS is
+consistently low, inspect the error list and MuMu's encoding settings before
+increasing the number of emulators.
+
 ### Verification
 
 The CI suite checks source completeness, legacy workflows, scheduling,
