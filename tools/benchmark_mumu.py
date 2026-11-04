@@ -232,7 +232,16 @@ def main(argv: list[str] | None = None) -> int:
         with ThreadPoolExecutor(max_workers=len(serials)) as pool:
             futures = [pool.submit(measure, serial, args.seconds, args.poll, barrier,
                                    detector_factory=detector_factory) for serial in serials]
-            results = [future.result() for future in futures]
+            results = []
+            for serial, future in zip(serials, futures):
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    # A crashed worker still needs a failing device result so
+                    # the completed workers and failure JSON are not lost.
+                    results.append(DeviceResult(
+                        serial, 0, 1, 0.0, 0.0, None, None, None,
+                        f'Unexpected worker failure: {type(exc).__name__}: {exc}'))
     finally:
         resources = monitor.stop()
 

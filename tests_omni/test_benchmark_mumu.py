@@ -144,6 +144,23 @@ class BenchmarkTests(unittest.TestCase):
             self.assertIn('adb offline', ' '.join(report['failures']))
             self.assertFalse(list(output.parent.glob('*.tmp')))
 
+    def test_unhandled_worker_exception_preserves_failure_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'result.json'
+            benchmark.write_json(output, {'passed': True, 'devices': [{'serial': 'stale'}]})
+            with patch.object(benchmark, 'discover_mumu', return_value=['127.0.0.1:16384']), \
+                 patch.object(benchmark, 'measure', side_effect=RuntimeError('worker crashed')):
+                result = benchmark.main(['--instances', '1', '--seconds', '3',
+                                         '--output', str(output)])
+            self.assertEqual(result, 1)
+            report = json.loads(output.read_text())
+            self.assertFalse(report['passed'])
+            self.assertEqual(report['tested_instances'], 1)
+            self.assertEqual(report['devices'][0]['frames'], 0)
+            self.assertEqual(report['devices'][0]['errors'], 1)
+            self.assertIn('worker crashed', report['devices'][0]['last_error'])
+            self.assertFalse(list(output.parent.glob('*.tmp')))
+
     def test_main_fails_on_device_capture_errors_and_writes_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / 'report.json'
