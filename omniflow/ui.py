@@ -215,6 +215,12 @@ class VideoThread(QThread):
                             self.last_rgb = None
                             self.frame_times.clear()
                             self.interrupted = False
+                        # Stop may arrive during AndroidVideoStream.__enter__()
+                        # before stop() can see the new subprocess. Do not
+                        # enter its blocking decoder after cancellation.
+                        if self.stopped.is_set():
+                            stream.interrupt()
+                            break
                         last_converted = 0.0
                         for rgb in stream.frames():
                             if self.stopped.is_set():

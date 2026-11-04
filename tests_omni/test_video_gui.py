@@ -77,6 +77,27 @@ class VideoGuiTests(unittest.TestCase):
         self.assertEqual(kind, 'snapshot')
         self.assertEqual(image.pixelColor(0,0).red(), 120)
 
+    def test_stop_while_encoder_starts_never_enters_blocking_decoder(self):
+        """Stop can precede registration of the just-launched ADB process."""
+        stream = VideoThread('127.0.0.1:16384')
+        encoder = MagicMock()
+
+        def start_after_stop():
+            stream.stopped.set()  # Cancellation during blocking __enter__.
+            return encoder
+
+        encoder.__enter__.side_effect = start_after_stop
+        with patch('omniflow.ui.ADB') as adb, \
+             patch('omniflow.ui.AndroidVideoStream', return_value=encoder):
+            adb.return_value.size.return_value = (540, 960)
+            stream.run()
+
+        encoder.interrupt.assert_called_once_with()
+        encoder.frames.assert_not_called()
+        encoder.__exit__.assert_called_once()
+        self.assertIsNone(stream.stream)
+        self.assertTrue(stream.stopped.is_set())
+
     def test_switch_does_not_block_gui_waiting_for_encoder(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patch('omniflow.ui.root_dir', return_value=Path(tmp)), \
