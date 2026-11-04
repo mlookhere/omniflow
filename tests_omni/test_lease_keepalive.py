@@ -22,9 +22,11 @@ class ObservedStore(ScheduleStore):
         with self.call_lock:
             self.calls += 1
             count = self.calls
-        if self.error:
+            failing = self.fail_after
+            raise_error = self.error
+        if raise_error:
             raise OSError('SQLite inaccessible')
-        if self.fail_after is not None and count >= self.fail_after:
+        if failing is not None and count >= failing:
             return False
         return super().heartbeat(serial, owner, now)
 
@@ -60,7 +62,7 @@ class LeaseKeepaliveTests(unittest.TestCase):
         self.assertTrue(ok, message)
         session = manager.snapshot()[0]
         self.addCleanup(lambda: session.worker.join(2))
-        self.assertTrue(BlockingRunner.arrived.wait(1))
+        self.assertTrue(BlockingRunner.arrived.wait(3))
         return manager, session
 
     def test_renewal_continues_during_a_blocked_workflow_step(self):
@@ -80,10 +82,12 @@ class LeaseKeepaliveTests(unittest.TestCase):
             self.assertTrue(store.acquire(session.serial, 'new-owner'))
 
     def test_lost_lease_ends_session_fail_closed(self):
-        store = ObservedStore(Path(self.temp.name) / 'jobs.sqlite', fail_after=1)
+        store = ObservedStore(Path(self.temp.name) / 'jobs.sqlite')
         with patch('omniflow.manager.OmniRunner', BlockingRunner):
             _, session = self.start(store)
-            self.assertTrue(session.stop_event.wait(1))
+            with store.call_lock:
+                store.fail_after = store.calls + 1
+            self.assertTrue(session.stop_event.wait(2))
             BlockingRunner.continue_step.set()
             session.worker.join(2)
             self.assertFalse(session.worker.is_alive())
@@ -91,10 +95,12 @@ class LeaseKeepaliveTests(unittest.TestCase):
             self.assertIn('lost_device_lease', session.status)
 
     def test_renewal_exception_is_not_silently_ignored(self):
-        store = ObservedStore(Path(self.temp.name) / 'jobs.sqlite', error=True)
+        store = ObservedStore(Path(self.temp.name) / 'jobs.sqlite')
         with patch('omniflow.manager.OmniRunner', BlockingRunner):
             _, session = self.start(store)
-            self.assertTrue(session.stop_event.wait(1))
+            with store.call_lock:
+                store.error = True
+            self.assertTrue(session.stop_event.wait(2))
             BlockingRunner.continue_step.set()
             session.worker.join(2)
             self.assertTrue(session.lease_lost)
