@@ -49,7 +49,7 @@ def _count(source: Mapping, key: str, label: str, failures: list[str]) -> float:
     """Reject fractional observation totals even when a report claims success."""
     value = _number(source, key, label, failures)
     if not value.is_integer():
-        failures.append(f'{label}: {key} must be a whole number')
+        failures.append(f'{label}: {key} must use whole numbers')
     return value
 
 
