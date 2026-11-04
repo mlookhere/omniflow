@@ -71,8 +71,8 @@ class HostResourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'result.json'
             benchmark.write_json(path, {'passed': True, 'devices': [{'serial': 'stale'}]})
-            with patch.object(benchmark, 'discover_mumu', return_value=['127.0.0.1:16384']), \\
-                 patch.object(benchmark, 'HostResourceMonitor', return_value=StartFailureMonitor()), \\
+            with patch.object(benchmark, 'discover_mumu', return_value=['127.0.0.1:16384']), \
+                 patch.object(benchmark, 'HostResourceMonitor', return_value=StartFailureMonitor()), \
                  patch.object(benchmark, 'measure') as measure:
                 code = benchmark.main(['--instances', '1', '--seconds', '3', '--output', str(path)])
             self.assertEqual(code, 1)
@@ -94,8 +94,8 @@ class HostResourceTests(unittest.TestCase):
         sample = benchmark.DeviceResult(serial, 3, 0, 3.0, 1.0, 20.0, 30.0, None)
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'result.json'
-            with patch.object(benchmark, 'discover_mumu', return_value=[serial]), \\
-                 patch.object(benchmark, 'HostResourceMonitor', return_value=StopFailureMonitor()), \\
+            with patch.object(benchmark, 'discover_mumu', return_value=[serial]), \
+                 patch.object(benchmark, 'HostResourceMonitor', return_value=StopFailureMonitor()), \
                  patch.object(benchmark, 'measure', return_value=sample):
                 code = benchmark.main(['--instances', '1', '--seconds', '3', '--output', str(path)])
             self.assertEqual(code, 1)
