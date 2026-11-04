@@ -17,13 +17,19 @@ class ObservedStore(ScheduleStore):
         self.fail_after = fail_after
         self.error = error
         self.call_lock = threading.Lock()
+        self.calls_changed = threading.Condition(self.call_lock)
+
+    def wait_for_calls(self, count, timeout):
+        with self.calls_changed:
+            return self.calls_changed.wait_for(lambda: self.calls >= count, timeout=timeout)
 
     def heartbeat(self, serial, owner, now=None):
-        with self.call_lock:
+        with self.calls_changed:
             self.calls += 1
             count = self.calls
             failing = self.fail_after
             raise_error = self.error
+            self.calls_changed.notify_all()
         if raise_error:
             raise OSError('SQLite inaccessible')
         if failing is not None and count >= failing:
@@ -69,10 +75,13 @@ class LeaseKeepaliveTests(unittest.TestCase):
         store = ObservedStore(Path(self.temp.name) / 'jobs.sqlite')
         with patch('omniflow.manager.OmniRunner', BlockingRunner):
             manager, session = self.start(store)
-            deadline = time.monotonic() + 1.0
-            while store.calls < 3 and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertGreaterEqual(store.calls, 3)
+            # Observe three *additional* heartbeats after the workflow step
+            # is already blocked. A Condition avoids polling/scheduler races.
+            with store.call_lock:
+                baseline = store.calls
+            self.assertTrue(store.wait_for_calls(baseline + 3, timeout=2.0))
+            with store.call_lock:
+                self.assertGreaterEqual(store.calls - baseline, 3)
             self.assertTrue(session.worker.is_alive())
             self.assertFalse(store.acquire(session.serial, 'other'))
             manager.stop(session.serial)
