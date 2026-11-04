@@ -61,9 +61,9 @@ jobs:
         run: |
           # Qt's native shutdown must succeed for EACH full suite; never mask
           # a nonzero exit with a later successful process.
-          python -m pytest -q tests
+          python -X faulthandler -m pytest -q tests
           if ($LASTEXITCODE -ne 0) { throw "Legacy Qt suite exited $LASTEXITCODE" }
-          python -m pytest -q tests_omni
+          python -X faulthandler -m pytest -q tests_omni
           if ($LASTEXITCODE -ne 0) { throw "OmniFlow Qt suite exited $LASTEXITCODE" }
       - name: Compile all code
         run: python -m compileall -q omniflow swordx
