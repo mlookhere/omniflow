@@ -43,6 +43,16 @@ class DeviceScan(QThread):
             self.problem.emit(str(exc))
 
 
+def preview_image(rgb):
+    """Render a full portrait or landscape frame with no stride-dependent crop."""
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        raise ValueError('Preview expects an RGB frame')
+    width, height = (480, 270) if rgb.shape[1] > rgb.shape[0] else (270, 480)
+    scaled = fit_preview(rgb, width, height)
+    return (QImage(scaled.data, width, height, scaled.strides[0],
+                   QImage.Format_RGB888).copy(), scaled)
+
+
 class VideoThread(QThread):
     """One selected-device video stream with a latest-frame-only buffer.
 
@@ -82,9 +92,7 @@ class VideoThread(QThread):
 
     def _publish(self, rgb, kind: str):
         self.landscape = rgb.shape[1] > rgb.shape[0]
-        width, height = (480, 270) if self.landscape else (270, 480)
-        rgb = fit_preview(rgb, width, height)
-        image = QImage(rgb.data, width, height, rgb.strides[0], QImage.Format_RGB888).copy()
+        image, rgb = preview_image(rgb)
         with self.lock:
             self.latest = image
             self.latest_kind = kind
@@ -749,7 +757,7 @@ class OmniWindow(QMainWindow):
             frame = session.latest()
             if frame is not None:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image = QImage(rgb.data, 270, 480, rgb.strides[0], QImage.Format_RGB888).copy()
+                image, _ = preview_image(rgb)
                 self.preview.setPixmap(QPixmap.fromImage(image))
 
     def _tick(self):

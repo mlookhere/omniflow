@@ -12,7 +12,7 @@ import numpy as np
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6.QtWidgets import QApplication
-    from omniflow.ui import VideoThread, OmniWindow
+    from omniflow.ui import VideoThread, OmniWindow, preview_image
     QT = True
 except ImportError:
     QT = False
@@ -39,6 +39,21 @@ class VideoGuiTests(unittest.TestCase):
         image, kind = stream.take()
         self.assertEqual((image.width(), image.height(), kind), (480, 270, 'video'))
         self.assertTrue(stream.landscape)
+
+    def test_detector_fallback_uses_full_frame_not_cropped_left_corner(self):
+        portrait = np.zeros((960, 540, 3), np.uint8)
+        portrait[:, 270:, 0] = 240  # Right half is red in RGB.
+        image, _ = preview_image(portrait)
+        self.assertEqual((image.width(), image.height()), (270, 480))
+        self.assertGreater(image.pixelColor(250, 250).red(), 220)
+        self.assertEqual(image.pixelColor(20, 250).red(), 0)
+
+        landscape = np.zeros((540, 960, 3), np.uint8)
+        landscape[270:, :, 1] = 200  # Bottom half is green.
+        image, _ = preview_image(landscape)
+        self.assertEqual((image.width(), image.height()), (480, 270))
+        self.assertGreater(image.pixelColor(300, 250).green(), 180)
+        self.assertEqual(image.pixelColor(300, 20).green(), 0)
 
     def test_stream_startup_grace_and_stall_interrupt(self):
         stream = VideoThread('127.0.0.1:16384')
