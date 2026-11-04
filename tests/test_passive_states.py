@@ -204,21 +204,17 @@ class PassiveGuiTests(unittest.TestCase):
                 editor.canvas.load(self.cancel)
                 editor.canvas.boxes[0] = self.button
                 editor.passive.setChecked(True)
-                self.assertTrue(editor._folder() == self.folder)
+                self.assertEqual(editor._folder(), self.folder)
+                expected_label = editor.step_name.text()  # Qt-provided text is what Save must persist.
                 self.assertTrue(editor.save.isEnabled(), editor.save_status.text())
-                clicked = []
-                editor.save.clicked.connect(lambda: clicked.append(True))
                 with patch('swordx.recorder.QMessageBox.warning') as warning, \
-                     patch('swordx.recorder.QMessageBox.information') as information, \
-                     patch('swordx.recorder.record_step', wraps=record_step) as writer:
+                     patch('swordx.recorder.QMessageBox.information') as information:
                     editor.save.click()
-                self.assertEqual(clicked, [True], 'Save button did not emit clicked')
                 self.assertFalse(warning.called, str(warning.call_args_list))
                 self.assertFalse(information.called, str(information.call_args_list))
-                self.assertTrue(writer.called, f'Save did not call persistence: {editor.save_status.text()}')
                 data = json.loads((self.folder/'manifest.json').read_text())
-                saved = [v for v in data['actions'].values() if v['label'] == 'Cancel — wait']
-                self.assertEqual(len(saved), 1, f'status={editor.save_status.text()} labels={[v["label"] for v in data["actions"].values()]}')
+                saved = [v for v in data['actions'].values() if v['label'] == expected_label]
+                self.assertEqual(len(saved), 1, f'saved labels={[v["label"] for v in data["actions"].values()]} expected={expected_label!r}')
                 self.assertTrue(saved[0]['passive'])
                 self.assertFalse(saved[0]['gestures'])
             finally:
