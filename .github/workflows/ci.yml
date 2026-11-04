@@ -34,3 +34,29 @@ jobs:
           python -m pytest -q tests tests_omni
       - name: Compile all code
         run: python -m compileall -q omniflow swordx
+
+  windows-qt-preview:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Verify full application and video tests are present
+        shell: pwsh
+        run: |
+          foreach ($path in @('omniflow/engine.py', 'omniflow/studio.py',
+                              'swordx/preview.py', 'tests_omni/test_video_reliability.py',
+                              'tests_omni/fixtures/h264_annexb.h264')) {
+            if (-not (Test-Path $path)) { throw "Required source missing: $path" }
+          }
+      - name: Install runtime and tests
+        run: python -m pip install -r requirements.txt pytest
+      - name: Run full tests including offscreen Qt video tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q tests tests_omni
+      - name: Compile all code
+        run: python -m compileall -q omniflow swordx

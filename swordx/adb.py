@@ -99,8 +99,8 @@ class ADB:
             raise ADBError('Use an address such as 127.0.0.1:7555')
         return self._run('connect', endpoint.strip(), device=False).decode(errors='replace').strip()
 
-    def screenshot(self) -> np.ndarray:
-        png = self._run('exec-out', 'screencap', '-p', timeout=15)
+    def screenshot(self, *, timeout: float = 15.0) -> np.ndarray:
+        png = self._run('exec-out', 'screencap', '-p', timeout=timeout)
         frame = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ADBError('ADB screenshot was empty or unreadable')

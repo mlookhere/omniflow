@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,9 +17,11 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDateTimeEdit
     QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QTabWidget,
     QTableWidget, QTableWidgetItem, QTimeEdit, QVBoxLayout, QWidget)
 
-from swordx.adb import ADBError
+from swordx.adb import ADB, ADBError
 from swordx.stats import format_duration
-from swordx.preview import AndroidVideoStream, STREAM_SIZES, fit_preview
+from swordx.preview import (AndroidVideoStream, StreamRetry, TARGET_FPS,
+                            VIDEO_STALE_SECONDS, VIDEO_STARTUP_SECONDS, fit_preview,
+                            screen_is_unchanged)
 from swordx.storage import export_backup, import_backup
 from swordx.config import ProfileStore
 from . import __version__
@@ -41,7 +44,12 @@ class DeviceScan(QThread):
 
 
 class VideoThread(QThread):
-    """Optional 30-FPS H.264 only for the device currently being inspected."""
+    """One selected-device video stream with a latest-frame-only buffer.
+
+    Decode every complete H.264 frame and overwrite the old image. The Qt UI
+    decides when to display it (up to TARGET_FPS), avoiding bursty input
+    throttling, backpressure, and old detector frames interleaved with video.
+    """
     error = Signal(str)
 
     def __init__(self, serial: str, parent=None):
@@ -50,7 +58,13 @@ class VideoThread(QThread):
         self.stopped = threading.Event()
         self.lock = threading.Lock()
         self.latest = None
+        self.latest_kind = 'video'
+        self.last_rgb = None
         self.stream = None
+        self.stream_started_at = 0.0
+        self.last_frame_at = 0.0
+        self.interrupted = False
+        self.frame_times = deque(maxlen=90)
 
     def stop(self):
         self.stopped.set()
@@ -62,38 +76,162 @@ class VideoThread(QThread):
     def take(self):
         with self.lock:
             image, self.latest = self.latest, None
-        return image
+            kind = self.latest_kind
+        return image, kind
+
+    def _publish(self, rgb, kind: str):
+        rgb = fit_preview(rgb, 270, 480)
+        image = QImage(rgb.data, 270, 480, rgb.strides[0], QImage.Format_RGB888).copy()
+        with self.lock:
+            self.latest = image
+            self.latest_kind = kind
+            if kind == 'video':
+                self.last_rgb = rgb
+                now = time.monotonic()
+                self.last_frame_at = now
+                self.frame_times.append(now)
+
+    def _fallback_screenshot(self):
+        """Show a bounded, selected-device snapshot if MediaCodec is unavailable.
+
+        Never starts an extra encoder. Called only between failed H.264 starts;
+        its short ADB timeout keeps Stop responsive, and it is independent of
+        ongoing workflow screenshots captured by the automation worker.
+        """
+        if self.stopped.is_set():
+            return
+        try:
+            frame = ADB(serial=self.serial).screenshot(timeout=4)
+            self._publish(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), 'snapshot')
+        except (ADBError, OSError, ValueError) as exc:
+            # Preserve the streaming retry even if this backup also fails.
+            if not self.stopped.is_set():
+                self.error.emit(f'{self.serial}: screenshot fallback unavailable: {exc}')
+
+    def _watchdog(self):
+        """Recover blocked H.264 reads without mistaking static screens for failure."""
+        while not self.stopped.wait(0.5):
+            now = time.monotonic()
+            with self.lock:
+                stream = self.stream
+                at = self.last_frame_at
+                source = self.last_rgb
+                started = self.stream_started_at
+                interrupted = self.interrupted
+            if not stream or interrupted or started <= 0:
+                continue
+            limit = VIDEO_STALE_SECONDS if at > 0 else VIDEO_STARTUP_SECONDS
+            if now - (at if at > 0 else started) < limit:
+                continue
+            if at > 0 and source is not None:
+                try:
+                    snapshot = ADB(serial=self.serial).screenshot(timeout=4)
+                except (ADBError, OSError, ValueError):
+                    snapshot = None
+                with self.lock:
+                    if self.stream is not stream or self.interrupted or self.last_frame_at != at:
+                        continue  # The decoder already resumed during the probe.
+                    if screen_is_unchanged(source, snapshot):
+                        self.last_frame_at = time.monotonic()
+                        continue  # Static screen: no need to reset MediaCodec.
+            if self.interrupt_if_stale(time.monotonic()):
+                self.error.emit(f'{self.serial}: Android video stalled; restarting encoder')
+
+    def fps(self, now: float | None = None) -> int:
+        now = time.monotonic() if now is None else now
+        with self.lock:
+            return sum(at >= now - 1.0 for at in self.frame_times)
+
+    def is_fresh(self, now: float) -> bool:
+        with self.lock:
+            return self.last_frame_at > 0 and now - self.last_frame_at < VIDEO_STALE_SECONDS
+
+    def interrupt_if_stale(self, now: float) -> bool:
+        """Unstick a blocked emulator encoder, without terminating its worker."""
+        with self.lock:
+            stream = self.stream
+            age = (now - self.last_frame_at if self.last_frame_at > 0 else
+                   now - self.stream_started_at)
+            limit = VIDEO_STALE_SECONDS if self.last_frame_at > 0 else VIDEO_STARTUP_SECONDS
+            if not stream or self.interrupted or self.stream_started_at <= 0 or age < limit:
+                return False
+            self.interrupted = True
+        stream.interrupt()  # Kill the specific device's screenrecord subprocess.
+        return True
 
     def run(self):
         try:
             import av  # noqa: F401
         except ImportError:
-            self.error.emit('PyAV not installed. Displaying latest detector frames instead.')
+            self.decoder_unavailable = True
+            self.error.emit('PyAV not installed; showing the latest detector image.')
             return
-        attempts = 0
-        while not self.stopped.is_set():
-            try:
-                size = STREAM_SIZES[min(attempts,len(STREAM_SIZES)-1)]
-                count=0
-                with AndroidVideoStream(self.serial,size) as stream:
-                    with self.lock:self.stream=stream
-                    last=0.0
-                    for rgb in stream.frames():
-                        if self.stopped.is_set():break
-                        now=time.monotonic()
-                        if now-last<1/30:continue
-                        last=now
-                        rgb=fit_preview(rgb,270,480)
-                        img=QImage(rgb.data,270,480,rgb.strides[0],QImage.Format_RGB888).copy()
-                        with self.lock:self.latest=img
-                        count+=1
-                attempts=0 if count>=10 else attempts+1
-            except Exception as exc:
-                if attempts==0:self.error.emit(f'{self.serial} video: {exc}')
-                attempts+=1
-            finally:
-                with self.lock:self.stream=None
-            self.stopped.wait(0.4 if attempts==0 else 3)
+        retry = StreamRetry()
+        # One small watchdog thread for the one selected device. It stops as
+        # soon as the preview stops, even if an H.264 read is blocked.
+        watchdog = threading.Thread(target=self._watchdog, name='OmniFlow-video-watchdog',
+                                    daemon=True)
+        watchdog.start()
+        try:
+            while not self.stopped.is_set():
+                count = 0
+                started = time.monotonic()
+                reason = ''
+                size, bitrate = retry.profile()
+                stream = None
+                try:
+                    with AndroidVideoStream(self.serial, size, bitrate=bitrate) as stream:
+                        with self.lock:
+                            self.stream = stream
+                            self.stream_started_at = time.monotonic()
+                            self.last_frame_at = 0.0
+                            self.last_rgb = None
+                            self.frame_times.clear()
+                            self.interrupted = False
+                        last_converted = 0.0
+                        for rgb in stream.frames():
+                            if self.stopped.is_set():
+                                break
+                            count += 1
+                            now = time.monotonic()
+                            # Decode every frame to keep the H.264 parser in sync,
+                            # but only resize/copy the newest available image.
+                            if now - last_converted < 1 / TARGET_FPS:
+                                with self.lock:
+                                    self.last_frame_at = now
+                                continue
+                            self._publish(rgb, 'video')
+                            last_converted = now
+                        if not self.stopped.is_set():
+                            reason = stream.error()
+                except Exception as exc:
+                    reason = AndroidVideoStream.explain_failure(
+                        exc, stream.error() if stream is not None else '')
+                finally:
+                    with self.lock:
+                        self.stream = None
+                        self.stream_started_at = 0.0
+                        self.interrupted = False
+                if self.stopped.is_set():
+                    break
+                delay = retry.complete(count, time.monotonic() - started)
+                if retry.failures == 0:
+                    # Android's built-in screenrecord normally ends after about
+                    # three minutes. A healthy end is a seamless new session.
+                    pass
+                elif retry.should_log():
+                    self.error.emit(f'{self.serial}: H.264 retry {retry.failures} at '
+                                    f'{size[0]}x{size[1]}, {bitrate // 1000} kbps; '
+                                    f'{reason or "no decoded frames"}. '
+                                    f'Next attempt in {delay:g}s')
+                if retry.failures:
+                    self._fallback_screenshot()
+                # Never permanently disable video after a fixed error count;
+                # keep a bounded delay so unavailable encoders cost almost zero CPU.
+                self.stopped.wait(delay)
+        finally:
+            self.stopped.set()
+            watchdog.join(timeout=1)
 
 
 class ScheduleDialog(QDialog):
@@ -217,6 +355,9 @@ class OmniWindow(QMainWindow):
         self.scan=None
         self.video=None
         self.video_serial=''
+        self.requested_video_serial=''
+        self.last_video_serial=''
+        self.last_detector_display_at=0.0
         self.last_log_text=''
         self.last_job_refresh=0.0
         self.setWindowTitle(f'OmniFlow {__version__} · MuMu Automation')
@@ -230,8 +371,9 @@ class OmniWindow(QMainWindow):
         self.timer.timeout.connect(self._tick)
         self.timer.start(900)
         self.frame_timer=QTimer(self)
+        self.frame_timer.setTimerType(Qt.PreciseTimer)
         self.frame_timer.timeout.connect(self._frame)
-        self.frame_timer.start(33)
+        self.frame_timer.start(round(1000 / TARGET_FPS))
         self.refresh_devices()
         if self.imported:self._log(f'Imported {len(self.imported)} legacy workflow(s) without changing originals')
 
@@ -295,9 +437,13 @@ class OmniWindow(QMainWindow):
         right=self._panel();r=QVBoxLayout(right);split.addWidget(right)
         preview_top=QHBoxLayout();r.addLayout(preview_top)
         preview_top.addWidget(QLabel('SELECTED INSTANCE  /  LIVE PREVIEW'))
-        self.video_switch=QCheckBox('30 FPS video (selected instance only)')
+        self.video_switch=QCheckBox('Live video · selected instance only')
+        self.video_switch.setChecked(True)  # Exactly one encoder, regardless of session count.
         self.video_switch.toggled.connect(self._toggle_video)
         preview_top.addWidget(self.video_switch)
+        self.video_status=QLabel('Detector preview')
+        self.video_status.setObjectName('muted')
+        preview_top.addWidget(self.video_status)
         self.preview=QLabel('Start an emulator session to view its screen')
         self.preview.setMinimumSize(270,480);self.preview.setMaximumHeight(560)
         self.preview.setAlignment(Qt.AlignCenter);self.preview.setObjectName('preview')
@@ -498,34 +644,105 @@ class OmniWindow(QMainWindow):
         if session:self.manager.pause(serial,not session.pause_event.is_set())
 
     def _selected(self):
-        self.last_log_text=''
-        if self.video_switch.isChecked():self._toggle_video(True)
+        self.last_log_text = ''
+        serial = self._selected_serial()
+        if self.video_switch.isChecked() and serial != self.video_serial:
+            self._toggle_video(True)
 
-    def _toggle_video(self,enabled):
-        if self.video:
-            self.video.stop();self.video.wait(2500);self.video=None
-        self.video_serial=''
-        serial=self._selected_serial()
-        if enabled and serial:
-            self.video_serial=serial
-            self.video=VideoThread(serial,self)
-            self.video.error.connect(self._log)
-            self.video.start()
+    def _toggle_video(self, enabled):
+        self.requested_video_serial = self._selected_serial() if enabled else ''
+        current = self.video
+        if current is not None:
+            if current.isRunning():
+                if current.serial == self.requested_video_serial and not current.stopped.is_set():
+                    return
+                current.stop()
+                self.video_status.setText('Switching video…')
+                return  # finished() will start the next encoder. Never overlap.
+            self.video = None
+            current.deleteLater()
+        self._start_requested_video()
+
+    def _start_requested_video(self):
+        self.video_serial = ''
+        self.last_video_serial = ''
+        serial = self.requested_video_serial
+        if not serial:
+            self.video_status.setText('Detector preview')
+            return
+        self.video_serial = serial
+        thread = VideoThread(serial, self)
+        self.video = thread
+        thread.error.connect(self._video_error)
+        thread.finished.connect(self._video_finished)
+        self.video_status.setText('Connecting H.264…')
+        thread.start()
+
+    def _video_finished(self):
+        finished = self.sender()
+        if finished is not self.video:
+            if finished is not None:
+                finished.deleteLater()
+            return
+        self.video = None
+        self.video_serial = ''
+        finished.deleteLater()
+        if getattr(finished, 'decoder_unavailable', False):
+            self.requested_video_serial = ''
+            self.video_switch.blockSignals(True)
+            self.video_switch.setChecked(False)
+            self.video_switch.blockSignals(False)
+            self.video_status.setText('PyAV missing · detector preview')
+        elif self.requested_video_serial and self.video_switch.isChecked():
+            self._start_requested_video()
+        else:
+            self.video_status.setText('Detector preview')
+
+    def _video_error(self, message: str):
+        self._log(message)
+        if self.video_switch.isChecked():
+            self.video_status.setText('Reconnecting video · detector fallback')
 
     def _frame(self):
-        serial=self._selected_serial()
-        if not serial:return
-        if self.video and self.video_serial==serial:
-            img=self.video.take()
-            if img is not None:
-                self.preview.setPixmap(QPixmap.fromImage(img));return
-        sess=next((s for s in self.manager.snapshot() if s.serial==serial),None)
-        if sess:
-            frame=sess.latest()
+        serial = self._selected_serial()
+        if not serial:
+            return
+        now = time.monotonic()
+        if self.video and self.video_serial == serial:
+            image, kind = self.video.take()
+            if image is not None:
+                self.preview.setPixmap(QPixmap.fromImage(image))
+                self.last_video_serial = serial
+                if kind == 'snapshot':
+                    self.video_status.setText('Snapshot fallback · reconnecting H.264')
+                elif int(now) != getattr(self, '_last_fps_second', -1):
+                    self._last_fps_second = int(now)
+                    self.video_status.setText(f'Live H.264 · {self.video.fps(now)} FPS')
+                return
+            if self.video.is_fresh(now) and self.last_video_serial == serial:
+                # No new video frame yet: keep the last one displayed. Never
+                # flash a slower OCR screenshot between decoded video frames.
+                if int(now) != getattr(self, '_last_fps_second', -1):
+                    self._last_fps_second = int(now)
+                    fps = self.video.fps(now)
+                    self.video_status.setText(f'Live H.264 · {fps} FPS' if fps else
+                                              'Live H.264 · screen unchanged')
+                return
+            # The worker's own watchdog handles stalled encoders, even if the
+            # Qt thread is busy. This timer only updates the image and status.
+        # The existing screenshot is already cached by the workflow worker.
+        # Refresh fallback only a few times per second to avoid unnecessary
+        # pixmap creation at 30Hz when screenshots arrive at ~1Hz.
+        if now - self.last_detector_display_at < 0.25:
+            return
+        self.last_detector_display_at = now
+        session = next((s for s in self.manager.snapshot() if s.serial == serial), None)
+        if session:
+            frame = session.latest()
             if frame is not None:
-                rgb=cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
-                img=QImage(rgb.data,270,480,rgb.strides[0],QImage.Format_RGB888).copy()
-                self.preview.setPixmap(QPixmap.fromImage(img))
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = QImage(rgb.data, 270, 480, rgb.strides[0], QImage.Format_RGB888).copy()
+                self.preview.setPixmap(QPixmap.fromImage(image))
 
     def _tick(self):
         try:
@@ -566,6 +783,10 @@ class OmniWindow(QMainWindow):
             else:
                 self.session_info.setText('No sessions have run yet.')
         selected=self._selected_serial()
+        if self.video_switch.isChecked() and selected != self.video_serial:
+            self._toggle_video(bool(selected))
+        elif not selected and self.video:
+            self._toggle_video(False)
         sess=next((s for s in sessions if s.serial==selected),None)
         if sess:
             stat=sess.stats.snapshot()
@@ -715,7 +936,12 @@ class OmniWindow(QMainWindow):
 
     def closeEvent(self,event):
         self.timer.stop();self.frame_timer.stop()
-        if self.video:self.video.stop();self.video.wait(2000)
+        self.requested_video_serial = ''
+        if self.video:
+            self.video.stop()
+            # Encoder is already killed; waiting here only ensures Qt does not
+            # destroy a running QThread during application shutdown.
+            self.video.wait(5000)
         self.manager.stop_all()
         # Wait for owned leases to be released before quitting, without
         # freezing the UI for a long-running Android command.
@@ -772,8 +998,3 @@ QStatusBar { color:#b9b0a0; }
 def main():
     import sys
     # Do not spin up dozens of OpenCV worker threads for ten independent instances.
-    cv2.setNumThreads(1)
-    app=QApplication(sys.argv)
-    app.setStyleSheet(STYLE)
-    window=OmniWindow();window.show()
-    return app.exec()

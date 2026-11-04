@@ -1,4 +1,4 @@
-# OmniFlow 0.2.0
+# OmniFlow 0.2.1
 
 **Universal MuMu Player visual automation — Windows x64, Python + PySide6.**
 
@@ -14,6 +14,52 @@ The core has been exercised with automated tests, including **ten simulated simu
 4. Open **Dashboard → Refresh**, choose an emulator, click **Detect** for the foreground Android package (or **Apps** to select an installed package), then choose a workflow and press **Start**.
 
 Personal data is stored in **`%LOCALAPPDATA%\OmniFlow`**, not inside the source directory. On first launch, recorded workflows and named profiles from `%LOCALAPPDATA%\SwordXAuto` are **copied**, not moved or overwritten. Existing legacy application files remain untouched. There is also an Import backup option for older exported ZIP workflows.
+
+## v0.2.1 — Reliable MuMu video preview and Error 22 recovery
+
+Android's built-in `screenrecord --output-format=h264` is a live, raw H.264
+Annex-B stream. **Error 22 / EINVAL** can occur when an emulator rejects an
+encoder configuration or when a decoder probes an incomplete pipe. This
+release consumes raw H.264 through PyAV's codec parser instead of demuxing a
+container. Each encoder restart creates a fresh decoder, and interrupted
+packets are not flushed as if they were complete video frames.
+
+- The selected emulator's video stream is monitored in a separate watchdog
+  thread, so a blocking ADB read is interrupted even if the UI is busy.
+- The video worker **does not give up after a fixed number of failures**. It
+  retries indefinitely while enabled, with exponential backoff capped at 8s,
+  using a lower-resolution/lower-bitrate profile after failed starts.
+- It keeps only the newest decoded frame for display, with a 30 FPS render
+  target. Occasional slower OCR screenshots no longer overwrite healthy video.
+- Static game screens are checked using a low-frequency ADB screenshot before
+  restarting the encoder. An unchanged screen does not trigger a restart loop.
+- When streaming fails, a selected-device screenshot is displayed while H.264
+  reconnects. The preview distinguishes these snapshots from live FPS.
+- Switching devices stops the old encoder **without a long GUI-thread wait**;
+  a new encoder starts only after the previous worker has finished.
+- Android/decoder errors are recorded in OmniFlow's activity log. Missing PyAV
+  disables video mode cleanly while leaving screen-based automation available.
+- Only the selected emulator uses an H.264 encoder; up to ten workflow workers
+  remain independent and do not each decode a video stream.
+
+**Windows setup:** keep MuMu's ADB port available. If the project is installed
+from GitHub rather than the download package, install Android platform-tools
+and make `adb.exe` available on PATH; OmniFlow otherwise uses the bundled
+`vendor/adb.exe` when present. See the logs when an emulator refuses H.264.
+
+**Scope:** hardware encoder/driver failures cannot be guaranteed away; this
+release recovers automatically and maintains a lower-rate screenshot preview
+when video is unavailable. Actual continuous 30 FPS and ten-emulator load
+must be measured on the target Windows/MuMu installation.
+
+### Verification
+
+The CI suite checks source completeness, legacy workflows, scheduling,
+concurrency, the raw H.264 decoder with a known-good test stream, and offscreen
+Qt switching. New Windows CI coverage is added to catch platform-specific
+preview regressions. Live MuMu capture is still a separate test gate.
+
+---
 
 ## v0.2.0 — Capture-first workflow authoring
 
