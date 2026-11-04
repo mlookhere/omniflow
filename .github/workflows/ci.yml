@@ -54,9 +54,16 @@ jobs:
           }
       - name: Install runtime and tests
         run: python -m pip install -r requirements.txt pytest
-      - name: Run full tests including offscreen Qt video tests
+      - name: Run legacy and OmniFlow Qt regression suites (separate processes)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q tests tests_omni
+        shell: pwsh
+        run: |
+          # Qt's native shutdown must succeed for EACH full suite; never mask
+          # a nonzero exit with a later successful process.
+          python -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { throw "Legacy Qt suite exited $LASTEXITCODE" }
+          python -m pytest -q tests_omni
+          if ($LASTEXITCODE -ne 0) { throw "OmniFlow Qt suite exited $LASTEXITCODE" }
       - name: Compile all code
         run: python -m compileall -q omniflow swordx
