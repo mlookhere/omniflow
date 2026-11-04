@@ -190,17 +190,37 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f'Workflow cannot be loaded: {exc}')
         detector_factory = lambda: OmniDetector(folder)
 
+    report = {
+        'requested_instances': args.instances,
+        'tested_instances': 0,
+        'discovered_instances': 0,
+        'duration_seconds': args.seconds,
+        'poll_seconds': args.poll,
+        'workflow': str(args.workflow) if args.workflow else None,
+        'min_fps': args.min_fps,
+        'passed': False,
+        'failures': [],
+        'devices': [],
+    }
+
+    def fail_before_measurement(message: str) -> int:
+        report['failures'] = [message]
+        if args.output:
+            write_json(args.output, report)
+            print(f'JSON report: {args.output}')
+        print(message, file=sys.stderr)
+        return 1
+
     cv2.setNumThreads(1)
     try:
         discovered = discover_mumu()
     except Exception as exc:
-        print(f'MuMu discovery failed: {exc}', file=sys.stderr)
-        return 1
+        return fail_before_measurement(f'MuMu discovery failed: {exc}')
     serials = list(dict.fromkeys(discovered))[:args.instances]
+    report['discovered_instances'] = len(serials)
     if len(serials) != args.instances:
-        print(f'Found {len(serials)} of {args.instances} required MuMu devices; start all instances first.',
-              file=sys.stderr)
-        return 1
+        return fail_before_measurement(
+            f'Found {len(serials)} of {args.instances} required MuMu devices; start all instances first.')
     print(f'Benchmarking {len(serials)} emulator(s) for {args.seconds}s; '
           f'poll={args.poll}s; workflow={args.workflow or "none"}; read-only.', flush=True)
     barrier = threading.Barrier(len(serials)) if len(serials) > 1 else None
@@ -216,17 +236,12 @@ def main(argv: list[str] | None = None) -> int:
               f'detect_p95={result.detection_p95_ms if result.detection_p95_ms is not None else "—"}ms '
               f'errors={result.errors} {result.last_error}')
     failures = evaluate(results, args.instances, args.min_fps)
-    report = {
-        'requested_instances': args.instances,
-        'tested_instances': len(results),
-        'duration_seconds': args.seconds,
-        'poll_seconds': args.poll,
-        'workflow': str(args.workflow) if args.workflow else None,
-        'min_fps': args.min_fps,
-        'passed': not failures,
-        'failures': failures,
-        'devices': [asdict(result) for result in results],
-    }
+    report.update(
+        tested_instances=len(results),
+        passed=not failures,
+        failures=failures,
+        devices=[asdict(result) for result in results],
+    )
     if args.output:
         write_json(args.output, report)
         print(f'JSON report: {args.output}')

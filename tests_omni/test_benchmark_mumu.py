@@ -114,8 +114,35 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(len(list(output.parent.glob('*.tmp'))), 0)
 
     def test_main_fails_if_fewer_instances_found(self):
-        with patch.object(benchmark, 'discover_mumu', return_value=['one']):
-            self.assertEqual(benchmark.main(['--instances', '10', '--seconds', '3']), 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'report.json'
+            benchmark.write_json(output, {'passed': True, 'devices': [{'serial': 'stale'}]})
+            with patch.object(benchmark, 'discover_mumu', return_value=['one']):
+                status = benchmark.main(['--instances', '10', '--seconds', '3',
+                                         '--output', str(output)])
+            self.assertEqual(status, 1)
+            report = json.loads(output.read_text())
+            self.assertIs(report['passed'], False)
+            self.assertEqual(report['requested_instances'], 10)
+            self.assertEqual(report['discovered_instances'], 1)
+            self.assertEqual(report['tested_instances'], 0)
+            self.assertEqual(report['devices'], [])
+            self.assertTrue(any('Found 1 of 10' in issue for issue in report['failures']))
+
+    def test_main_records_discovery_exception_as_failure_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'failures' / 'benchmark.json'
+            with patch.object(benchmark, 'discover_mumu', side_effect=OSError('adb offline')):
+                status = benchmark.main(['--instances', '10', '--seconds', '3',
+                                         '--output', str(output)])
+            self.assertEqual(status, 1)
+            report = json.loads(output.read_text())
+            self.assertFalse(report['passed'])
+            self.assertEqual(report['discovered_instances'], 0)
+            self.assertEqual(report['tested_instances'], 0)
+            self.assertEqual(report['devices'], [])
+            self.assertIn('adb offline', ' '.join(report['failures']))
+            self.assertFalse(list(output.parent.glob('*.tmp')))
 
     def test_main_fails_on_device_capture_errors_and_writes_report(self):
         with tempfile.TemporaryDirectory() as tmp:
