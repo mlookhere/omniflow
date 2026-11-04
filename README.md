@@ -1,4 +1,4 @@
-# OmniFlow 0.1.0
+# OmniFlow 0.2.0
 
 **Universal MuMu Player visual automation — Windows x64, Python + PySide6.**
 
@@ -54,9 +54,8 @@ model is not installed instead of silently passing detection.
 
 **Status:** Verified offline with the existing legacy and new engine test
 suites. Windows Qt interactions, real emulator recognition and ten-emulator
-performance remain to be validated on the target machine. The GitHub draft
-PR currently contains only a source subset: the complete local release is
-provided as an archive and has not yet been fully imported into GitHub.
+performance remain to be validated on the target machine. GitHub PR #2 now contains the complete Python source and required
+test fixtures, but it remains a draft until Windows/MuMu validation.
 
 ## What's implemented
 
