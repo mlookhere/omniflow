@@ -20,7 +20,7 @@ from swordx.stats import SessionStats
 from swordx.detection import normalize
 from .devices import Device
 from .engine import OmniRunner, Match
-from .schedule import MAX_INSTANCES, ScheduleStore
+from .schedule import LEASE_SECONDS, MAX_INSTANCES, ScheduleStore
 
 
 @dataclass
@@ -40,6 +40,7 @@ class Session:
     image: np.ndarray | None = None
     logs: deque = field(default_factory=lambda: deque(maxlen=200))
     failures: int = 0
+    lease_lost: bool = False
     job_id: str | None = None
     intended_at: float | None = None
     max_minutes: int | None = None
@@ -56,12 +57,14 @@ class Session:
 
 class InstanceManager:
     def __init__(self, db: ScheduleStore, *, device_factory=Device,
-                 poll_seconds: float = 0.9, auto_relaunch: bool = True, dry_run: bool = False):
+                 poll_seconds: float = 0.9, auto_relaunch: bool = True, dry_run: bool = False,
+                 lease_interval: float = 8.0):
         self.db = db
         self.device_factory = device_factory
         self.poll_seconds = max(0.35, float(poll_seconds))
         self.auto_relaunch = auto_relaunch
         self.dry_run = dry_run
+        self.lease_interval = max(0.05, min(float(lease_interval), LEASE_SECONDS / 3))
         self.sessions: dict[str, Session] = {}
         self.completed_sessions: deque[Session] = deque(maxlen=50)
         self._lock = threading.RLock()
@@ -92,7 +95,31 @@ class InstanceManager:
 
     def _run(self, session: Session) -> None:
         reason = 'stopped'
+        # Lease renewal must not depend on workflow progress. OCR/model loading,
+        # ADB or a long gesture can block a runner step for longer than the
+        # original loop-only heartbeat interval. One sleeping keepalive per
+        # active emulator costs negligible CPU and prevents double ownership.
+        lease_finished = threading.Event()
+
+        def keep_lease() -> None:
+            while not lease_finished.wait(self.lease_interval):
+                try:
+                    if self.db.heartbeat(session.serial, session.owner):
+                        continue
+                    session.log('Device lease lost; stopping to avoid duplicate input')
+                except Exception as exc:
+                    # If lease validity cannot be established, fail closed.
+                    session.log(f'Device lease renewal failed: {type(exc).__name__}: {exc}')
+                session.lease_lost = True
+                session.stop_event.set()
+                return
+
+        keepalive = threading.Thread(target=keep_lease,
+                                     name=f'OmniFlow-lease-{session.serial}', daemon=True)
+        keepalive_started = False
         try:
+            keepalive.start()
+            keepalive_started = True
             device = self.device_factory(serial=session.serial)
             if hasattr(device, 'ensure_connected'):
                 try:
@@ -102,9 +129,9 @@ class InstanceManager:
             runner = OmniRunner(device, session.folder, session.package,
                                 log=session.log, completed=lambda _: session.stats.complete(),
                                 image=lambda match, frame: self._image(session, match, frame),
-                                auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None)
+                                auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None,
+                                can_act=lambda: not session.stop_event.is_set())
             session.status = 'Running'
-            last_heartbeat = 0.0
             paused_at = None
             while not session.stop_event.is_set():
                 now = time.monotonic()
@@ -114,12 +141,6 @@ class InstanceManager:
                 if session.max_runs and len(session.stats.completed) >= session.max_runs:
                     reason = 'runs_limit'
                     break
-                if now - last_heartbeat >= 8:
-                    if not self.db.heartbeat(session.serial, session.owner):
-                        reason = 'lost_device_lease'
-                        session.log('Device lease lost; stopping to avoid duplicate input')
-                        break
-                    last_heartbeat = now
                 if session.pause_event.is_set():
                     if paused_at is None:
                         paused_at = now
@@ -154,6 +175,11 @@ class InstanceManager:
             reason = 'error'
             session.log(f'Worker error: {type(exc).__name__}: {exc}')
         finally:
+            lease_finished.set()
+            if keepalive_started:
+                keepalive.join(timeout=1)
+            if session.lease_lost:
+                reason = 'lost_device_lease'
             session.stats.finish()
             session.status = f'Stopped · {reason}'
             self.events.append(f'{session.serial}: {session.workflow} finished ({reason}); '

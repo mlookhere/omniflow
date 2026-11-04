@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
+from typing import Callable
 from pathlib import Path
 from threading import RLock
 
@@ -205,13 +206,15 @@ class OmniRunner:
     """One emulator, one state machine. Doesn't know about other sessions."""
     def __init__(self, device, folder: Path, package: str, *, log=lambda _: None,
                  completed=lambda _: None, image=lambda *_: None,
-                 auto_relaunch: bool = True, dry_run: bool = False):
+                 auto_relaunch: bool = True, dry_run: bool = False,
+                 can_act: Callable[[], bool] = lambda: True):
         self.device = device
         self.detector = OmniDetector(folder)
         self.package = package
         self.log, self.on_completed, self.on_image = log, completed, image
         self.auto_relaunch = auto_relaunch
         self.dry_run = dry_run
+        self.can_act = can_act
         self.device_size = None
         self.current = ''
         self.last_recognized = ''
@@ -248,6 +251,10 @@ class OmniRunner:
             return [gestures[min(trigger, len(gestures) - 1)]]
         return list(gestures)
 
+    def _require_action_permission(self) -> None:
+        if not self.can_act():
+            raise WorkflowError('Device ownership lost or automation stopped; refusing input')
+
     def _execute(self, action: dict, now: float) -> bool:
         kind = action.get('kind')
         size = self.device_size
@@ -264,9 +271,11 @@ class OmniRunner:
             return True
         if kind in ('tap', 'double_tap'):
             x, y = _target(action['point'], size)
+            self._require_action_permission()
             self.device.tap(x, y)
             if kind == 'double_tap':
-                # Two taps are part of one recorded action; no full-screen poll.
+                # Device ownership may be revoked between the two touches.
+                self._require_action_permission()
                 self.device.tap(x, y)
         elif kind in ('drag', 'swipe', 'hold'):
             start = _target(action.get('start', action.get('point')), size)
@@ -274,18 +283,22 @@ class OmniRunner:
             duration = int(action.get('duration_ms', 650))
             if not 50 <= duration <= 10000:
                 raise WorkflowError('Gesture duration must be 50–10000 ms')
+            self._require_action_permission()
             self.device.swipe(*start, *end, duration)
         elif kind == 'key':
             code = int(action.get('code', 4))
             if not 0 <= code <= 300:
                 raise WorkflowError('Invalid Android key event')
+            self._require_action_permission()
             self.device.keyevent(code)
         elif kind == 'text':
             text = str(action.get('text', ''))
             if not text or len(text) > 250:
                 raise WorkflowError('Text input must be 1–250 characters')
+            self._require_action_permission()
             self.device.input_text(text)
         elif kind == 'launch':
+            self._require_action_permission()
             self.device.launch(self.package)
         elif kind == 'count_run':
             self._finish_run()
@@ -315,6 +328,7 @@ class OmniRunner:
             self.missing_since = now
             return
         if now - self.missing_since >= 10 and now - self.last_launch >= 25:
+            self._require_action_permission()
             self.log(f'{self.package}: confirmed stopped; relaunching via ADB')
             self.device.launch(self.package)
             self.last_launch = now
