@@ -90,7 +90,17 @@ class InstanceManager:
             self.sessions[serial] = session
             session.worker = threading.Thread(target=self._run, args=(session,),
                                               name=f'OmniFlow-{serial}', daemon=True)
-            session.worker.start()
+            try:
+                session.worker.start()
+            except Exception as exc:
+                # A failed thread start must not occupy a session slot or keep
+                # an orphaned lease. Leave a failed lease release visible.
+                del self.sessions[serial]
+                try:
+                    self.db.release(serial, owner)
+                except Exception as release_exc:
+                    self.events.append(f'{serial}: startup lease cleanup failed: {release_exc}')
+                return False, f'Could not start emulator worker: {exc}'
         return True, f'Started {workflow} on {serial}'
 
     def _run(self, session: Session) -> None:
@@ -175,23 +185,41 @@ class InstanceManager:
             reason = 'error'
             session.log(f'Worker error: {type(exc).__name__}: {exc}')
         finally:
+            # Stop action permission immediately, even if database cleanup is
+            # slow or fails. Never strand a completed worker in sessions.
+            session.stop_event.set()
             lease_finished.set()
             if keepalive_started:
                 keepalive.join(timeout=1)
             if session.lease_lost:
                 reason = 'lost_device_lease'
-            session.stats.finish()
-            session.status = f'Stopped · {reason}'
-            self.events.append(f'{session.serial}: {session.workflow} finished ({reason}); '
-                               f'{len(session.stats.completed)} run(s)')
-            self.db.release(session.serial, session.owner)
-            if session.job_id is not None and session.intended_at is not None:
-                self.db.mark(session.job_id, session.intended_at, reason)
-            # Keep finished session stats visible until a new run overwrites it.
-            with self._lock:
-                if self.sessions.get(session.serial) is session:
-                    del self.sessions[session.serial]
-                self.completed_sessions.append(session)
+            try:
+                session.stats.finish()
+                session.status = f'Stopped · {reason}'
+                self.events.append(f'{session.serial}: {session.workflow} finished ({reason}); '
+                                   f'{len(session.stats.completed)} run(s)')
+                try:
+                    self.db.release(session.serial, session.owner)
+                except Exception as exc:
+                    # An inaccessible DB may retain its lease until expiry;
+                    # don't pretend it was released or block session cleanup.
+                    session.log(f'Device lease release failed: {type(exc).__name__}: {exc}')
+                    self.events.append(f'{session.serial}: device lease release failed: {exc}')
+                if session.job_id is not None and session.intended_at is not None:
+                    try:
+                        self.db.mark(session.job_id, session.intended_at, reason)
+                    except Exception as exc:
+                        # Keep an unmarked run visible as claimed in SQLite so
+                        # operators can diagnose it rather than inventing success.
+                        session.log(f'Scheduled outcome persistence failed: {type(exc).__name__}: {exc}')
+                        self.events.append(f'{session.serial}: scheduled outcome persistence failed: {exc}')
+            finally:
+                # Even a failing DB or stats callback must not consume one of
+                # OmniFlow's ten session slots forever.
+                with self._lock:
+                    if self.sessions.get(session.serial) is session:
+                        del self.sessions[session.serial]
+                    self.completed_sessions.append(session)
 
     def _image(self, session: Session, match: Match, frame: np.ndarray) -> None:
         session.current, session.confidence = match.label, match.confidence
