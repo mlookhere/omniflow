@@ -4,7 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from swordx.adb import ADB, ADBError
+from swordx.adb import ADB, ADBError, MUMU_MAX_PORT_SLOTS, mumu_port_numbers
 
 
 @dataclass
@@ -36,18 +36,44 @@ class Device(ADB):
         return sorted(x.removeprefix('package:') for x in lines if x.startswith('package:'))
 
 
-def discover_mumu(max_ports: int = 16) -> list[str]:
-    """Parallel socket probe avoids sequential 0.15s * 33 port stalls."""
+def canonical_mumu_serial(serial: str) -> str:
+    """Treat localhost and 127.0.0.1 ADB routes to one MuMu port as one device."""
+    if ADB.is_mumu_serial(serial):
+        return f'127.0.0.1:{int(serial.rsplit(":", 1)[1])}'
+    return serial
+
+
+def mumu_serial_aliases(serial: str) -> tuple[str, ...]:
+    """Also recognize leases created before local-device alias normalization."""
+    canonical = canonical_mumu_serial(serial)
+    if canonical != serial or ADB.is_mumu_serial(canonical):
+        return canonical, 'localhost:' + canonical.rsplit(':', 1)[1]
+    return (serial,)
+
+
+def discover_mumu(max_ports: int = MUMU_MAX_PORT_SLOTS) -> list[str]:
+    """Discover only MuMu transports; never surface USB phones or aliases twice."""
+    ports = mumu_port_numbers(max_ports)
     control = Device()
     connected = control.devices()
-    candidates = [f'127.0.0.1:{port}' for port in
-                  [7555] + [16384 + 32 * n + offset for n in range(max_ports) for offset in (0, 1)]]
+    known = {canonical_mumu_serial(serial) for serial in connected}
+    candidates = [f'127.0.0.1:{port}' for port in ports]
+    # Parallel socket probing avoids waiting 0.15s for each absent instance.
     with ThreadPoolExecutor(max_workers=12) as pool:
-        active = [addr for addr, open_ in zip(candidates, pool.map(Device._endpoint_open, candidates)) if open_]
-    for addr in active:
-        if addr not in connected:
+        active = [address for address, open_ in
+                  zip(candidates, pool.map(Device._endpoint_open, candidates)) if open_]
+    for address in active:
+        if canonical_mumu_serial(address) not in known:
             try:
-                control.connect(addr)
+                control.connect(address)
             except ADBError:
-                continue
-    return control.devices()
+                continue  # A failed instance must not hide other emulators.
+    result, seen = [], set()
+    for serial in control.devices():
+        if not ADB.is_mumu_serial(serial):
+            continue
+        key = canonical_mumu_serial(serial)
+        if key not in seen:
+            seen.add(key)
+            result.append(serial)  # Preserve ADB's actual -s serial spelling.
+    return result

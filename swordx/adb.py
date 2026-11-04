@@ -5,6 +5,7 @@ import os
 import re
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,15 @@ class ADBError(RuntimeError):
 def bundled_adb() -> str:
     exe = Path(__file__).resolve().parents[1] / 'vendor' / 'adb.exe'
     return str(exe) if os.name == 'nt' and exe.exists() else 'adb'
+
+
+MUMU_MAX_PORT_SLOTS = 16
+
+def mumu_port_numbers(slots: int = MUMU_MAX_PORT_SLOTS) -> list[int]:
+    """MuMu legacy port and v12+ main/fallback ports for 1–16 instances."""
+    if not 1 <= slots <= MUMU_MAX_PORT_SLOTS:
+        raise ValueError('MuMu port slots must be between 1 and 16')
+    return [7555] + [16384 + 32 * i + offset for i in range(slots) for offset in (0, 1)]
 
 
 @dataclass
@@ -48,12 +58,8 @@ class ADB:
     @staticmethod
     def is_mumu_serial(serial: str) -> bool:
         """Recognize MuMu local ADB ports without mistaking USB phones for MuMu."""
-        match = re.fullmatch(r'(?:127\.0\.0\.1|localhost):(\d+)', serial)
-        if not match:
-            return False
-        port = int(match.group(1))
-        return port == 7555 or any(port in (16384 + 32 * i, 16385 + 32 * i)
-                                   for i in range(8))
+        match = re.fullmatch(r'(?:127\.0\.0\.1|localhost):(\d+)', serial, flags=re.IGNORECASE)
+        return bool(match and int(match.group(1)) in mumu_port_numbers())
 
     @staticmethod
     def _endpoint_open(endpoint: str) -> bool:
@@ -76,22 +82,21 @@ class ADB:
         if preferred and preferred in connected:
             return connected
 
-        ports = [7555] + [16384 + 32 * i + offset for i in range(8)
-                          for offset in (0, 1)]
+        ports = mumu_port_numbers()
         candidates = dict.fromkeys([endpoint, preferred] +
                                    [f'127.0.0.1:{port}' for port in ports])
-        for address in candidates:
-            if not address or address in connected:
-                continue
-            # Do not probe arbitrary saved device IDs (e.g. emulator-5554).
-            if not re.fullmatch(r'(?:[\w.-]+|\[[0-9a-fA-F:]+\]):\d{1,5}', address):
-                continue
-            if not self._endpoint_open(address):
-                continue
-            try:
-                self.connect(address)
-            except ADBError:
-                continue  # One unavailable instance must not hide another.
+        valid = [address for address in candidates if address and address not in connected
+                 and re.fullmatch(r'(?:[\w.-]+|\[[0-9a-fA-F:]+\]):\d{1,5}', address)]
+        # Probing the 16-instance port range sequentially would add seconds to
+        # discovery whenever most emulator ports are closed.
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            available = list(pool.map(self._endpoint_open, valid))
+        for address, is_open in zip(valid, available):
+            if is_open:
+                try:
+                    self.connect(address)
+                except ADBError:
+                    continue  # One unavailable instance must not hide another.
         return self.devices()
 
     def connect(self, endpoint: str) -> str:

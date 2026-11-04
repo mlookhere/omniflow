@@ -15,6 +15,8 @@ from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from .devices import canonical_mumu_serial, mumu_serial_aliases
+
 UTC = timezone.utc
 MAX_INSTANCES = 10
 LEASE_SECONDS = 75
@@ -227,24 +229,32 @@ class ScheduleStore:
 
     def acquire(self, serial: str, owner: str, now: float | None = None) -> bool:
         now = time.time() if now is None else now
+        canonical = canonical_mumu_serial(serial)
+        aliases = mumu_serial_aliases(serial)
+        places = ','.join('?' for _ in aliases)
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             db.execute('DELETE FROM leases WHERE expires_at <= ?', (now,))
-            if db.execute('SELECT owner FROM leases WHERE serial=?', (serial,)).fetchone():
+            # Check both aliases to protect leases written by earlier versions.
+            if db.execute(f'SELECT owner FROM leases WHERE serial IN ({places})', aliases).fetchone():
                 return False
-            # Limit active sessions across GUI/headless processes to ten.
             if db.execute('SELECT COUNT(*) FROM leases').fetchone()[0] >= MAX_INSTANCES:
                 return False
-            db.execute('INSERT INTO leases VALUES(?,?,?)', (serial, owner, now + LEASE_SECONDS))
+            db.execute('INSERT INTO leases VALUES(?,?,?)', (canonical, owner, now + LEASE_SECONDS))
             return True
 
     def heartbeat(self, serial: str, owner: str, now: float | None = None) -> bool:
         now = time.time() if now is None else now
+        aliases = mumu_serial_aliases(serial)
+        places = ','.join('?' for _ in aliases)
         with self._connect() as db:
-            cursor = db.execute('UPDATE leases SET expires_at=? WHERE serial=? AND owner=? AND expires_at>?',
-                                (now + LEASE_SECONDS, serial, owner, now))
-            return cursor.rowcount == 1
+            cursor = db.execute(f'UPDATE leases SET expires_at=? WHERE serial IN ({places}) AND owner=? AND expires_at>?',
+                                (now + LEASE_SECONDS, *aliases, owner, now))
+            return cursor.rowcount > 0
 
     def release(self, serial: str, owner: str) -> None:
+        aliases = mumu_serial_aliases(serial)
+        places = ','.join('?' for _ in aliases)
         with self._connect() as db:
-            db.execute('DELETE FROM leases WHERE serial=? AND owner=?', (serial, owner))
+            db.execute(f'DELETE FROM leases WHERE serial IN ({places}) AND owner=?',
+                       (*aliases, owner))
