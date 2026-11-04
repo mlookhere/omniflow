@@ -200,7 +200,7 @@ class PassiveGuiTests(unittest.TestCase):
             editor = RecorderDialog('', 'Queue')
             try:
                 editor._new_state(confirm=False)
-                editor.step_name.setText('Cancel — wait')
+                editor.step_name.setText('Cancel - wait')
                 editor.canvas.load(self.cancel)
                 editor.canvas.boxes[0] = self.button
                 editor.passive.setChecked(True)
