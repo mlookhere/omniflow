@@ -127,6 +127,22 @@ class StaticSurfaceTests(unittest.TestCase):
         new[120:330, 40:235] = 200
         self.assertFalse(screen_is_unchanged(rgb, new))
 
+    def test_letterboxed_idle_surface_does_not_restart_encoder(self):
+        from swordx.preview import fit_preview, screen_is_unchanged
+        import cv2
+        screenshot = np.full((600, 800, 3), (14, 70, 200), dtype=np.uint8)
+        cv2.rectangle(screenshot, (160, 100), (550, 370), (230, 40, 80), -1)
+        video_rgb = fit_preview(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB), 480, 270)
+        self.assertTrue(screen_is_unchanged(video_rgb, screenshot))
+
+    def test_letterboxed_changed_surface_still_restarts_encoder(self):
+        from swordx.preview import fit_preview, screen_is_unchanged
+        import cv2
+        screenshot = np.full((600, 800, 3), 80, dtype=np.uint8)
+        old_video = fit_preview(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB), 480, 270)
+        screenshot[150:300, 200:600] = 215
+        self.assertFalse(screen_is_unchanged(old_video, screenshot))
+
     def test_small_but_distinct_button_change_forces_recovery(self):
         from swordx.preview import screen_is_unchanged
         rgb = np.zeros((480, 270, 3), dtype=np.uint8)

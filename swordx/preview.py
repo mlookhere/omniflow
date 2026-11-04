@@ -93,8 +93,10 @@ def screen_is_unchanged(video_rgb: np.ndarray, screenshot_bgr: np.ndarray) -> bo
         return False
     if video_rgb.ndim != 3 or video_rgb.shape[2] != 3 or screenshot_bgr.ndim != 3:
         return False
-    sampled = cv2.resize(screenshot_bgr, (video_rgb.shape[1], video_rgb.shape[0]),
-                         interpolation=cv2.INTER_AREA)
+    # Letterboxed 4:3 and ultrawide game screens must be compared at the
+    # same aspect ratio as the video. Stretching a screenshot causes false
+    # stall detection and unnecessary H.264 encoder restarts.
+    sampled = fit_preview(screenshot_bgr, video_rgb.shape[1], video_rgb.shape[0])
     difference = cv2.absdiff(video_rgb, cv2.cvtColor(sampled, cv2.COLOR_BGR2RGB))
     return (float(difference.mean()) < 8.0 and
             float(np.count_nonzero(np.max(difference, axis=2) > 35) / difference.shape[0] /
