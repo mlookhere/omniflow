@@ -275,6 +275,104 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.table.item(1, 4).text(), 'overridden by WAIT')
         self.assertEqual(dialog.table.item(2, 1).text(), 'UNAVAILABLE')
 
+    def test_draft_condition_undo_redo_restores_selection_and_never_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('DraftHistory', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                        taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'DraftHistory', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                rule = {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                        'text': 'READY'}
+                with patch('omniflow.studio.RuleEditor') as editor:
+                    editor.return_value.exec.return_value = QDialog.Accepted
+                    editor.return_value.result_rule.return_value = rule
+                    studio._add_rule()
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(studio.rules_list.currentRow(), 0)
+                self.assertTrue(studio._undo_buttons[0].isEnabled())
+                studio._undo_edit()
+                self.assertEqual(studio.extra_conditions, [])
+                self.assertTrue(studio._redo_buttons[0].isEnabled())
+                studio._redo_edit()
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(studio.rules_list.currentRow(), 0)
+
+                studio.rules_only.setChecked(True)
+                studio._undo_edit()
+                self.assertFalse(studio.rules_only.isChecked())
+                studio._redo_edit()
+                self.assertTrue(studio.rules_only.isChecked())
+
+                studio.rules_list.setCurrentRow(0)
+                studio._remove_rule()
+                self.assertFalse(studio.extra_conditions)
+                studio._undo_edit()
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(studio.rules_list.currentRow(), 0)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+                self.assertTrue(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_action_undo_redo_reorder_reset_and_save_history_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ActionHistory', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                        taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'ActionHistory', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertIsNone(studio.extra_chain)
+                with patch('omniflow.studio.ActionEditor') as editor:
+                    editor.return_value.exec.return_value = QDialog.Accepted
+                    editor.return_value.result_action.return_value = {
+                        'kind': 'wait', 'seconds': 2}
+                    studio._add_action()
+                self.assertEqual(len(studio.extra_chain), 2)
+                self.assertEqual(studio.actions_list.currentRow(), 1)
+                studio._move_action(-1)
+                self.assertEqual(studio.extra_chain[0]['kind'], 'wait')
+                self.assertEqual(studio.actions_list.currentRow(), 0)
+                studio._reset_chain()
+                self.assertIsNone(studio.extra_chain)
+                studio._undo_edit()
+                self.assertEqual(studio.extra_chain[0]['kind'], 'wait')
+                studio._undo_edit()
+                self.assertEqual(studio.extra_chain[1]['kind'], 'wait')
+                studio._undo_edit()
+                self.assertIsNone(studio.extra_chain)
+                studio._redo_edit()
+                self.assertEqual(studio.extra_chain[1]['kind'], 'wait')
+                studio._redo_edit()
+                self.assertEqual(studio.extra_chain[0]['kind'], 'wait')
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+
+                studio._save()
+                self.assertFalse(studio._dirty)
+                self.assertFalse(studio._undo_buttons[0].isEnabled())
+                self.assertFalse(studio._redo_buttons[0].isEnabled())
+                saved = json.loads((folder / 'manifest.json').read_text())
+                key = studio.editing_key
+                self.assertEqual(saved['actions'][key]['action_chain'][0]['kind'], 'wait')
+                studio._undo_edit()  # History must not leak across saves.
+                self.assertEqual(studio.extra_chain[0]['kind'], 'wait')
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
         from swordx import workflows
         with tempfile.TemporaryDirectory() as tmp:
