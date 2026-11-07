@@ -21,9 +21,7 @@ The one-MuMu baseline measured only **0.719 screenshot FPS**. Before modifying t
 capture backend, measure three stages separately on the same Windows machine:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\profile_capture.py 
-    --serial 127.0.0.1:16640 --seconds 120 --poll 0.9 
-    --min-fps 0.8 --output hardware-evidence\capture-profile.json
+.\.venv\Scripts\python.exe tools\profile_capture.py --serial 127.0.0.1:16640 --seconds 120 --poll 0.9 --min-fps 0.8 --output hardware-evidence\capture-profile.json
 ```
 
 Compare `timings_ms.adb_exec_ms`, `png_decode_ms` and `normalize_ms`
