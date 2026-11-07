@@ -517,6 +517,40 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_studio_rejects_invalid_draft_actions_without_saving(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('InvalidDraft', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'InvalidDraft', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                for invalid in (
+                        {'kind': 'unknown'},
+                        {'kind': 'tap', 'point': [700, 200]},
+                        {'kind': 'swipe', 'start': [120, 200],
+                         'end': [180, 240], 'duration_ms': 1},
+                        {'kind': 'field_text', 'point': [150, 250],
+                         'text': 'unsafe;command'}):
+                    with self.subTest(action=invalid):
+                        studio.extra_chain = [invalid]
+                        studio._field_changed()
+                        with patch('omniflow.studio.QMessageBox.warning') as warn:
+                            studio._save()
+                            warn.assert_called_once()
+                            self.assertEqual(warn.call_args.args[1], 'Actions')
+                        self.assertEqual(
+                            (folder / 'manifest.json').read_bytes(), before)
+                        self.assertTrue(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
         from swordx import workflows
         with tempfile.TemporaryDirectory() as tmp:
