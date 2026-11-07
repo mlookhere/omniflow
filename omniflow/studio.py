@@ -424,9 +424,10 @@ class ReplayResultsDialog(QDialog):
             f'{overlaps} with overlapping matches · {unavailable} unavailable · '
             f'{errors} recognition errors')
         layout.addWidget(self.counts)
-        self.table = QTableWidget(len(results), 5)
+        self.table = QTableWidget(len(results), 6)
         self.table.setHorizontalHeaderLabels(
-            ['Recorded state', 'Result', 'Selected state', 'Other matches', 'Explanation'])
+            ['Recorded state', 'Result', 'Selected state', 'Other matches',
+             'Explanation', 'Would execute (preview)'])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setAlternatingRowColors(True)
@@ -434,18 +435,21 @@ class ReplayResultsDialog(QDialog):
             competing = ', '.join(
                 f"{match['label']} (WAIT)" if match['passive'] else match['label']
                 for match in item['overlaps'])
+            plan = ' → '.join(item.get('action_plan', [])) or '—'
             for column, value in enumerate((
                     item['expected'], item['status'].upper(), item['actual'] or '—',
-                    competing or '—', item['reason'])):
+                    competing or '—', item['reason'], plan)):
                 self.table.setItem(row, column, QTableWidgetItem(str(value)))
         header = self.table.horizontalHeader()
-        for column in range(4):
+        for column in (0, 1, 2, 3):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
         layout.addWidget(self.table, 1)
         note = QLabel(
-            'Offline, one-frame recognition only. No actions, timing or emulator input. '
-            'Unsaved Studio changes are not included.')
+            'Offline, one-frame recognition and planned-action preview only. '
+            'Real input requires two matching frames, fresh capture and session permission. '
+            'No actions or emulator input. Unsaved Studio changes are not included.')
         note.setWordWrap(True)
         layout.addWidget(note)
         close = QDialogButtonBox(QDialogButtonBox.Close)
