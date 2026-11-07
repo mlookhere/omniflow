@@ -222,6 +222,36 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_offline_replay_uses_saved_images_not_emulator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ReplayOffline', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Recorded screen', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes() for p in
+                      folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('127.0.0.1:16384', 'ReplayOffline', base=root)
+            try:
+                with patch('omniflow.studio.QMessageBox') as box, \
+                     patch('omniflow.devices.Device.screenshot') as capture:
+                    studio._replay_saved_screenshots()
+                    capture.assert_not_called()
+                dialog = box.return_value
+                self.assertIn('1/1 readable screenshots',
+                              dialog.setText.call_args.args[0])
+                self.assertIn('no actions, timing, or emulator input',
+                              dialog.setInformativeText.call_args.args[0])
+                self.assertIn('MATCHED · Recorded screen',
+                              dialog.setDetailedText.call_args.args[0])
+                dialog.exec.assert_called_once()
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
     def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
         from swordx import workflows
         with tempfile.TemporaryDirectory() as tmp:
