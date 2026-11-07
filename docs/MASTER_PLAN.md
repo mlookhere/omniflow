@@ -31,3 +31,36 @@ Use [hardware-validation.md](hardware-validation.md) on the actual Windows/MuMu 
 ## Non-goals
 
 Do not rewrite existing workflow data, relax CI gates, infer hardware performance from unit tests, or publish a production release before all acceptance evidence is reviewed.
+
+
+## Platform capability roadmap — tracked by measurable gates
+
+This expands the original four milestones; it **does not** claim any game is already
+automatable. Games can restrict input, use inaccessible rendering, move UI
+elements, change server state or enforce anti-automation policies. A genuinely
+game-agnostic platform needs composable primitives, robust observability and
+explicit per-game verification, not an unlimited-success claim.
+
+| Milestone | Scope | Measurable completion gate | State |
+| --- | --- | --- | --- |
+| 5. Dependency-complete installation | One setup includes OCR inference, video, PySide6, telemetry and repeatable smoke test; useful errors for missing packages | Fresh Windows install and both Linux Python CI versions run OCR inference; Studio prefills a chosen OCR zone; missing backend fails clearly | **In development** |
+| 6. Capture performance & frame arbitration | Profile ADB screenshot path, use safe fresh decoded frames where possible, monotonic timestamps, orientation and fallback handling | Single MuMu benchmark reaches >=0.8 screenshot-equivalent FPS for >=120s without stalls and without extra per-device encoders; keep p95/age stats | **Blocked by measured 0.719 FPS** |
+| 7. Complete input & text primitives | Field-focused text typing, Unicode/IME path, copy/paste where permitted, keys, swipes, holds, pinch/multitouch, scroll and delay with verification | Explicit focus check and readback for text; no unverified Unicode support; deterministic replay/test on two distinct game interfaces | **Partial; Android ADB text limited** |
+| 8. Universal state graph | Reusable condition AND/OR/NOT groups, timers, priorities, branch/loop/subworkflow, state variables, timeout/recovery, dead-end handling | Unit/fuzz tests and dry-run replay for every transition; unknown/passive states never tap; bounded retries and lease cancellation verified | **Partial** |
+| 9. Recording & inspection | Record full multi-step runs; visual condition editing; state auto-suggestions; live trace/timeline, screenshot diff and side-by-side debugger | Build/edit/debug a workflow with no manual X/Y; replay saved images from unknown starting state; exported traces contain exact actions and matched evidence | **Partial** |
+| 10. Device & session resilience | Per-device health/capabilities, process relaunch, reconnect, orientation, startup, cleanup, concurrency leases, telemetry | Recovery tests for emulator/game crashes; no double input; sustained ten-device test separately from one-device projections | **Partial; hardware incomplete** |
+| 11. Workflow portability | Versioned schema, non-destructive migration, import/export, screen resolution/aspect scaling, template/rule versioning | Import a legacy workflow plus new workflows; compare outputs across two resolutions and orientations with zero data loss | **Partial** |
+| 12. Production readiness | Install/update packaging, searchable docs, permissions, audit logs, security/privacy constraints and release governance | New Windows PC installs and passes diagnostics; complete hardware acceptance checklist; exact-head CI required/enforced on protected `dev`; PR merged only after gates | **Blocked by hardware and branch protection** |
+
+### Near-term priority queue
+
+1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
+2. **P0 screenshot bottleneck:** optimize the actual ADB capture/normalization pipeline; assess reusable decoded-video frames without changing input permissions or making stale frames appear current.
+3. **P1 text-action completeness:** verified field focus, keyboard/IME adapter and safe handling of unsupported characters (never silently mangle text).
+4. **P1 operator visibility:** dependency checks in GUI, per-action dry-run traces, target screenshot snapshots, failure reason and retry status.
+5. **P2 composition:** reusable workflows/subflows, variable extraction from OCR, conditional branching and loops with stop policies.
+6. **P2 packaging & scalability:** concurrency benchmarks and acceptance on real Windows hardware; enforce branch protection before merging.
+
+Every milestone requires its own documented tests, evidence and acceptance
+criteria. Prioritize completing the current control issue before spinning up
+new, duplicate active branches or claiming a production release.

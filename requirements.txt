@@ -1,5 +1,5 @@
 numpy>=2.1,<3
-opencv-python>=4.10,<5
+opencv-python-headless>=4.10,<5
 PySide6>=6.8,<7
 
 av>=14,<18
@@ -9,3 +9,8 @@ tzdata>=2025.2,<2028
 
 # Read-only host CPU/RAM telemetry during MuMu hardware benchmark.
 psutil>=7,<9
+
+# OCR is part of the standard installation (Studio zone autofill and OCR rules).
+# RapidOCR 3.x supports Python 3.12/3.13; ONNX is an explicit backend dependency.
+rapidocr>=3.10,<4
+onnxruntime>=1.23,<2

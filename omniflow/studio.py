@@ -252,7 +252,7 @@ class RuleEditor(QDialog):
         form.addRow('Expected text', self.text)
         self.read_text = QPushButton('Read text from selected zone (OCR)')
         self.read_text.clicked.connect(self._read_ocr)
-        form.addRow('Optional autofill', self.read_text)
+        form.addRow('Read from screenshot', self.read_text)
         self.regex = QCheckBox('Match a regular expression')
         self.regex.setChecked(bool(initial.get('regex',False)))
         form.addRow('', self.regex)

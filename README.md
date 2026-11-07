@@ -9,7 +9,7 @@ The core has been exercised with automated tests, including **ten simulated simu
 ## Install and launch
 
 1. Extract the `OmniFlow` folder somewhere permanent, e.g. `F:\Projects\OmniFlow`.
-2. Install **Python 3.12 or 3.13, 64-bit**, with the Windows `py` launcher. Run **`setup.bat`** once. It creates `.venv` and installs PySide6, OpenCV, NumPy, PyAV and timezone data.
+2. Install **Python 3.12 or 3.13, 64-bit**, with the Windows `py` launcher. Run **`setup.bat`** once. It creates `.venv` and installs PySide6, headless OpenCV, NumPy, PyAV, ONNX Runtime, RapidOCR, host telemetry, and timezone data. Setup fails if the OCR inference smoke test fails.
 3. Open MuMu Player and launch a game. Double-click **`start.vbs`** for OmniFlow without a console, or `start.bat` for diagnostics.
 4. Open **Dashboard → Refresh**, choose an emulator, click **Detect** for the foreground Android package (or **Apps** to select an installed package), then choose a workflow and press **Start**.
 
@@ -148,13 +148,23 @@ test fixtures, but it remains a draft until Windows/MuMu validation.
 7. Add a specific **Wait state** covering any screen where a tap is unsafe, e.g. *Cancel* during active matchmaking. The Wait state is given precedence over overlapping active states.
 8. Test with the **Test saved workflow** button (no touches). Enable **Dry run** under Performance & Recovery for a complete read-only automation trial before allowing real input.
 
-OCR is optional to keep a ten-instance baseline lightweight. To enable OCR, install:
+**OCR is included in the normal installation.** Run `setup.bat` to install
+RapidOCR 3.x and the ONNX Runtime CPU inference backend, then execute an OCR
+inference self-check. Studio's **Read text from selected zone** button fills
+the expected text from the captured screenshot. OCR-based workflow rules reuse
+the same lazy-loaded engine; no separate download or install step is needed.
+
+To verify dependencies again without touching an emulator:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-ocr.txt
+.\.venv\Scripts\python.exe tools\check_requirements.py
 ```
 
-OCR uses the optional RapidOCR ONNX Runtime backend. The ordinary image/color detection and all scheduling features work without it. The engine loads the OCR model lazily and reuses it rather than loading ten copies.
+Text-entry actions are separate from OCR: **Type text** sends characters to
+the selected Android input field using ADB, and the game must have focus. The
+ADB text command does not yet support arbitrary Unicode/IME text reliably;
+a verified Unicode input adapter and field-focus confirmation are roadmap
+work, not a silently completed capability.
 
 ### How the engine decides
 

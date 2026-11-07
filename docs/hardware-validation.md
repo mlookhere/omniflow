@@ -4,6 +4,17 @@
 that MediaCodec Error 22 never occurs or that 10 Windows emulator processes are
 sustainable on a particular PC. Keep control issue #1 and PR #2 open.
 
+### Real Windows benchmark, 2026-11-07 (one MuMu)
+
+Uploaded evidence from a 120-second run on `127.0.0.1:16640`:
+
+- Video delivered **2,469 frames / 20.57 FPS**, longest preview/video gap **0.39 s**, no fallback snapshots or observed MediaCodec Error 22. The video threshold passed, but Error 22 recovery remains **unverified**, not automatically green.
+- ADB screenshots: **87 captures / 121.078 s = 0.719 FPS**, below required **0.8 FPS**. Mean capture **1,373.77 ms**, p95 **1,719 ms**. Real workflow recognition p95 **16 ms**; no capture/detector errors. Screenshot acquisition, not recognition, is the measured bottleneck.
+- Whole-host usage (59 samples): CPU avg **27.51%**, RAM avg **28,368.43 MiB** (43.87%), NVIDIA GPU avg **8.05%** (VRAM avg **3,859.81 MiB**). No idle baseline, so these figures **cannot be extrapolated numerically** to ten emulators.
+- Read-only verifier **failed** on capture FPS. No 10× capacity projection was generated (correctly fail-closed). Ten-device contention, real gestures and branch policy remain outstanding.
+
+**Next measurement:** profile ADB `screencap` transport/decode latency; evaluate a bounded **shared decoded H.264 frame source** as a capture alternative for the selected instance, with freshness/rotation and automatic fallback. Do not enable ten encoders by default or weaken the 0.8 FPS criterion.
+
 ## 0. Collect a complete read-only evidence set (Windows)
 
 For a **single-MuMu capacity estimate**, start one emulator on a changing

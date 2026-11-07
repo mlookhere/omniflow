@@ -70,7 +70,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     if video.get('passed') is not True:
         failures.append('Video diagnostic did not report success')
     if benchmark.get('passed') is not True:
-        failures.append('Ten-instance benchmark did not report success')
+        failures.append(f'{criteria.instances}-instance capture benchmark did not report success')
 
     elapsed = _number(video, 'elapsed_seconds', 'video', failures)
     fps = _number(video, 'displayed_video_fps', 'video', failures)

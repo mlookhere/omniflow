@@ -24,9 +24,10 @@ class WorkflowError(ValueError):
 
 
 class OCREngine:
-    """Lazy optional OCR; shared across workers, avoiding ten model loads."""
+    """Single shared RapidOCR engine for Studio autofill and workflow matching."""
     _instance = None
     _checked = False
+    _error = ''
     _lock = RLock()
 
     @classmethod
@@ -35,14 +36,22 @@ class OCREngine:
             if not cls._checked:
                 cls._checked = True
                 try:
-                    from rapidocr_onnxruntime import RapidOCR
+                    from rapidocr import RapidOCR
                     cls._instance = RapidOCR()
-                except ImportError:
+                    cls._error = ''
+                except (ImportError, OSError, RuntimeError) as exc:
                     cls._instance = None
+                    cls._error = f'{type(exc).__name__}: {exc}'
             if cls._instance is None:
-                raise WorkflowError('OCR detector needs optional rapidocr-onnxruntime; install requirements-ocr.txt')
-            result, _ = cls._instance(roi)
-            return ' '.join(str(row[1]) for row in (result or []))
+                raise WorkflowError(
+                    'OCR is unavailable. Run setup.bat to install all requirements '
+                    f'(rapidocr and onnxruntime). {cls._error}')
+            try:
+                result = cls._instance(roi)
+            except Exception as exc:
+                raise WorkflowError(f'OCR inference failed: {type(exc).__name__}: {exc}') from exc
+            # Maintained rapidocr 3.x returns a typed object with .txts.
+            return ' '.join(str(text) for text in (result.txts or ()))
 
 
 @dataclass(frozen=True)

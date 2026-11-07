@@ -44,6 +44,13 @@ class HardwareEvidenceTests(unittest.TestCase):
         self.assertFalse(result['hardware_acceptance_complete'])
         self.assertTrue(any('GPU' in x for x in result['outstanding']))
 
+    def test_single_device_failure_uses_actual_requested_count(self):
+        video, bench = samples(devices=1)
+        bench['passed'] = False
+        result = evaluate_hardware_evidence(video, bench, EvidenceCriteria(instances=1))
+        self.assertIn('1-instance capture benchmark did not report success', result['failures'])
+        self.assertFalse(result['hardware_acceptance_complete'])
+
     def test_snapshot_only_must_fail_even_with_source_pass_flag(self):
         video, bench = samples()
         video.update(displayed_video_frames=0, displayed_video_fps=0, fallback_snapshots=100)

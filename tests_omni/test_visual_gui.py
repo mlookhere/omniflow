@@ -50,6 +50,18 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.result_action()['end'], [150, 160])
         dialog.close()
 
+    def test_ocr_autofill_populates_the_selected_zone(self):
+        from unittest.mock import patch
+        dialog = RuleEditor(frame=self.frame)
+        dialog.bounds = [110, 220, 350, 290]
+        with patch('omniflow.engine.OCREngine.read', return_value='Claim now') as read:
+            dialog._read_ocr()
+        read.assert_called_once()
+        self.assertEqual(read.call_args.args[0].shape, (70, 240, 3))
+        self.assertEqual(dialog.text.text(), 'Claim now')
+        self.assertEqual(dialog.result_rule()['text'], 'Claim now')
+        dialog.close()
+
     def test_ocr_and_color_rules_have_no_coordinate_entry(self):
         dialog = RuleEditor(frame=self.frame)
         self.assertEqual(len(dialog.findChildren(QSpinBox)), 1)  # tolerance only
