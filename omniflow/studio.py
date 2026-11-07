@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QVBoxLayout, QWidget)
 
 from swordx.recorder import CaptureCanvas, RecorderDialog
-from swordx.workflows import _write_manifest
 from .devices import android_text_argument
 from .visual import (action_summary, condition_summary, require_frame,
                      sample_average, sample_color, validate_point, validate_zone)
@@ -434,7 +433,10 @@ class OmniStudio(RecorderDialog):
 
     def _new_state(self,*args,**kwargs):
         super()._new_state(*args,**kwargs)
-        self._load_extra()
+        # The base editor keeps _dirty when the user declines to discard.
+        # Do not reload saved rules over unsaved Studio edits in that case.
+        if not self._dirty:
+            self._load_extra()
 
     def _refresh_extra(self):
         self.rules_list.clear();self.actions_list.clear()
@@ -605,22 +607,19 @@ class OmniStudio(RecorderDialog):
         if self.extra_chain is None and not self.passive.isChecked() and not any(self.canvas.gestures):
             QMessageBox.warning(self,'Actions','This state needs an action sequence or a recorded tap/drag')
             return
-        chain = self.extra_chain
-        conditions = list(self.extra_conditions)
-        rules_only = self.rules_only.isChecked()
+        # Turning a condition-only state back into a template state needs a
+        # real recorded region. Otherwise the toggle would silently do nothing.
+        folder = self._folder()
+        if (folder and self.editing_key and not self.rules_only.isChecked() and
+                not self._visual_dirty):
+            data = json.loads((folder / 'manifest.json').read_text(encoding='utf-8'))
+            if not data['states'][self.editing_key]:
+                QMessageBox.warning(
+                    self, 'Image template required',
+                    'Draw a detection region and recapture the screen before using image matching.')
+                return
         super()._save()
-        if self._dirty or not self.editing_key:return
-        folder=self._folder()
-        if folder is None:return
-        path=folder/'manifest.json'
-        data=json.loads(path.read_text(encoding='utf-8'))
-        action=data['actions'][self.editing_key]
-        if chain is not None:action['action_chain']=chain
-        else:action.pop('action_chain',None)
-        if conditions:action['conditions']=conditions
-        else:action.pop('conditions',None)
-        if rules_only:action['skip_template']=True
-        else:action.pop('skip_template',None)
-        _write_manifest(path,data)
+        if self._dirty or not self.editing_key:
+            return
         self._load_extra()
         self.save_status.setText('Saved state, conditions and action sequence')
