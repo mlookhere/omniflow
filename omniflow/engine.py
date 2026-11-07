@@ -5,6 +5,7 @@ There is no game-, dungeon-, or matchmaking-specific dispatch logic.
 """
 from __future__ import annotations
 
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -94,6 +95,39 @@ def validate_ocr_expression(text: str, regex: bool = False) -> str:
     return expression
 
 
+def validate_condition(condition: dict) -> None:
+    """Check a saved or draft recognition rule without OCR, pixels or input."""
+    if not isinstance(condition, dict):
+        raise WorkflowError('Recognition condition must be an object')
+    kind = condition.get('type')
+    rect = condition.get('rect', [0, 0, *SIZE])
+    if (not isinstance(rect, (list, tuple)) or len(rect) != 4 or
+            any(type(v) is not int for v in rect)):
+        raise WorkflowError('Recognition zone must have four integer coordinates')
+    x1, y1, x2, y2 = rect
+    if not (0 <= x1 < x2 <= SIZE[0] and 0 <= y1 < y2 <= SIZE[1]):
+        raise WorkflowError('Recognition zone is outside the normalized screen')
+    if kind == 'ocr':
+        validate_ocr_expression(condition.get('text', ''), bool(condition.get('regex')))
+    elif kind in ('color', 'pixel'):
+        bgr = condition.get('bgr')
+        if (not isinstance(bgr, (list, tuple)) or len(bgr) != 3 or
+                any(type(v) is not int or not 0 <= v <= 255 for v in bgr)):
+            raise WorkflowError('Color condition needs three BGR values from 0 to 255')
+        tolerance = condition.get('tolerance', 25)
+        if (type(tolerance) not in (int, float) or
+                not math.isfinite(tolerance) or not 0 <= tolerance <= 255):
+            raise WorkflowError('Color tolerance must be a finite number from 0 to 255')
+        if kind == 'pixel':
+            point = condition.get('point')
+            if (not isinstance(point, (list, tuple)) or len(point) != 2 or
+                    any(type(v) is not int for v in point) or
+                    not (0 <= point[0] < SIZE[0] and 0 <= point[1] < SIZE[1])):
+                raise WorkflowError('Selected pixel is outside the normalized screen')
+    else:
+        raise WorkflowError(f'Unknown detector type: {kind}')
+
+
 def preview_conditions(frame: np.ndarray, conditions: list[dict]) -> list[bool]:
     """Test unsaved Studio rules against pixels without loading or executing actions."""
     if not conditions:
@@ -101,6 +135,8 @@ def preview_conditions(frame: np.ndarray, conditions: list[dict]) -> list[bool]:
     if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
             frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
         raise WorkflowError('Capture a valid color screenshot before testing conditions')
+    for rule in conditions:
+        validate_condition(rule)
     image = frame if frame.shape == (SIZE[1], SIZE[0], 3) else normalize(frame)
     cache: dict = {}
     return [bool(_condition(image, rule, cache)) for rule in conditions]
@@ -152,6 +188,14 @@ class OmniDetector:
         self.folder = Path(folder)
         self.manifest = json.loads((self.folder / 'manifest.json').read_text(encoding='utf-8'))
         self.actions = self.manifest.get('actions', {})
+        for key, action in self.actions.items():
+            for index, rule in enumerate(action.get('conditions', []), 1):
+                try:
+                    validate_condition(rule)
+                except WorkflowError as exc:
+                    raise WorkflowError(
+                        f'State {action.get("label", key)!r}, condition {index}: {exc}'
+                    ) from exc
         self.threshold = float(self.manifest.get('threshold', 0.82))
         self.legacy = ScreenDetector(folder) if all(self.manifest['states'].values()) else None
         self.templates = {} if self.legacy is None else self.legacy.templates
