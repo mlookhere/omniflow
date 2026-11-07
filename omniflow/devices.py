@@ -12,6 +12,11 @@ from swordx.adb import (ADB, ADBError, MUMU_MAX_PORT_SLOTS,
                        decode_png_screenshot, mumu_port_numbers)
 
 
+# Frames older than this cannot authorize action. Do not leave the
+# production ADB screenshot subprocess blocked beyond the same deadline.
+MAX_CAPTURE_AGE_SECONDS = 6.0
+
+
 # The built-in Android "input text" command is not a general-purpose IME.
 # Fail before touching a field rather than typing a partially mangled value.
 _ALLOWED_ADB_TEXT = frozenset(ascii_letters + digits + ' _.-@+/:')
@@ -29,7 +34,9 @@ def android_text_argument(value: str) -> str:
 
 @dataclass
 class Device(ADB):
-    def screenshot_timed(self, *, timeout: float = 15.0) -> tuple[np.ndarray, dict[str, float]]:
+    def screenshot_timed(
+            self, *, timeout: float = MAX_CAPTURE_AGE_SECONDS
+    ) -> tuple[np.ndarray, dict[str, float]]:
         """Use production PNG transport while measuring its two costly stages.
 
         This sends exactly one normal screenshot command and shares ADB's

@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 
 from swordx.adb import ADBError
-from .devices import android_text_argument
+from .devices import MAX_CAPTURE_AGE_SECONDS, android_text_argument
 from swordx.detection import SIZE, ScreenDetector, capture_crop_top, normalize
 
 
@@ -71,10 +71,6 @@ class Match:
 
 
 UNKNOWN = Match('', 'Unknown screen', 0.0)
-
-# Do not send input based on screenshots delayed by a stalled ADB transport.
-MAX_CAPTURE_AGE_SECONDS = 6.0
-
 
 def _rect(frame: np.ndarray, bounds: list[int]) -> np.ndarray:
     if len(bounds) != 4:

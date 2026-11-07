@@ -14,8 +14,14 @@ and (for built-in MuMu devices) separate ADB exec and PNG decode p95 for
 the last 120 successful frames, **without additional screenshot commands**.
 The ADB stage includes Android PNG encoding, ADB startup and transfer; the
 PNG stage is local decoding, and the difference from total includes
-normalization. These rolling metrics are **not** sustained 120-second
-FPS/continuity acceptance tests.
+normalization. The built-in production PNG screenshot command now has a
+**6-second subprocess timeout**, matching the unchanged six-second
+frame-age limit; a timeout raises a recoverable ADB error and forces two
+fresh matching captures before further input. Other ADB operations and
+read-only 120-second PNG/raw diagnostics retain their existing timeouts.
+This change bounds a blocked screenshot, **not** measured screenshot FPS.
+These rolling metrics are **not** sustained 120-second FPS/continuity
+acceptance tests.
 - Whole-host usage (59 samples): CPU avg **27.51%**, RAM avg **28,368.43 MiB** (43.87%), NVIDIA GPU avg **8.05%** (VRAM avg **3,859.81 MiB**). No idle baseline, so these figures **cannot be extrapolated numerically** to ten emulators.
 - Read-only verifier **failed** on capture FPS. No 10× capacity projection was generated (correctly fail-closed). Ten-device contention, real gestures and branch policy remain outstanding.
 

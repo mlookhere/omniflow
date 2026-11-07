@@ -1,4 +1,5 @@
 """ADB screenshot transport failures must be recoverable, never authorize stale touches."""
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from omniflow.engine import Match, OmniRunner
+from omniflow.engine import MAX_CAPTURE_AGE_SECONDS, Match, OmniRunner
 from omniflow.devices import Device as MuMuDevice
 from swordx.adb import ADB, ADBError
 from swordx.workflows import create_workflow, record_step
@@ -46,7 +47,48 @@ class ScreenshotTransportTests(unittest.TestCase):
         with patch.object(device, '_run', return_value=self.png[:25]) as command:
             with self.assertRaises(ADBError):
                 device.screenshot_timed()
-        command.assert_called_once_with('exec-out', 'screencap', '-p', timeout=15.0)
+        command.assert_called_once_with('exec-out', 'screencap', '-p',
+                                        timeout=MAX_CAPTURE_AGE_SECONDS)
+
+    def test_runner_screenshot_timeout_rearms_before_next_touch(self):
+        # Production PNG stalls must stop at the input-freshness deadline
+        # instead of blocking for the generic ADB 15-second timeout.
+        self.assertEqual(MAX_CAPTURE_AGE_SECONDS, 6.0)
+        with tempfile.TemporaryDirectory() as temp:
+            folder = create_workflow('Screenshot timeout recovery', Path(temp))
+            key = record_step(folder, 'Match', self.frame,
+                              [(150, 700, 440, 830)], taps=[(290, 770)])
+            device = MuMuDevice(serial='127.0.0.1:16384')
+            runner = OmniRunner(device, folder, 'com.example.game')
+            good = subprocess.CompletedProcess(
+                args=['adb'], returncode=0, stdout=self.png, stderr=b'')
+            stalled = subprocess.TimeoutExpired(
+                cmd=['adb', 'exec-out', 'screencap', '-p'],
+                timeout=MAX_CAPTURE_AGE_SECONDS)
+            with patch('swordx.adb.subprocess.run',
+                       side_effect=[good, good, stalled, good, good]) as command, \
+                 patch.object(device, 'tap') as touch, \
+                 patch.object(runner.detector, 'detect',
+                              return_value=Match(key, 'Match', 1.0)):
+                runner.step(100)
+                runner.step(101)
+                self.assertEqual(touch.call_count, 1)
+                with self.assertRaises(ADBError):
+                    runner.step(102)
+                self.assertIsNone(runner.last_frame)
+                self.assertIsNone(runner.last_capture_latency_ms)
+                self.assertIsNone(runner.last_capture_stages_ms)
+                self.assertEqual(runner._streak, 0)
+                runner.step(103)
+                self.assertEqual(touch.call_count, 1)
+                runner.step(104)
+                self.assertEqual(touch.call_count, 2)
+            self.assertEqual(command.call_count, 5)
+            for call in command.call_args_list:
+                self.assertEqual(call.kwargs['timeout'],
+                                 MAX_CAPTURE_AGE_SECONDS)
+                self.assertEqual(call.args[0][-3:],
+                                 ['exec-out', 'screencap', '-p'])
 
     def test_empty_diagnostics_and_truncated_png_fail_closed(self):
         for payload in (b'', b'error: device offline', self.png[:25]):
