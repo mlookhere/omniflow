@@ -96,7 +96,10 @@ class DashboardPreviewTests(unittest.TestCase):
             runner.step(100)
         self.assertEqual(runner.last_capture_started_at, 100.0)
         self.assertEqual(self.session.image_at, 100.0)
-        self.assertIsNone(self.session.recent_image())
+        # CI runner uptime can itself be ~100 seconds. Assert freshness
+        # against the simulated clock, not the host's unrelated uptime.
+        with patch('omniflow.manager.time.monotonic', return_value=103.0):
+            self.assertIsNone(self.session.recent_image())
 
     def test_runner_passes_raw_screen_to_dashboard_not_detection_canvas(self):
         # A distorted 540x960 canvas is still used for matching old workflow
