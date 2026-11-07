@@ -287,6 +287,25 @@ def _target(point, device_size: tuple[int, int], crop_top: int = 0) -> tuple[int
             max(0, min(h - 1, crop_top + round(y * (h - crop_top) / SIZE[1]))))
 
 
+def resolve_action_chain(action: dict, region_count: int, trigger: int = 0) -> list[dict]:
+    """Select the same action steps for live execution and read-only replay.
+
+    Older paired gestures are alternatives selected by the winning image
+    anchor, while modern action chains are always sequential.
+    """
+    if action.get('passive'):
+        return []
+    if 'action_chain' in action:
+        return list(action['action_chain'])
+    gestures = action.get('gestures')
+    if gestures is None:
+        taps = action.get('taps') or ([action['tap']] if 'tap' in action else [])
+        gestures = [{'kind': 'tap', 'point': p} for p in taps if p is not None]
+    if len(gestures) > 1 and region_count > 1:
+        return [gestures[min(trigger, len(gestures) - 1)]]
+    return list(gestures)
+
+
 class OmniRunner:
     """One emulator, one state machine. Doesn't know about other sessions."""
     def __init__(self, device, folder: Path, package: str, *, log=lambda _: None,
@@ -331,19 +350,10 @@ class OmniRunner:
         self.wait_remaining: float | None = None
 
     def _chain(self, key: str, trigger: int) -> list[dict]:
-        action = self.detector.actions[key]
-        if action.get('passive'):
-            return []
-        if 'action_chain' in action:
-            return list(action['action_chain'])
-        gestures = action.get('gestures')
-        if gestures is None:
-            taps = action.get('taps') or ([action['tap']] if 'tap' in action else [])
-            gestures = [{'kind': 'tap', 'point': p} for p in taps if p is not None]
-        # Legacy paired region actions were alternatives, not a sequential chain.
-        if len(gestures) > 1 and len(self.detector.manifest['states'].get(key, [])) > 1:
-            return [gestures[min(trigger, len(gestures) - 1)]]
-        return list(gestures)
+        return resolve_action_chain(
+            self.detector.actions[key],
+            len(self.detector.manifest['states'].get(key, [])),
+            trigger)
 
     def _map_point(self, point) -> tuple[int, int]:
         """Map detector coordinates back through its screenshot viewport."""
