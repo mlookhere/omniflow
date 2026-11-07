@@ -94,6 +94,18 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unavailable')
         self.assertEqual(result['reason'], 'Saved screenshot is unreadable')
 
+    def test_replay_explains_which_condition_rejected_the_capture(self):
+        record_step(
+            self.folder, 'Wrong color', self.frame, [],
+            condition_only=True,
+            conditions=[{'type': 'color', 'rect': [90, 130, 240, 255],
+                         'bgr': [0, 0, 0], 'tolerance': 0}],
+            action_chain=[{'kind': 'tap', 'point': [150, 210]}])
+        result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['status'], 'unknown')
+        self.assertIn('conditions failed', result['reason'])
+        self.assertIn('zone average color', result['reason'])
+
     def test_ocr_error_is_reported_not_as_a_match(self):
         record_step(
             self.folder, 'OCR screen', self.frame, [],
