@@ -40,6 +40,9 @@ observations reset recognition and capture-stage latency state.
 Every Android tap, swipe, key, text entry and workflow launch now rechecks
 screenshot age immediately before dispatch, including the first command.
 Delayed coordinate preparation cannot authorize input from expired pixels.
+Transient OpenCV recognition or thumbnail-processing errors also discard
+the current frame and recognition sequence and enter the existing bounded
+ADB/capture retry path; non-image programming errors are not suppressed.
 This is simulated input safety validation, not a physical game-input test.
 They are **not** strict hardware acceptance: a full unbroken 120-second
 benchmark, explicit failure accounting, ten-device contention and real-game

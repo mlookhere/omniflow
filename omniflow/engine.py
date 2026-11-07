@@ -416,6 +416,14 @@ class OmniRunner:
         self._acted = False
         self.unknown_count = 0
 
+    def _discard_capture(self, now: float) -> None:
+        """Discard a frame that cannot safely authorize the next action."""
+        self._invalidate_visual_state(now)
+        self.last_frame = None
+        self.last_observation = UNKNOWN
+        self.last_capture_latency_ms = None
+        self.last_capture_stages_ms = None
+
     def resume_after_pause(self, now: float) -> None:
         """Discard visual evidence and incomplete actions from before a pause."""
         self._invalidate_visual_state(now)
@@ -461,10 +469,7 @@ class OmniRunner:
             # clock used for input freshness; no extra device or clock call.
             self.last_capture_latency_ms = max(0.0, capture_age) * 1000
         except (ADBError, OSError):
-            self._invalidate_visual_state(now)
-            self.last_capture_stages_ms = None
-            self.last_frame = None
-            self.last_observation = UNKNOWN
+            self._discard_capture(now)
             raise
         self.last_frame = frame
         # ADB `wm size` can report an old base orientation. Use screenshot
@@ -482,17 +487,20 @@ class OmniRunner:
             self.log(f'Display geometry changed to {geometry[0]}x{geometry[1]}; '
                      'reconfirming state before input')
             self._invalidate_visual_state(now)
-        observation = self.detector.detect(frame)
+        try:
+            observation = self.detector.detect(frame)
+        except cv2.error as exc:
+            # OpenCV matching can fail on a transient or corrupt source.
+            # Retry with fresh frames instead of killing the worker or
+            # retaining an already-authorized action sequence.
+            self._discard_capture(now)
+            raise ADBError(f'Screenshot recognition failed: {exc}') from exc
         self.last_observation = observation
 
         def require_fresh_observation() -> None:
             age = time.monotonic() - capture_started
             if age > MAX_CAPTURE_AGE_SECONDS:
-                self._invalidate_visual_state(now)
-                self.last_frame = None
-                self.last_observation = UNKNOWN
-                self.last_capture_latency_ms = None
-                self.last_capture_stages_ms = None
+                self._discard_capture(now)
                 raise ADBError(
                     f'Captured frame is stale after recognition ({age:.2f}s > '
                     f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing input')
@@ -500,7 +508,11 @@ class OmniRunner:
         # A delayed OCR result must not inflate valid-frame telemetry.
         require_fresh_observation()
         # Preview displays original source geometry, not normalized OCR canvas.
-        self.on_image(observation, raw)
+        try:
+            self.on_image(observation, raw)
+        except cv2.error as exc:
+            self._discard_capture(now)
+            raise ADBError(f'Screenshot preview processing failed: {exc}') from exc
         # A slow preview callback must not authorize input from stale pixels.
         require_fresh_observation()
         if observation.key != self._stable_key:

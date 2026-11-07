@@ -133,6 +133,60 @@ class EngineTests(unittest.TestCase):
             runner.step(104)
         self.assertEqual(len(device.taps), 2)
 
+    def test_recognition_opencv_error_rearms_without_input_or_stale_telemetry(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+        self.assertEqual(len(device.taps), 1)
+
+        with patch.object(runner.detector, 'detect',
+                          side_effect=cv2.error('matchTemplate failed')):
+            with self.assertRaisesRegex(ADBError, 'recognition failed'):
+                runner.step(102)
+        self.assertEqual(len(device.taps), 1)
+        self.assertEqual(runner._streak, 0)
+        self.assertEqual(runner.current, '')
+        self.assertIsNone(runner.last_frame)
+        self.assertEqual(runner.last_observation.key, '')
+        self.assertIsNone(runner.last_capture_latency_ms)
+        self.assertIsNone(runner.last_capture_stages_ms)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(103)
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        self.assertEqual(len(device.taps), 2)
+
+    def test_preview_opencv_error_rearms_without_second_touch(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(len(device.taps), 1)
+            with patch.object(runner, 'on_image',
+                              side_effect=cv2.error('resize failed')):
+                with self.assertRaisesRegex(ADBError, 'preview processing failed'):
+                    runner.step(102)
+            self.assertIsNone(runner.last_frame)
+            self.assertIsNone(runner.last_capture_latency_ms)
+            self.assertEqual(runner._streak, 0)
+            self.assertEqual(runner.current, '')
+            runner.step(103)
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        self.assertEqual(len(device.taps), 2)
+
+    def test_non_opencv_recognition_programming_errors_are_not_hidden(self):
+        runner = OmniRunner(Device(self.match), self.folder, 'com.game.demo')
+        with patch.object(runner.detector, 'detect',
+                          side_effect=RuntimeError('invalid workflow code')):
+            with self.assertRaisesRegex(RuntimeError, 'invalid workflow code'):
+                runner.step(100)
+
     def test_titlebar_cropped_screenshot_maps_touch_swipe_and_field_focus(self):
         from swordx.detection import capture_crop_top, normalize
         screenshot = np.zeros((1369, 749, 3), np.uint8)
