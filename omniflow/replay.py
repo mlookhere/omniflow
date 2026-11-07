@@ -12,6 +12,7 @@ import numpy as np
 
 from swordx.workflows import step_order
 from .engine import OmniDetector, WorkflowError
+from .visual import condition_summary
 
 
 def replay_saved_captures(folder: Path) -> list[dict]:
@@ -75,4 +76,14 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             expected = next((d for d in details if d['key'] == key), None)
             item['reason'] = (expected['status'] if expected is not None
                               else 'Recorded state not present in matcher')
+            if expected is not None and expected['condition_results'] is not None:
+                failures = [
+                    condition_summary(rule)
+                    for passed, rule in zip(
+                        expected['condition_results'],
+                        action.get('conditions', []))
+                    if not passed
+                ]
+                if failures:
+                    item['reason'] += ': ' + '; '.join(failures)
     return results
