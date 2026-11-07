@@ -118,7 +118,8 @@ class HostResourceTests(unittest.TestCase):
                 def stop(self):
                     return telemetry
             result = benchmark.DeviceResult('127.0.0.1:16384', 3, 0, 3.0,
-                                            1.0, 30.0, 40.0, None)
+                                            1.0, 30.0, 40.0, None,
+                                            max_frame_gap_seconds=1.0)
             with patch.object(benchmark, 'discover_mumu', return_value=[result.serial]), \
                  patch.object(benchmark, 'HostResourceMonitor', return_value=FakeMonitor()), \
                  patch.object(benchmark, 'measure', return_value=result):
