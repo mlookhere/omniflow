@@ -11,6 +11,7 @@ import argparse
 import json
 import math
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -155,11 +156,15 @@ def main(argv: list[str] | None = None) -> int:
         ]
     else:
         commands = [
-            ('video', [python, str(ROOT / 'tools/diagnose_capture.py'), '--seconds', '120',
+            # Run both real diagnostics at the same time on THIS host. The
+            # video starts first, but both subprocesses launch concurrently;
+            # 150s and 135s allow <=15s startup skew while preserving >=120s
+            # of overlapping measured evidence.
+            ('video', [python, str(ROOT / 'tools/diagnose_capture.py'), '--seconds', '150',
                        '--min-video-fps', '20', '--max-preview-gap', '3',
-                       '--output', str(video)], 175),
+                       '--output', str(video)], 210),
             ('benchmark', [python, str(ROOT / 'tools/benchmark_mumu.py'),
-                           '--instances', str(args.instances), '--seconds', '120',
+                           '--instances', str(args.instances), '--seconds', '135',
                            '--poll', '0.9', '--min-fps', '0.8',
                            '--output', str(benchmark)], 215),
             ('verify', [python, str(ROOT / 'tools/verify_hardware_evidence.py'),
@@ -193,6 +198,24 @@ def main(argv: list[str] | None = None) -> int:
         'capacity_estimate': None,
     }
     try:
+        if not args.capture_comparison:
+            # The independent verifier now requires 120s of *common*
+            # video/PNG overlap. Sequential execution can never satisfy it.
+            # Threads only supervise subprocesses; each diagnostic retains
+            # its independent timeout, stdout, report and failure accounting.
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                pending = []
+                for name, command, timeout in commands[:2]:
+                    print(f'Running {name} (read-only); logs: '
+                          f'{output / (name + ".log")}', flush=True)
+                    report = Path(command[command.index('--output') + 1])
+                    pending.append((name, workers.submit(
+                        run_step, name, command, output, timeout, report)))
+                for name, task in pending:
+                    manifest['steps'][name] = task.result()
+                    (output / 'run-manifest.json').write_text(
+                        json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+            commands = commands[2:]  # Verify only after both sources finish.
         for name, command, timeout in commands:
             print(f'Running {name} (read-only); logs: {output / (name + ".log")}', flush=True)
             report = Path(command[command.index('--output') + 1])

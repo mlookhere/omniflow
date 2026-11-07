@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -34,19 +35,56 @@ class CollectEvidenceTests(unittest.TestCase):
             self.assertFalse(manifest['branch_protection_verified'])
             self.assertEqual([name for name in manifest['steps']], ['video', 'benchmark', 'verify'])
             self.assertEqual(len(seen), 3)
-            self.assertEqual([Path(item[0][1]).name for item in seen],
-                             ['diagnose_capture.py', 'benchmark_mumu.py', 'verify_hardware_evidence.py'])
+            self.assertEqual({Path(item[0][1]).name for item in seen},
+                             {'diagnose_capture.py', 'benchmark_mumu.py',
+                              'verify_hardware_evidence.py'})
             self.assertTrue(all(item[1]['cwd'] == collector.ROOT for item in seen))
             self.assertTrue(all(item[1].get('check') is False for item in seen))
-            self.assertIn('--serial', seen[0][0])
-            self.assertNotIn('--allow-snapshot-only', seen[0][0])
-            self.assertIn('--instances', seen[1][0])
-            self.assertEqual(seen[1][0][seen[1][0].index('--instances') + 1], '1')
-            self.assertEqual(seen[2][0][seen[2][0].index('--instances') + 1], '1')
+            sources = {Path(item[0][1]).name: item[0] for item in seen}
+            video = sources['diagnose_capture.py']
+            capture = sources['benchmark_mumu.py']
+            verify = sources['verify_hardware_evidence.py']
+            self.assertIn('--serial', video)
+            self.assertNotIn('--allow-snapshot-only', video)
+            self.assertEqual(video[video.index('--seconds') + 1], '150')
+            self.assertEqual(capture[capture.index('--seconds') + 1], '135')
+            self.assertEqual(verify[verify.index('--seconds') + 1], '120')
+            self.assertEqual(capture[capture.index('--instances') + 1], '1')
+            self.assertEqual(verify[verify.index('--instances') + 1], '1')
             self.assertFalse(manifest['ten_instance_operation_verified'])
             self.assertEqual(manifest['instances_requested'], 1)
             self.assertTrue(all((folders[0] / (name + '.log')).exists()
                                 for name in ('video', 'benchmark', 'verify')))
+
+    def test_video_and_benchmark_are_simultaneous_before_verifier(self):
+        # Sequential execution cannot pass this barrier: verify both
+        # subprocesses are actually started before either completes.
+        barrier = threading.Barrier(2, timeout=2)
+        completed = set()
+        lock = threading.Lock()
+
+        def fake_run(command, **kwargs):
+            name = Path(command[1]).name
+            if name != 'verify_hardware_evidence.py':
+                barrier.wait()
+                with lock:
+                    completed.add(name)
+            else:
+                with lock:
+                    self.assertEqual(completed, {
+                        'diagnose_capture.py', 'benchmark_mumu.py'})
+            Path(command[command.index('--output') + 1]).write_text(
+                json.dumps({'passed': True, 'hardware_acceptance_complete': False}))
+            return subprocess.CompletedProcess(command, 0, '', '')
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            self.assertEqual(collector.main([
+                '--instances', '10', '--output-root', tmp]), 0)
+            manifest = json.loads((
+                next(Path(tmp).glob('run-*')) / 'run-manifest.json').read_text())
+        self.assertEqual(list(manifest['steps']), ['video', 'benchmark', 'verify'])
+        self.assertFalse(manifest['hardware_acceptance_complete'])
 
     def test_explicit_serial_reaches_video_and_benchmark(self):
         seen = []
@@ -182,8 +220,11 @@ class CollectEvidenceTests(unittest.TestCase):
              patch.object(collector.subprocess, 'run', side_effect=fake_run):
             self.assertEqual(collector.main(['--instances', '10', '--output-root', tmp]), 0)
             report = json.loads((next(Path(tmp).glob('run-*')) / 'run-manifest.json').read_text())
-            self.assertEqual(seen[1][seen[1].index('--instances') + 1], '10')
-            self.assertEqual(seen[2][seen[2].index('--instances') + 1], '10')
+            commands = {Path(cmd[1]).name: cmd for cmd in seen}
+            self.assertEqual(commands['benchmark_mumu.py'][
+                commands['benchmark_mumu.py'].index('--instances') + 1], '10')
+            self.assertEqual(commands['verify_hardware_evidence.py'][
+                commands['verify_hardware_evidence.py'].index('--instances') + 1], '10')
             self.assertFalse(report['ten_instance_operation_verified'])
             self.assertTrue(report['ten_instance_capture_benchmark_passed'])
             self.assertIsNone(report['capacity_estimate'])
@@ -302,12 +343,16 @@ class CollectEvidenceTests(unittest.TestCase):
             self.assertEqual(len(list(Path(tmp).glob('run-*'))), 2)
 
     def test_failures_continue_collection_and_preserve_nonzero_result(self):
+        def fail_by_step(command, **kwargs):
+            name = Path(command[1]).name
+            if name == 'diagnose_capture.py':
+                return subprocess.CompletedProcess(command, 1, '', 'no video\n')
+            if name == 'benchmark_mumu.py':
+                return subprocess.CompletedProcess(command, 0, '', '')
+            return subprocess.CompletedProcess(command, 1, '', 'rejected\n')
+
         with tempfile.TemporaryDirectory() as tmp, \
-             patch.object(collector.subprocess, 'run', side_effect=[
-                 subprocess.CompletedProcess([], 1, '', 'no video\n'),
-                 subprocess.CompletedProcess([], 0, '', ''),
-                 subprocess.CompletedProcess([], 1, '', 'rejected\n'),
-             ]):
+             patch.object(collector.subprocess, 'run', side_effect=fail_by_step):
             self.assertEqual(collector.main(['--output-root', tmp]), 1)
             folder = next(Path(tmp).glob('run-*'))
             manifest = json.loads((folder / 'run-manifest.json').read_text())
@@ -318,12 +363,13 @@ class CollectEvidenceTests(unittest.TestCase):
             self.assertIn('no video', (folder / 'video.log').read_text())
 
     def test_timeout_is_failed_and_next_diagnostics_still_run(self):
+        def fail_by_step(command, **kwargs):
+            if Path(command[1]).name == 'diagnose_capture.py':
+                raise subprocess.TimeoutExpired('video', 210, output=b'trace')
+            return subprocess.CompletedProcess(command, 1, '', '')
+
         with tempfile.TemporaryDirectory() as tmp, \
-             patch.object(collector.subprocess, 'run', side_effect=[
-                 subprocess.TimeoutExpired('video', 175, output=b'trace'),
-                 subprocess.CompletedProcess([], 0, '', ''),
-                 subprocess.CompletedProcess([], 1, '', ''),
-             ]):
+             patch.object(collector.subprocess, 'run', side_effect=fail_by_step):
             self.assertEqual(collector.main(['--output-root', tmp]), 1)
             folder = next(Path(tmp).glob('run-*'))
             report = json.loads((folder / 'run-manifest.json').read_text())

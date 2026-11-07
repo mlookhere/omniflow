@@ -226,9 +226,12 @@ For actual ten-device validation, start all ten emulators and explicitly run:
 
 The optional `--serial 127.0.0.1:16384` selects the video instance;
 omitting `--workflow` still benchmarks capture but leaves real OCR/image
-recognition unverified. The command sequentially runs the existing 120-second
-video diagnostic, 120-second capture benchmark for the selected instance count,
-and strict verifier.
+recognition unverified. The collector now launches the **150-second H.264 diagnostic and 135-second
+PNG benchmark simultaneously**, then runs the strict 120-second-overlap
+verifier after both finish. This corrects a formerly impossible sequential
+collection path. The two diagnostic subprocesses run on the same Windows
+machine using the same repository Python interpreter; independent logs and
+per-step failures remain in the manifest.
 It sends no game touches, never weakens the fixed FPS/recovery thresholds, and
 creates a unique ignored `hardware-evidence/run-*` folder for each attempt.
 The folder contains the three JSON reports, per-step logs, and a manifest
