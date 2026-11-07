@@ -469,14 +469,27 @@ class OmniStudio(RecorderDialog):
         self._history_busy = False
         self._undo_buttons: list[QPushButton] = []
         self._redo_buttons: list[QPushButton] = []
+        self._selection_buttons: dict[str, dict[str, QPushButton]] = {
+            'rule': {}, 'action': {}}
         rules = QWidget(); rule_col = QVBoxLayout(rules)
         instruction = QLabel('WHEN this appears: draw a zone to recognize text, an image, or a color. Combine conditions, including NOT-visible checks.')
         instruction.setWordWrap(True)
         rule_col.addWidget(instruction)
         self.rules_list=QListWidget();rule_col.addWidget(self.rules_list)
         rule_tools=QHBoxLayout();rule_col.addLayout(rule_tools)
-        for title,fn in [('+ Condition',self._add_rule),('Edit',self._edit_rule),('Remove',self._remove_rule)]:
-            btn=QPushButton(title);btn.clicked.connect(fn);rule_tools.addWidget(btn)
+        for name, title, callback in (
+                ('add', '+ Condition', self._add_rule),
+                ('edit', 'Edit', self._edit_rule),
+                ('duplicate', 'Copy', self._duplicate_rule),
+                ('up', '↑', lambda: self._move_rule(-1)),
+                ('down', '↓', lambda: self._move_rule(1)),
+                ('remove', 'Remove', self._remove_rule)):
+            btn = QPushButton(title)
+            btn.clicked.connect(callback)
+            rule_tools.addWidget(btn)
+            self._selection_buttons['rule'][name] = btn
+        self.rules_list.currentRowChanged.connect(
+            lambda _: self._update_selection_buttons('rule'))
         self._add_history_controls(rule_col)
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
         self.rules_only.toggled.connect(self._rule_mode_changed)
@@ -500,15 +513,36 @@ class OmniStudio(RecorderDialog):
         chain_col.addWidget(instruction)
         self.actions_list=QListWidget();chain_col.addWidget(self.actions_list)
         controls=QHBoxLayout();chain_col.addLayout(controls)
-        for title,fn in [('+ Action',self._add_action),('Edit',self._edit_action),('↑',lambda:self._move_action(-1)),
-                         ('↓',lambda:self._move_action(1)),('Remove',self._remove_action)]:
-            btn=QPushButton(title);btn.clicked.connect(fn);controls.addWidget(btn)
+        for name, title, callback in (
+                ('add', '+ Action', self._add_action),
+                ('edit', 'Edit', self._edit_action),
+                ('duplicate', 'Copy', self._duplicate_action),
+                ('up', '↑', lambda: self._move_action(-1)),
+                ('down', '↓', lambda: self._move_action(1)),
+                ('remove', 'Remove', self._remove_action)):
+            btn = QPushButton(title)
+            btn.clicked.connect(callback)
+            controls.addWidget(btn)
+            self._selection_buttons['action'][name] = btn
+        self.actions_list.currentRowChanged.connect(
+            lambda _: self._update_selection_buttons('action'))
         reset=QPushButton('Use original recorded tap/drag only')
         reset.clicked.connect(self._reset_chain)
         chain_col.addWidget(reset)
         self._add_history_controls(chain_col)
         self.tabs.addTab(chain,'THEN · Actions')
         self._load_extra()
+
+    def _update_selection_buttons(self, kind: str):
+        widget = self.rules_list if kind == 'rule' else self.actions_list
+        row, count = widget.currentRow(), widget.count()
+        for name, button in self._selection_buttons[kind].items():
+            if name == 'add':
+                continue
+            button.setEnabled(
+                0 <= row < count and
+                (name != 'up' or row > 0) and
+                (name != 'down' or row < count - 1))
 
     def _add_history_controls(self, layout):
         controls = QHBoxLayout()
@@ -638,6 +672,8 @@ class OmniStudio(RecorderDialog):
             self.rules_list.setCurrentRow(min(rule_row, self.rules_list.count()-1))
         if action_row >= 0 and self.actions_list.count():
             self.actions_list.setCurrentRow(min(action_row, self.actions_list.count()-1))
+        self._update_selection_buttons('rule')
+        self._update_selection_buttons('action')
 
     def _editor_frame(self):
         """Prefer the loaded capture; use the selected emulator if necessary."""
@@ -693,6 +729,27 @@ class OmniStudio(RecorderDialog):
                 self._refresh_extra(rule_row=row)
                 self._field_changed()
 
+    def _duplicate_rule(self):
+        row = self.rules_list.currentRow()
+        if not 0 <= row < len(self.extra_conditions):
+            return
+        self._remember_edit()
+        self.extra_conditions.insert(row + 1, deepcopy(self.extra_conditions[row]))
+        self._refresh_extra(rule_row=row + 1)
+        self._field_changed()
+
+    def _move_rule(self, shift: int):
+        row = self.rules_list.currentRow()
+        other = row + shift
+        if not (0 <= row < len(self.extra_conditions) and
+                0 <= other < len(self.extra_conditions)):
+            return
+        self._remember_edit()
+        self.extra_conditions[row], self.extra_conditions[other] = (
+            self.extra_conditions[other], self.extra_conditions[row])
+        self._refresh_extra(rule_row=other)
+        self._field_changed()
+
     def _remove_rule(self):
         row=self.rules_list.currentRow()
         if 0 <= row < len(self.extra_conditions):
@@ -731,6 +788,15 @@ class OmniStudio(RecorderDialog):
                 self.extra_chain[row] = result
                 self._refresh_extra(action_row=row)
                 self._field_changed()
+
+    def _duplicate_action(self):
+        row = self.actions_list.currentRow()
+        if self.extra_chain is None or not 0 <= row < len(self.extra_chain):
+            return
+        self._remember_edit()
+        self.extra_chain.insert(row + 1, deepcopy(self.extra_chain[row]))
+        self._refresh_extra(action_row=row + 1)
+        self._field_changed()
 
     def _move_action(self,shift):
         row=self.actions_list.currentRow();other=row+shift
