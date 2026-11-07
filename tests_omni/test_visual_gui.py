@@ -373,6 +373,44 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_draft_history_survives_canceled_switch_but_not_completed_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ScopedHistory', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'ScopedHistory', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, first)
+                studio.rules_only.setChecked(True)
+                self.assertTrue(studio._undo_buttons[0].isEnabled())
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.No):
+                    studio.steps.setCurrentRow(1)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.steps.currentRow(), 0)
+                self.assertTrue(studio.rules_only.isChecked())
+                self.assertTrue(studio._undo_buttons[0].isEnabled())
+
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.steps.setCurrentRow(1)
+                self.assertEqual(studio.editing_key, second)
+                self.assertFalse(studio.rules_only.isChecked())
+                self.assertFalse(studio._undo_buttons[0].isEnabled())
+                self.assertFalse(studio._redo_buttons[0].isEnabled())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
         from swordx import workflows
         with tempfile.TemporaryDirectory() as tmp:
