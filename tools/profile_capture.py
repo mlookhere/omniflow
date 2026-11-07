@@ -22,9 +22,9 @@ from swordx.detection import normalize
 from tools.benchmark_mumu import percentile, write_json
 
 
-def capture_sample(device: Device, *, capture_format: str = 'png',
-                   clock: Callable[[], float] = time.monotonic) -> dict:
-    """One PNG screenshot, timed without a second ADB request or any input."""
+def capture_frame(device: Device, *, capture_format: str = 'png',
+                  clock: Callable[[], float] = time.monotonic) -> tuple[np.ndarray, dict]:
+    """Return a normalized screenshot and its capture timing metadata."""
     if capture_format not in ('png', 'raw'):
         raise ValueError(f'Unsupported capture format: {capture_format}')
     started = clock()
@@ -47,9 +47,17 @@ def capture_sample(device: Device, *, capture_format: str = 'png',
         'normalize_ms': (finished - decoded) * 1000,
         'total_ms': (finished - started) * 1000,
         'payload_bytes': len(payload),
+        'source_shape': list(frame.shape),
     }
     if capture_format == 'png':
         sample['png_bytes'] = len(payload)  # Preserve existing profiler sample schema.
+    return image, sample
+
+
+def capture_sample(device: Device, *, capture_format: str = 'png',
+                   clock: Callable[[], float] = time.monotonic) -> dict:
+    """Retain the existing timing-only API for profiling callers."""
+    _, sample = capture_frame(device, capture_format=capture_format, clock=clock)
     return sample
 
 

@@ -37,6 +37,25 @@ Raw mode reports `raw_decode_ms`. Large uncompressed transfers can be
 without real, repeated device measurements and image-equivalence checks.
 
 
+### Verify PNG/raw image fidelity on a stationary screen
+
+Before considering raw capture for production, capture **PNG → raw → PNG**
+triplets on a stationary game menu. The PNG controls must match each other
+before the raw sample is judged; moving scenes fail closed rather than
+producing a misleading format verdict.
+
+```powershell
+.\.venv\Scripts\python.exe tools\compare_capture.py --serial 127.0.0.1:16640 --triplets 3 --output hardware-evidence\capture-equivalence.json
+```
+
+No screenshots are saved; the read-only JSON records original dimensions,
+payload sizes and changed-pixel fractions. Defaults allow an 8-level BGR
+per-channel difference on at most 0.5% of pixels. Rotation, unavailable
+capture, unstable controls and raw mismatches all fail. A passing result
+proves only the checked stationary-screen image similarity, **not** live
+gameplay equivalence, capture FPS, input correctness or hardware acceptance.
+
+
 ### Profile the slow ADB screenshot pipeline (M6)
 
 The one-MuMu baseline measured only **0.719 screenshot FPS**. Before modifying the
