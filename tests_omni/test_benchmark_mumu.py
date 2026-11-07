@@ -67,6 +67,8 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIsInstance(result.started_at_unix, float)
         self.assertIsInstance(result.ended_at_unix, float)
         self.assertGreater(result.ended_at_unix, result.started_at_unix)
+        self.assertAlmostEqual(result.ended_at_unix - result.started_at_unix,
+                               result.elapsed_seconds, places=2)
         self.assertEqual(len(result.valid_frame_times_unix), result.frames)
         self.assertTrue(all(result.started_at_unix <= x <= result.ended_at_unix
                             for x in result.valid_frame_times_unix))

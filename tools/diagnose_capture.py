@@ -102,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
         print('Interrupted by user.', file=sys.stderr)
     finally:
         finished = time.monotonic()
-        ended_at_unix = time.time()
+        # Anchor both frame timestamps and the measurement end to the same
+        # monotonic elapsed interval, so clock skew cannot fabricate gaps.
+        ended_at_unix = started_at_unix + (finished - started)
         video.stop()
         stopped = video.wait(6000)
         app.processEvents()

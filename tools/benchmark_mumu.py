@@ -158,8 +158,11 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         if remaining > 0:
             wait(remaining)
     finished = clock()
-    ended_at_unix = time.time()
     elapsed = max(0.0, finished - started)
+    # Frame timestamps use this same monotonic delta. A second wall-clock
+    # sample can lag behind a valid final frame on Windows (QPC vs system
+    # wall time), producing impossible-looking evidence and flaky tests.
+    ended_at_unix = started_at_unix + elapsed
     max_frame_gap = max(max_frame_gap, finished - last_valid_at)
     frames = len(capture_times)
     return DeviceResult(
