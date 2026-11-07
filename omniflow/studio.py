@@ -947,6 +947,19 @@ class OmniStudio(RecorderDialog):
             self._field_changed()
 
     def _save(self):
+        # Copied/imported rules may bypass the RuleEditor dialog.
+        # Fail before any manifest or screenshot writes, including for states
+        # that still require an image template.
+        from .engine import WorkflowError, validate_condition
+        try:
+            for index, rule in enumerate(self.extra_conditions, 1):
+                try:
+                    validate_condition(rule)
+                except WorkflowError as exc:
+                    raise WorkflowError(f'Condition {index}: {exc}') from exc
+        except WorkflowError as exc:
+            QMessageBox.warning(self, 'Rules', str(exc))
+            return
         # Imported or copied chains can bypass the ActionEditor dialog.
         # Reject malformed commands before the recorder writes any manifest.
         if self.extra_chain is not None:
