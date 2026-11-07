@@ -66,6 +66,9 @@ class Match:
 
 UNKNOWN = Match('', 'Unknown screen', 0.0)
 
+# Do not send input based on screenshots delayed by a stalled ADB transport.
+MAX_CAPTURE_AGE_SECONDS = 6.0
+
 
 def _rect(frame: np.ndarray, bounds: list[int]) -> np.ndarray:
     if len(bounds) != 4:
@@ -379,9 +382,15 @@ class OmniRunner:
     def step(self, now: float | None = None) -> Match:
         now = time.monotonic() if now is None else now
         self.wait_remaining = None
+        capture_started = time.monotonic()
         try:
             raw = self.device.screenshot()
             frame = normalize(raw)
+            capture_age = time.monotonic() - capture_started
+            if capture_age > MAX_CAPTURE_AGE_SECONDS:
+                raise ADBError(
+                    f'Captured frame is stale ({capture_age:.2f}s > '
+                    f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing input')
         except (ADBError, OSError):
             self._invalidate_visual_state(now)
             self.last_frame = None

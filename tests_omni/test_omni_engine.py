@@ -148,6 +148,36 @@ class EngineTests(unittest.TestCase):
             runner.step(103)
         self.assertEqual(len(device.taps), 2)
 
+    def test_stalled_capture_cannot_trigger_stale_input(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(len(device.taps), 1)
+            # No ADB exception was raised, but the decoded screenshot is
+            # already too old to authorize a new action or chain progress.
+            with patch('omniflow.engine.time.monotonic',
+                       side_effect=[20.0, 27.0]):
+                with self.assertRaisesRegex(ADBError, 'stale'):
+                    runner.step(102)
+            self.assertEqual(runner.current, '')
+            self.assertIsNone(runner.last_frame)
+            runner.step(103)
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        self.assertEqual(len(device.taps), 2)
+
+    def test_capture_age_within_limit_keeps_normal_recognition(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        with patch('omniflow.engine.time.monotonic',
+                   side_effect=[20.0, 21.8, 30.0, 31.2]):
+            runner.step(100)
+            runner.step(101)
+        self.assertEqual(len(device.taps), 1)
+
     def test_capture_failure_drops_pending_action_and_requires_fresh_frames(self):
         self.change(self.key, action_chain=[
             {'kind': 'tap', 'point': [290, 770]},
