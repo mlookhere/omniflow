@@ -219,6 +219,22 @@ the affected condition/state, and refused Studio saves leave the manifest,
 screenshots and anchors unchanged. Unit and offscreen Qt regressions cover bad
 regex/regions/pixels/colors/tolerances and preserved valid saved workflows.
 
+**Fail-closed matcher configuration (November 7, 2026):** Workflow startup
+now validates state/action key alignment, explicit template versus
+condition-only recognition mode, and finite matching metadata. Global and
+per-state confidence thresholds must be finite numbers from 0 to 1;
+priorities must be finite; modes are limited to `all` or `any`;
+`passive` and `skip_template` must be actual booleans. A state with no
+recorded image anchors may not silently fall back to condition matching
+unless condition-only mode is explicitly enabled, and condition-only states
+must contain rules. Invalid configurations fail *before* OCR, device capture
+or input, with a state-specific diagnostic rather than an accidental match.
+Normal image states and explicit OCR/color-only states remain supported.
+Python unit tests cover NaN/infinite thresholds, invalid priority/modes,
+ambiguous booleans, missing probes and mismatched state/action keys, plus
+offscreen Qt validation of visible saved-inspection warnings. No runtime
+confidence ordering or threshold policy is otherwise changed.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
