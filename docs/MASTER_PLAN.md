@@ -101,6 +101,15 @@ until a real image detection region has been recorded. Tests cover successful
 single-write saves, retained screenshot/template bytes, failed-save guards and
 cancelled navigation. CI and real-device acceptance remain separate gates.
 
+**Condition editor correctness (November 7, 2026):** Switching recognition
+types in the rule dialog never silently carries a color sampled from the wrong
+kind of target. Pixel ↔ zone conversion clears incompatible geometry and requires
+a new visual selection; OCR ↔ zone color retains the compatible zone and samples
+its own expected BGR from the screenshot. Opening an existing saved rule without
+changing its type retains its original expected BGR, including intentional
+custom tolerances. GUI regressions cover conversion in both directions, visual
+pixel selection, type restoration and correct per-kind status labels.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
