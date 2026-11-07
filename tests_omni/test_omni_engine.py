@@ -87,6 +87,66 @@ class EngineTests(unittest.TestCase):
             runner.step(100)
             resize.assert_called_once()
 
+    def test_geometry_change_reconfirms_state_before_new_input(self):
+        device = Device(self.match)
+        logs = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo', log=logs.append)
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(len(device.taps), 1)
+
+            # Same state still detected, but source screenshot is now landscape.
+            device.frame = cv2.rotate(self.match, cv2.ROTATE_90_CLOCKWISE)
+            runner.step(102)
+            self.assertEqual(len(device.taps), 1)
+            self.assertEqual(runner.device_size, (960, 540))
+            self.assertEqual(runner.current, '')
+            runner.step(103)
+        self.assertEqual(len(device.taps), 2)
+        self.assertTrue(any('Display geometry changed' in line for line in logs))
+
+    def test_geometry_change_drops_pending_action_chain_and_completion(self):
+        self.change(self.key, action_chain=[
+            {'kind': 'tap', 'point': [290, 770]},
+            {'kind': 'key', 'code': 4}], end=True)
+        device = Device(self.match)
+        completions = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            completed=completions.append)
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(runner.chain_index, 1)
+            self.assertEqual(len(device.taps), 1)
+
+            # The queued keypress must not leak into the new display geometry.
+            device.frame = cv2.rotate(self.match, cv2.ROTATE_90_CLOCKWISE)
+            runner.step(102)
+            self.assertEqual(runner.chain_index, 0)
+            self.assertEqual(device.keys, [])
+            self.assertEqual(completions, [])
+            runner.step(103)
+            self.assertEqual(runner.chain_index, 1)
+            self.assertEqual(device.keys, [])
+        self.assertEqual(len(device.taps), 2)
+
+    def test_resolution_change_without_rotation_also_reconfirms(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            device.frame = cv2.resize(self.match, (1080, 1920))
+            runner.step(102)
+            self.assertEqual(len(device.taps), 1)
+            self.assertEqual(runner.device_size, (1080, 1920))
+            runner.step(103)
+        self.assertEqual(len(device.taps), 2)
+
     def test_negative_wait_overrides_queued_action_and_rearms_on_return(self):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')

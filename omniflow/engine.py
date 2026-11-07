@@ -230,6 +230,7 @@ class OmniRunner:
         self.dry_run = dry_run
         self.can_act = can_act
         self.device_size = None
+        self._capture_geometry: tuple[int, int] | None = None
         self.current = ''
         self.last_recognized = ''
         self.unknown_count = 0
@@ -363,11 +364,27 @@ class OmniRunner:
         raw = self.device.screenshot()
         frame = normalize(raw)
         self.last_frame = frame
-        # ADB `wm size` may report the portrait base resolution even when
-        # Android has rotated the display. Input coordinates follow the
-        # screenshot's current orientation, not that base resolution.
-        # Refresh on *every* capture so rotations mid-workflow stay aligned.
-        self.device_size = (raw.shape[1], raw.shape[0])
+        # ADB `wm size` can report an old base orientation. Use screenshot
+        # geometry, and never continue an action chain across a rotation or
+        # resolution change on the strength of stale state recognition.
+        geometry = (raw.shape[1], raw.shape[0])
+        changed = self._capture_geometry is not None and geometry != self._capture_geometry
+        self._capture_geometry = geometry
+        self.device_size = geometry
+        if changed:
+            self.log(f'Display geometry changed to {geometry[0]}x{geometry[1]}; '
+                     'reconfirming state before input')
+            self._stable_key = ''
+            self._streak = 0
+            self.current = ''
+            self.entered_at = now
+            self.action_at = now
+            self.chain_index = 0
+            self.chain_wait_until = 0
+            self.attempts = 0
+            self.end_pending = False
+            self._acted = False
+            self.unknown_count = 0
         observation = self.detector.detect(frame)
         self.last_observation = observation
         # Recognition intentionally uses a fixed coordinate canvas for saved
