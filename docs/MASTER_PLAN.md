@@ -193,6 +193,20 @@ zero Android commands, ordering, privacy, and unchanged manifest on a
 failed Save. Timing waits still use the existing nonblocking runner logic;
 this is not physical device verification or an emulator-free full replay.
 
+**Unsaved THEN action preview (November 7, 2026):** The Studio's THEN tab now
+has a **Preview current draft actions (no taps)** control. It describes the
+actual unsaved chain, or the currently recorded legacy gestures when no
+override exists, using the same chain resolver and preflight validator as
+runtime execution and saved screenshot replay. It checks bad targets and
+unsupported commands *before Save*, displays waits and action order, and
+never includes typed contents. Passive WAIT is explicitly no-input. Legacy
+multi-anchor actions display a warning that only the first candidate is
+shown; the winning anchor can select a different action at runtime. The
+preview never captures the emulator, sends Android commands, writes workflow
+files or simulates recognition/retries. Its result resets when edits change
+the draft. Windows Qt and pure tests cover valid/invalid previews, redaction,
+passive states, legacy actions and disk/device isolation.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
