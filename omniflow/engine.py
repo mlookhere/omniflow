@@ -285,6 +285,14 @@ class OmniRunner:
         if self.is_paused():
             raise InputPaused('Session paused; deferring input until state is reconfirmed')
 
+    def _require_fresh_capture(self) -> None:
+        """A blocked first command must not authorize a later command."""
+        age = time.monotonic() - self.last_capture_started_at
+        if age > MAX_CAPTURE_AGE_SECONDS:
+            raise ADBError(
+                f'Captured frame is stale during input ({age:.2f}s > '
+                f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing further input')
+
     def _execute(self, action: dict, now: float) -> bool:
         # Every step must retain session ownership, including waits, dry runs
         # and run counters that do not send Android commands.
@@ -314,6 +322,7 @@ class OmniRunner:
             if kind == 'double_tap':
                 # Device ownership may be revoked between the two touches.
                 self._require_action_permission()
+                self._require_fresh_capture()
                 self.device.tap(x, y)
         elif kind in ('drag', 'swipe', 'hold'):
             start = _target(action.get('start', action.get('point')), size)
@@ -338,6 +347,8 @@ class OmniRunner:
                 self._require_action_permission()
                 self.device.tap(x, y)
             self._require_action_permission()
+            if kind == 'field_text':
+                self._require_fresh_capture()
             self.device.input_text(text)
         elif kind == 'launch':
             self._require_action_permission()
