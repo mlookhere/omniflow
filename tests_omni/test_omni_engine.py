@@ -100,7 +100,7 @@ class EngineTests(unittest.TestCase):
                         np.zeros((960, 540, 4), np.uint8),
                         np.zeros((960, 540, 3), np.float32),
                         np.zeros((0, 0, 3), np.uint8)):
-                with self.subTest(frame=repr(getattr(bad, 'shape', None))), \\
+                with self.subTest(frame=repr(getattr(bad, 'shape', None))), \
                      patch.object(device, 'screenshot', return_value=bad):
                     with self.assertRaisesRegex(ADBError, 'empty or unreadable'):
                         runner.step(102)
