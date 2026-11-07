@@ -21,6 +21,9 @@ def profile(kind: str, fps: float, p95: float) -> dict:
                            else 'ADB exec-out screencap (raw framebuffer)'),
         'requested_seconds': seconds, 'elapsed_seconds': seconds,
         'min_fps': .8, 'frames': frames, 'errors': 0,
+        'source_shape': [960, 540, 3], 'source_shapes': [[960, 540, 3]],
+        'max_capture_gap_seconds': 1.9,
+        'max_capture_gap_limit_seconds': 6.0,
         'effective_fps': round(observed, 3),
         'payload_bytes_mean': 124000 if kind == 'png' else 4000000,
         'timings_ms': {name: {'mean': 150, 'p95': p95 if name == 'total_ms' else p95 * .8}
@@ -110,6 +113,36 @@ class CaptureAssessmentTests(unittest.TestCase):
                 bad = copy.deepcopy(self.fidelity)
                 mutate(bad)
                 self.assertFalse(assessment.assess(self.png, self.raw, bad)['passed'])
+
+    def test_long_capture_gap_never_makes_raw_candidate(self):
+        raw = copy.deepcopy(self.raw)
+        raw['max_capture_gap_seconds'] = 7.0
+        raw['passed'] = False
+        raw['failures'] = ['Capture gap 7.000s exceeds 6.000s limit']
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertTrue(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+        self.assertFalse(result['hardware_acceptance_complete'])
+
+    def test_unreported_stall_and_relaxed_gap_limit_are_rejected(self):
+        for key, value in [('max_capture_gap_seconds', 9.0),
+                           ('max_capture_gap_limit_seconds', 10.0),
+                           ('source_shape', [540, 960, 3]),
+                           ('source_shapes', [[960, 540, 3], [540, 960, 3]])]:
+            with self.subTest(field=key):
+                altered = copy.deepcopy(self.raw)
+                altered[key] = value
+                result = assessment.assess(self.png, altered, self.fidelity)
+                self.assertFalse(result['comparison_complete'])
+                self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_cross_mode_geometry_must_match_stable_fidelity(self):
+        rotated = [540, 960, 3]
+        self.raw['source_shape'] = rotated
+        self.raw['source_shapes'] = [rotated]
+        result = assessment.assess(self.png, self.raw, self.fidelity)
+        self.assertFalse(result['comparison_complete'])
+        self.assertIn('geometry', ' '.join(result['failures']))
 
     def test_absent_json_overwrites_existing_success(self):
         with tempfile.TemporaryDirectory() as folder:

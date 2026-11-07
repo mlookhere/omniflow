@@ -21,6 +21,7 @@ MIN_SECONDS = 120.0
 MIN_FPS = 0.8
 MIN_RAW_FPS_GAIN = 0.10
 MIN_TRIPLETS = 3
+MAX_CAPTURE_GAP_SECONDS = 6.0
 
 
 def _number(value, label: str, *, positive: bool = False) -> float:
@@ -31,7 +32,7 @@ def _number(value, label: str, *, positive: bool = False) -> float:
     return float(value)
 
 
-def _profile(report: dict, capture_format: str) -> tuple[str, float, float, float]:
+def _profile(report: dict, capture_format: str) -> tuple[str, float, float, float, tuple[int, ...], float]:
     if not isinstance(report, dict):
         raise ValueError(f'{capture_format}: profile is not an object')
     if report.get('read_only') is not True or report.get('capture_format') != capture_format:
@@ -53,6 +54,18 @@ def _profile(report: dict, capture_format: str) -> tuple[str, float, float, floa
     fps = _number(report.get('effective_fps'), f'{capture_format} FPS')
     if abs(frames / elapsed - fps) > 0.015:
         raise ValueError(f'{capture_format}: FPS inconsistent with observed frames/duration')
+    gap_limit = _number(report.get('max_capture_gap_limit_seconds'),
+                        f'{capture_format} configured gap limit', positive=True)
+    gap = _number(report.get('max_capture_gap_seconds'),
+                  f'{capture_format} longest capture gap')
+    if gap_limit > MAX_CAPTURE_GAP_SECONDS or not 0 <= gap <= elapsed + .001:
+        raise ValueError(f'{capture_format}: invalid or weakened capture gap constraint')
+    shape = report.get('source_shape')
+    shapes = report.get('source_shapes')
+    if (not isinstance(shape, list) or len(shape) != 3 or
+            any(type(n) is not int or n <= 0 for n in shape) or shape[2] != 3 or
+            shapes != [shape]):
+        raise ValueError(f'{capture_format}: missing or changed source geometry')
     bytes_mean = _number(report.get('payload_bytes_mean'), f'{capture_format} transfer size',
                          positive=True)
     if bytes_mean <= 0:
@@ -77,16 +90,30 @@ def _profile(report: dict, capture_format: str) -> tuple[str, float, float, floa
     failures = report.get('failures')
     if not isinstance(failures, list) or any(not isinstance(x, str) for x in failures):
         raise ValueError(f'{capture_format}: invalid failure list')
-    if fps >= minimum:
+    expected_prefixes = set()
+    if frames / elapsed < minimum:
+        expected_prefixes.add('Capture ')
+    if gap > gap_limit:
+        expected_prefixes.add('Capture gap ')
+    if not expected_prefixes:
         if report.get('passed') is not True or failures:
             raise ValueError(f'{capture_format}: inconsistent successful source report')
     else:
-        # A sub-threshold PNG baseline is meaningful evidence, not permission
-        # to silently lower the gate; the raw alternative must still pass.
-        if report.get('passed') is not False or len(failures) != 1 or not (
-                failures[0].startswith('Capture ') and failures[0].endswith(' FPS target')):
+        # A subthreshold baseline is useful diagnostic evidence, but errors,
+        # rotations and unrelated failures must never be accepted as such.
+        if report.get('passed') is not False or len(failures) != len(expected_prefixes):
             raise ValueError(f'{capture_format}: unaccounted source failure')
-    return canonical_mumu_serial(serial), fps, total_p95, bytes_mean
+        labels = set()
+        for failure in failures:
+            if failure.startswith('Capture gap ') and failure.endswith('s limit'):
+                labels.add('Capture gap ')
+            elif failure.startswith('Capture ') and failure.endswith(' FPS target'):
+                labels.add('Capture ')
+            else:
+                raise ValueError(f'{capture_format}: unrelated capture failure')
+        if labels != expected_prefixes:
+            raise ValueError(f'{capture_format}: inconsistent FPS/gap failure report')
+    return canonical_mumu_serial(serial), fps, total_p95, bytes_mean, tuple(shape), gap
 
 
 def _fidelity(report: dict) -> str:
@@ -130,7 +157,7 @@ def _fidelity(report: dict) -> str:
     serial = report.get('serial')
     if not isinstance(serial, str) or not serial.strip():
         raise ValueError('fidelity: missing device serial')
-    return canonical_mumu_serial(serial)
+    return canonical_mumu_serial(serial), tuple(shapes[0])
 
 
 def assess(png: dict, raw: dict, fidelity: dict) -> dict:
@@ -146,11 +173,13 @@ def assess(png: dict, raw: dict, fidelity: dict) -> dict:
         'passed': False,
     }
     try:
-        png_id, png_fps, png_p95, png_bytes = _profile(png, 'png')
-        raw_id, raw_fps, raw_p95, raw_bytes = _profile(raw, 'raw')
-        quality_id = _fidelity(fidelity)
+        png_id, png_fps, png_p95, png_bytes, png_shape, png_gap = _profile(png, 'png')
+        raw_id, raw_fps, raw_p95, raw_bytes, raw_shape, raw_gap = _profile(raw, 'raw')
+        quality_id, quality_shape = _fidelity(fidelity)
         if png_id != raw_id or png_id != quality_id:
             raise ValueError('PNG, raw and fidelity evidence are for different devices')
+        if png_shape != raw_shape or png_shape != quality_shape:
+            raise ValueError('PNG, raw and fidelity source geometry differs')
     except (ValueError, TypeError, KeyError) as exc:
         result['failures'] = [str(exc)]
         return result
@@ -167,6 +196,9 @@ def assess(png: dict, raw: dict, fidelity: dict) -> dict:
             'raw_relative_fps_gain': round(gain, 4),
             'png_capture_p95_ms': png_p95, 'raw_capture_p95_ms': raw_p95,
             'png_payload_bytes_mean': png_bytes, 'raw_payload_bytes_mean': raw_bytes,
+            'source_shape': list(png_shape),
+            'png_max_capture_gap_seconds': png_gap,
+            'raw_max_capture_gap_seconds': raw_gap,
         },
     )
     return result

@@ -22,6 +22,9 @@ from swordx.detection import normalize
 from tools.benchmark_mumu import percentile, write_json
 
 
+MAX_CAPTURE_GAP_SECONDS = 6.0  # Matches the existing runner input-freshness limit.
+
+
 def capture_frame(device: Device, *, capture_format: str = 'png',
                   clock: Callable[[], float] = time.monotonic) -> tuple[np.ndarray, dict]:
     """Return a normalized screenshot and its capture timing metadata."""
@@ -73,11 +76,19 @@ def profile(serial: str, seconds: float, poll: float, min_fps: float,
     deadline = started + seconds
     next_poll = started
     samples: list[dict] = []
+    gaps: list[float] = []
+    shapes: set[tuple[int, int, int]] = set()
+    last_valid_at = started
     errors = consecutive = 0
     last_error = ''
     while clock() < deadline:
         try:
-            samples.append(capture_sample(device, capture_format=capture_format, clock=clock))
+            sample = capture_sample(device, capture_format=capture_format, clock=clock)
+            captured_at = clock()
+            gaps.append(max(0.0, captured_at - last_valid_at))
+            last_valid_at = captured_at
+            shapes.add(tuple(sample['source_shape']))
+            samples.append(sample)
             consecutive = 0
         except Exception as exc:
             errors += 1
@@ -89,7 +100,11 @@ def profile(serial: str, seconds: float, poll: float, min_fps: float,
         remaining = min(deadline, next_poll) - clock()
         if remaining > 0:
             wait(remaining)
-    elapsed = max(0.0, clock() - started)
+    finished = clock()
+    elapsed = max(0.0, finished - started)
+    # Include startup and the final gap; average FPS alone can hide stalls.
+    gaps.append(max(0.0, finished - last_valid_at))
+    max_gap = max(gaps)
     fps = len(samples) / elapsed if elapsed else 0.0
     timings = {}
     for key in ('adb_exec_ms', 'decode_ms', f'{capture_format}_decode_ms',
@@ -101,7 +116,12 @@ def profile(serial: str, seconds: float, poll: float, min_fps: float,
         }
     failures = []
     if not samples:
-        failures.append('No valid PNG screenshots received')
+        failures.append('No valid screenshots received')
+    if len(shapes) > 1:
+        failures.append('Screenshot source geometry changed during capture')
+    if max_gap > MAX_CAPTURE_GAP_SECONDS:
+        failures.append(
+            f'Capture gap {max_gap:.3f}s exceeds {MAX_CAPTURE_GAP_SECONDS:.3f}s limit')
     if errors:
         failures.append(f'{errors} screenshot/decode errors: {last_error}')
     if elapsed < seconds * .95:
@@ -120,6 +140,10 @@ def profile(serial: str, seconds: float, poll: float, min_fps: float,
         'min_fps': min_fps,
         'frames': len(samples),
         'errors': errors,
+        'source_shape': list(next(iter(shapes))) if len(shapes) == 1 else None,
+        'source_shapes': [list(shape) for shape in sorted(shapes)],
+        'max_capture_gap_seconds': round(max_gap, 3),
+        'max_capture_gap_limit_seconds': MAX_CAPTURE_GAP_SECONDS,
         'effective_fps': round(fps, 3),
         'payload_bytes_mean': round(statistics.mean(s['payload_bytes'] for s in samples))
                               if samples else None,

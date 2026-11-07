@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import struct
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -88,6 +89,69 @@ class ProfileTests(unittest.TestCase):
         self.assertIsNone(report['png_bytes_mean'])
         self.assertGreater(report['payload_bytes_mean'], 0)
         self.assertIn('raw_decode_ms', report['timings_ms'])
+
+    def test_profile_records_source_shape_and_continuity(self):
+        result = profiler.profile('127.0.0.1:16384', .08, .02, 0,
+                                  device_factory=FakeDevice)
+        self.assertEqual(result['source_shape'], [960, 540, 3])
+        self.assertEqual(result['source_shapes'], [[960, 540, 3]])
+        self.assertGreaterEqual(result['max_capture_gap_seconds'], 0)
+        self.assertEqual(result['max_capture_gap_limit_seconds'], 6.0)
+
+    def test_long_gap_fails_even_if_average_fps_is_not_a_failure(self):
+        class Clock:
+            def __init__(self):
+                self.value = 10.0
+
+            def __call__(self):
+                return self.value
+
+            def wait(self, seconds):
+                self.value += seconds
+
+        fake = Clock()
+        def capture(*args, **kwargs):
+            # One valid frame takes seven seconds, longer than allowed.
+            fake.value += 7.0
+            return {'source_shape': [960, 540, 3], 'payload_bytes': 100,
+                    'adb_exec_ms': 6000, 'decode_ms': 500, 'png_decode_ms': 500,
+                    'normalize_ms': 500, 'total_ms': 7000}
+        with patch.object(profiler, 'capture_sample', side_effect=capture):
+            result = profiler.profile('127.0.0.1:16384', 8, .9, 0,
+                                      device_factory=FakeDevice,
+                                      clock=fake, wait=fake.wait)
+        self.assertFalse(result['passed'])
+        self.assertGreater(result['max_capture_gap_seconds'], 6)
+        self.assertTrue(any('Capture gap' in reason for reason in result['failures']))
+
+    def test_rotation_mid_profile_never_passes(self):
+        class Clock:
+            def __init__(self):
+                self.value = 1.0
+
+            def __call__(self):
+                return self.value
+
+            def wait(self, seconds):
+                self.value += seconds
+
+        fake = Clock()
+        index = 0
+        def capture(*args, **kwargs):
+            nonlocal index
+            index += 1
+            fake.value += .25
+            return {'source_shape': [960, 540, 3] if index == 1 else [540, 960, 3],
+                    'payload_bytes': 100, 'adb_exec_ms': 100, 'decode_ms': 50,
+                    'png_decode_ms': 50, 'normalize_ms': 100, 'total_ms': 250}
+        with patch.object(profiler, 'capture_sample', side_effect=capture):
+            result = profiler.profile('127.0.0.1:16384', 3, .9, 0,
+                                      device_factory=FakeDevice,
+                                      clock=fake, wait=fake.wait)
+        self.assertFalse(result['passed'])
+        self.assertIsNone(result['source_shape'])
+        self.assertEqual(len(result['source_shapes']), 2)
+        self.assertTrue(any('geometry changed' in x for x in result['failures']))
 
     def test_invalid_capture_format_fails_before_any_capture(self):
         device = FakeDevice('127.0.0.1:16384')
