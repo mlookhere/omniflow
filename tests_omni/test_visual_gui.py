@@ -132,7 +132,7 @@ class VisualStudioGuiTests(unittest.TestCase):
             studio = OmniStudio('', 'SavedInspect', base=root)
             try:
                 studio.canvas.load(self.frame)
-                with patch('omniflow.studio.QMessageBox') as box, ${'\'}
+                with patch('omniflow.studio.QMessageBox') as box, \
                      patch('omniflow.devices.Device.screenshot') as capture:
                     studio._test_detection()
                     capture.assert_not_called()
