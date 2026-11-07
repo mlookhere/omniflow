@@ -7,6 +7,7 @@ Existing workflow manifests and legacy recorder captures stay compatible.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import cv2
 import numpy as np
@@ -463,6 +464,11 @@ class OmniStudio(RecorderDialog):
         self.setWindowTitle('OmniFlow · Visual Workflow Studio')
         self.extra_chain: list[dict] | None = None
         self.extra_conditions: list[dict] = []
+        self._undo_edits: list[dict] = []
+        self._redo_edits: list[dict] = []
+        self._history_busy = False
+        self._undo_buttons: list[QPushButton] = []
+        self._redo_buttons: list[QPushButton] = []
         rules = QWidget(); rule_col = QVBoxLayout(rules)
         instruction = QLabel('WHEN this appears: draw a zone to recognize text, an image, or a color. Combine conditions, including NOT-visible checks.')
         instruction.setWordWrap(True)
@@ -471,8 +477,9 @@ class OmniStudio(RecorderDialog):
         rule_tools=QHBoxLayout();rule_col.addLayout(rule_tools)
         for title,fn in [('+ Condition',self._add_rule),('Edit',self._edit_rule),('Remove',self._remove_rule)]:
             btn=QPushButton(title);btn.clicked.connect(fn);rule_tools.addWidget(btn)
+        self._add_history_controls(rule_col)
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
-        self.rules_only.toggled.connect(self._field_changed)
+        self.rules_only.toggled.connect(self._rule_mode_changed)
         rule_col.addWidget(self.rules_only)
         draft_tester = QPushButton('Test current conditions on screenshot (no taps)')
         draft_tester.clicked.connect(self._test_draft_conditions)
@@ -499,8 +506,90 @@ class OmniStudio(RecorderDialog):
         reset=QPushButton('Use original recorded tap/drag only')
         reset.clicked.connect(self._reset_chain)
         chain_col.addWidget(reset)
+        self._add_history_controls(chain_col)
         self.tabs.addTab(chain,'THEN · Actions')
         self._load_extra()
+
+    def _add_history_controls(self, layout):
+        controls = QHBoxLayout()
+        for label, callback, collection in (
+                ('Undo draft edit', self._undo_edit, self._undo_buttons),
+                ('Redo draft edit', self._redo_edit, self._redo_buttons)):
+            button = QPushButton(label)
+            button.setEnabled(False)
+            button.setToolTip('Undo/redo WHEN rules and THEN actions until Save or state switch')
+            button.clicked.connect(callback)
+            collection.append(button)
+            controls.addWidget(button)
+        layout.addLayout(controls)
+
+    def _edit_snapshot(self) -> dict:
+        return {
+            'conditions': deepcopy(self.extra_conditions),
+            'chain': deepcopy(self.extra_chain),
+            'rules_only': self.rules_only.isChecked(),
+            'rule_row': self.rules_list.currentRow(),
+            'action_row': self.actions_list.currentRow(),
+        }
+
+    def _update_history_buttons(self):
+        for button in self._undo_buttons:
+            button.setEnabled(bool(self._undo_edits))
+        for button in self._redo_buttons:
+            button.setEnabled(bool(self._redo_edits))
+
+    def _remember_edit(self, snapshot=None):
+        if self._history_busy:
+            return
+        self._undo_edits.append(snapshot if snapshot is not None else self._edit_snapshot())
+        del self._undo_edits[:-30]
+        self._redo_edits.clear()
+        self._update_history_buttons()
+
+    def _clear_edit_history(self):
+        self._undo_edits.clear()
+        self._redo_edits.clear()
+        self._update_history_buttons()
+
+    def _apply_edit_snapshot(self, snapshot: dict):
+        self._history_busy = True
+        try:
+            self.extra_conditions = deepcopy(snapshot['conditions'])
+            self.extra_chain = deepcopy(snapshot['chain'])
+            self.rules_only.blockSignals(True)
+            try:
+                self.rules_only.setChecked(snapshot['rules_only'])
+            finally:
+                self.rules_only.blockSignals(False)
+            self._refresh_extra(rule_row=snapshot['rule_row'],
+                                action_row=snapshot['action_row'])
+        finally:
+            self._history_busy = False
+        # Conservatively retain unsaved status: other Recorder fields may also
+        # have been edited, and no disk writes should occur during undo/redo.
+        self._field_changed()
+
+    def _undo_edit(self):
+        if not self._undo_edits:
+            return
+        self._redo_edits.append(self._edit_snapshot())
+        self._apply_edit_snapshot(self._undo_edits.pop())
+        self._update_history_buttons()
+
+    def _redo_edit(self):
+        if not self._redo_edits:
+            return
+        self._undo_edits.append(self._edit_snapshot())
+        self._apply_edit_snapshot(self._redo_edits.pop())
+        self._update_history_buttons()
+
+    def _rule_mode_changed(self, checked: bool):
+        if self._history_busy:
+            return
+        previous = self._edit_snapshot()
+        previous['rules_only'] = not checked
+        self._remember_edit(previous)
+        self._field_changed()
 
     def _load_extra(self):
         if not hasattr(self,'rules_list'):return
@@ -517,7 +606,8 @@ class OmniStudio(RecorderDialog):
             self.rules_only.blockSignals(True)
             self.rules_only.setChecked(False)
             self.rules_only.blockSignals(False)
-        self._refresh_extra()
+        self._refresh_extra(rule_row=-1, action_row=-1)
+        self._clear_edit_history()
 
     def _select_step(self, current, previous):
         super()._select_step(current,previous)
@@ -531,17 +621,23 @@ class OmniStudio(RecorderDialog):
         if not self._dirty:
             self._load_extra()
 
-    def _refresh_extra(self):
-        self.rules_list.clear();self.actions_list.clear()
+    def _refresh_extra(self, *, rule_row=None, action_row=None):
+        rule_row = self.rules_list.currentRow() if rule_row is None else rule_row
+        action_row = self.actions_list.currentRow() if action_row is None else action_row
+        self.rules_list.clear()
+        self.actions_list.clear()
         if hasattr(self, 'rule_test_status'):
             self.rule_test_status.setText('Unsaved rules can be tested before saving.')
         self.canvas.extra_zones = [dict(item) for item in self.extra_conditions]
         self.canvas.update()
         for rule in self.extra_conditions:
-            op='NOT ' if rule.get('negate') else ''
             self.rules_list.addItem(condition_summary(rule))
-        for i,action in enumerate(self.extra_chain or []):
+        for i, action in enumerate(self.extra_chain or []):
             self.actions_list.addItem(f'{i+1}. {action_summary(action)}')
+        if rule_row >= 0 and self.rules_list.count():
+            self.rules_list.setCurrentRow(min(rule_row, self.rules_list.count()-1))
+        if action_row >= 0 and self.actions_list.count():
+            self.actions_list.setCurrentRow(min(action_row, self.actions_list.count()-1))
 
     def _editor_frame(self):
         """Prefer the loaded capture; use the selected emulator if necessary."""
@@ -570,9 +666,15 @@ class OmniStudio(RecorderDialog):
             return
         dialog=RuleEditor(self.canvas.boxes[0],parent=self,frame=image)
         if dialog.exec()==QDialog.Accepted:
-            try:self.extra_conditions.append(dialog.result_rule())
-            except ValueError as exc:QMessageBox.warning(self,'Rule',str(exc));return
-            self._refresh_extra();self._field_changed()
+            try:
+                result = dialog.result_rule()
+            except ValueError as exc:
+                QMessageBox.warning(self, 'Rule', str(exc))
+                return
+            self._remember_edit()
+            self.extra_conditions.append(result)
+            self._refresh_extra(rule_row=len(self.extra_conditions)-1)
+            self._field_changed()
 
     def _edit_rule(self):
         row=self.rules_list.currentRow()
@@ -580,13 +682,24 @@ class OmniStudio(RecorderDialog):
         image = self._editor_frame()
         dialog=RuleEditor(initial=self.extra_conditions[row],parent=self,frame=image)
         if dialog.exec()==QDialog.Accepted:
-            try:self.extra_conditions[row]=dialog.result_rule()
-            except ValueError as exc:QMessageBox.warning(self,'Rule',str(exc));return
-            self._refresh_extra();self._field_changed()
+            try:
+                result = dialog.result_rule()
+            except ValueError as exc:
+                QMessageBox.warning(self, 'Rule', str(exc))
+                return
+            if result != self.extra_conditions[row]:
+                self._remember_edit()
+                self.extra_conditions[row] = result
+                self._refresh_extra(rule_row=row)
+                self._field_changed()
 
     def _remove_rule(self):
         row=self.rules_list.currentRow()
-        if row>=0:self.extra_conditions.pop(row);self._refresh_extra();self._field_changed()
+        if 0 <= row < len(self.extra_conditions):
+            self._remember_edit()
+            self.extra_conditions.pop(row)
+            self._refresh_extra(rule_row=row)
+            self._field_changed()
 
     def _ensure_chain(self):
         if self.extra_chain is None:
@@ -599,8 +712,12 @@ class OmniStudio(RecorderDialog):
         image = self._editor_frame()
         dialog=ActionEditor(default,parent=self,frame=image)
         if dialog.exec()==QDialog.Accepted:
-            self._ensure_chain();self.extra_chain.append(dialog.result_action())
-            self._refresh_extra();self._field_changed()
+            result = dialog.result_action()
+            self._remember_edit()
+            self._ensure_chain()
+            self.extra_chain.append(result)
+            self._refresh_extra(action_row=len(self.extra_chain)-1)
+            self._field_changed()
 
     def _edit_action(self):
         row=self.actions_list.currentRow()
@@ -608,18 +725,28 @@ class OmniStudio(RecorderDialog):
         image = self._editor_frame()
         dialog=ActionEditor(self.extra_chain[row],parent=self,frame=image)
         if dialog.exec()==QDialog.Accepted:
-            self.extra_chain[row]=dialog.result_action();self._refresh_extra();self._field_changed()
+            result = dialog.result_action()
+            if result != self.extra_chain[row]:
+                self._remember_edit()
+                self.extra_chain[row] = result
+                self._refresh_extra(action_row=row)
+                self._field_changed()
 
     def _move_action(self,shift):
         row=self.actions_list.currentRow();other=row+shift
         if self.extra_chain is not None and 0<=row<len(self.extra_chain) and 0<=other<len(self.extra_chain):
-            self.extra_chain[row],self.extra_chain[other]=self.extra_chain[other],self.extra_chain[row]
-            self._refresh_extra();self.actions_list.setCurrentRow(other);self._field_changed()
+            self._remember_edit()
+            self.extra_chain[row], self.extra_chain[other] = self.extra_chain[other], self.extra_chain[row]
+            self._refresh_extra(action_row=other)
+            self._field_changed()
 
     def _remove_action(self):
         row=self.actions_list.currentRow()
-        if self.extra_chain is not None and row>=0:
-            self.extra_chain.pop(row);self._refresh_extra();self._field_changed()
+        if self.extra_chain is not None and 0 <= row < len(self.extra_chain):
+            self._remember_edit()
+            self.extra_chain.pop(row)
+            self._refresh_extra(action_row=row)
+            self._field_changed()
 
     def _test_draft_conditions(self):
         """Inspect current WHEN rules without saving or sending game input."""
@@ -704,7 +831,11 @@ class OmniStudio(RecorderDialog):
         ReplayResultsDialog(results, parent=self).exec()
 
     def _reset_chain(self):
-        self.extra_chain=None;self._refresh_extra();self._field_changed()
+        if self.extra_chain is not None:
+            self._remember_edit()
+            self.extra_chain = None
+            self._refresh_extra(action_row=-1)
+            self._field_changed()
 
     def _save(self):
         if self.rules_only.isChecked() and not self.extra_conditions:
