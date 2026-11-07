@@ -766,6 +766,79 @@ class EngineTests(unittest.TestCase):
         self.assertIsNone(states[0]['condition_results'])
         self.assertTrue(states[0]['has_template'])
 
+    def test_anchor_references_are_validated_before_template_files_are_read(self):
+        manifest = self.folder / 'manifest.json'
+        base = json.loads(manifest.read_text(encoding='utf-8'))
+        original = base['states'][self.key][0]
+        cases = [
+            ({'file': '../outside.png', 'rect': original['rect']},
+             'unsafe anchor filename'),
+            ({'file': r'..\\outside.png', 'rect': original['rect']},
+             'unsafe anchor filename'),
+            ({'file': '/tmp/outside.png', 'rect': original['rect']},
+             'unsafe anchor filename'),
+            ({'file': 'C:outside.png', 'rect': original['rect']},
+             'unsafe anchor filename'),
+            ({'file': '.', 'rect': original['rect']},
+             'unsafe anchor filename'),
+            ({'file': original['file'], 'rect': [100, 200, 100, 300]},
+             'image region is outside'),
+            ({'file': original['file'], 'rect': [0, 0, 541, 30]},
+             'image region is outside'),
+            ({'file': original['file'], 'rect': [0, 0, '150', 200]},
+             'four integer coordinates'),
+            ({'file': original['file'], 'rect': [0, 0, 12]},
+             'four integer coordinates'),
+            ({'file': original['file']}, 'four integer coordinates'),
+            ('bad probe', 'image probe must be an object'),
+        ]
+        for probe, expected in cases:
+            with self.subTest(probe=probe):
+                data = json.loads(json.dumps(base))
+                data['states'][self.key] = [probe]
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                device = Device(self.match)
+                with (patch('swordx.detection.ScreenDetector.__init__') as legacy,
+                      patch.object(device, 'screenshot') as screenshot,
+                      patch('omniflow.engine.OCREngine.read') as ocr):
+                    with self.assertRaisesRegex(WorkflowError, expected):
+                        OmniRunner(device, self.folder, 'com.game.demo')
+                    legacy.assert_not_called()
+                    screenshot.assert_not_called()
+                    ocr.assert_not_called()
+                self.assertFalse(device.taps)
+        manifest.write_text(json.dumps(base), encoding='utf-8')
+        self.assertEqual(OmniDetector(self.folder).detect(self.match).key, self.key)
+
+    def test_anchor_symlink_escape_and_mismatched_image_size_fail_closed(self):
+        manifest = self.folder / 'manifest.json'
+        base = json.loads(manifest.read_text(encoding='utf-8'))
+        name = base['states'][self.key][0]['file']
+        original = self.folder / 'anchors' / name
+        with tempfile.TemporaryDirectory() as escape_root:
+            outside = Path(escape_root) / 'outside.png'
+            outside.write_bytes(original.read_bytes())
+            link = self.folder / 'anchors' / 'escaped.png'
+            try:
+                link.symlink_to(outside)
+            except (NotImplementedError, OSError):
+                # Some Windows runners disallow symlinks without developer mode.
+                pass
+            else:
+                data = json.loads(json.dumps(base))
+                data['states'][self.key][0]['file'] = link.name
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                with self.assertRaisesRegex(WorkflowError, 'anchor resolves outside workflow'):
+                    OmniDetector(self.folder)
+        manifest.write_text(json.dumps(base), encoding='utf-8')
+        # An image with a different width cannot silently act as an anchor
+        # with the recorded region's original coordinates.
+        image = cv2.imread(str(original), cv2.IMREAD_GRAYSCALE)
+        self.assertIsNotNone(image)
+        self.assertTrue(cv2.imwrite(str(original), image[:, :-1]))
+        with self.assertRaisesRegex(WorkflowError, 'saved image size differs'):
+            OmniDetector(self.folder)
+
     def test_matcher_metadata_is_checked_before_screenshots_or_ocr(self):
         manifest = self.folder / 'manifest.json'
         base = json.loads(manifest.read_text(encoding='utf-8'))
