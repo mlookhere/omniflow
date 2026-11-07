@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import os
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -11,7 +15,8 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QLabel, QSpinBox
-    from omniflow.studio import ActionEditor, RuleEditor, ZoneCaptureDialog
+    from omniflow.studio import ActionEditor, RuleEditor, ZoneCaptureDialog, OmniStudio
+    from swordx.workflows import create_workflow
     QT = True
 except ImportError:
     QT = False
@@ -76,6 +81,46 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.text.text(), 'Claim now')
         self.assertEqual(dialog.result_rule()['text'], 'Claim now')
         dialog.close()
+
+    def test_invalid_ocr_regex_is_rejected_before_saving(self):
+        dialog = RuleEditor(frame=self.frame)
+        self.addCleanup(dialog.close)
+        dialog.bounds = [100, 200, 230, 300]
+        dialog.text.setText('(')
+        dialog.regex.setChecked(True)
+        with self.assertRaisesRegex(ValueError, 'Invalid OCR regular expression'):
+            dialog.result_rule()
+        dialog.text.setText(r'CLAIM\\s+NOW')
+        self.assertTrue(dialog.result_rule()['regex'])
+
+    def test_unsaved_studio_rule_preview_does_not_change_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('PreviewDraft', root)
+            manifest = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'PreviewDraft', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.needs_recapture = False
+                studio.extra_conditions = [
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [75, 75, 75], 'tolerance': 0},
+                    {'type': 'pixel', 'rect': [100, 200, 230, 300],
+                     'point': [110, 220], 'bgr': [75, 75, 75],
+                     'tolerance': 0, 'negate': True},
+                ]
+                studio._refresh_extra()
+                with patch('omniflow.devices.Device.screenshot') as capture:
+                    studio._test_draft_conditions()
+                    capture.assert_not_called()
+                message = studio.rule_test_status.text()
+                self.assertIn('1/2 conditions match', message)
+                self.assertIn('PASS', message)
+                self.assertIn('FAIL', message)
+                self.assertIn('nothing was saved or tapped', message)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), manifest)
+            finally:
+                studio.close()
 
     def test_ocr_and_color_rules_have_no_coordinate_entry(self):
         dialog = RuleEditor(frame=self.frame)
