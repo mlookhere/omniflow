@@ -118,12 +118,12 @@ def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
         difference = float(np.max(np.abs(roi.mean(axis=(0, 1)) - expected)))
         passed = difference <= tolerance
     elif kind == 'ocr':
+        expression = validate_ocr_expression(
+            condition.get('text', ''), bool(condition.get('regex')))
         region = tuple(rect)
         if region not in ocr_cache:
             ocr_cache[region] = OCREngine.read(roi)
         found = ocr_cache[region]
-        expression = validate_ocr_expression(
-            condition.get('text', ''), bool(condition.get('regex')))
         if condition.get('regex'):
             passed = re.search(expression, found, re.IGNORECASE) is not None
         else:
