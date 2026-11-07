@@ -17,6 +17,24 @@ class ADBError(RuntimeError):
     pass
 
 
+def decode_png_screenshot(payload: bytes) -> np.ndarray:
+    """Decode ADB PNG pixels identically for runtime and read-only profiling.
+
+    ADB can return diagnostics, a truncated stream or a different image
+    codec even with a zero exit code. Never treat those bytes as a frame.
+    """
+    if not isinstance(payload, bytes) or not payload.startswith(b'\x89PNG\r\n\x1a\n'):
+        raise ADBError('ADB screenshot did not contain PNG data')
+    try:
+        frame = cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
+    except (cv2.error, ValueError) as exc:
+        raise ADBError(f'ADB screenshot decode failed: {exc}') from exc
+    if (frame is None or frame.ndim != 3 or frame.shape[2] != 3 or
+            frame.dtype != np.uint8 or not frame.size):
+        raise ADBError('ADB screenshot was empty or unreadable')
+    return frame
+
+
 def bundled_adb() -> str:
     exe = Path(__file__).resolve().parents[1] / 'vendor' / 'adb.exe'
     return str(exe) if os.name == 'nt' and exe.exists() else 'adb'
@@ -105,20 +123,8 @@ class ADB:
         return self._run('connect', endpoint.strip(), device=False).decode(errors='replace').strip()
 
     def screenshot(self, *, timeout: float = 15.0) -> np.ndarray:
-        png = self._run('exec-out', 'screencap', '-p', timeout=timeout)
-        # ADB and emulator failures may return truncated data or diagnostics
-        # instead of PNG. Keep these errors recoverable by the runner's
-        # existing ADB retry/reconfirmation path, not fatal OpenCV exceptions.
-        if not png.startswith(b'\x89PNG\r\n\x1a\n'):
-            raise ADBError('ADB screenshot did not contain PNG data')
-        try:
-            frame = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
-        except (cv2.error, ValueError) as exc:
-            raise ADBError(f'ADB screenshot decode failed: {exc}') from exc
-        if (frame is None or frame.ndim != 3 or frame.shape[2] != 3 or
-                frame.dtype != np.uint8 or not frame.size):
-            raise ADBError('ADB screenshot was empty or unreadable')
-        return frame
+        payload = self._run('exec-out', 'screencap', '-p', timeout=timeout)
+        return decode_png_screenshot(payload)
 
     def size(self) -> tuple[int, int]:
         text = self._run('shell', 'wm', 'size').decode(errors='replace')

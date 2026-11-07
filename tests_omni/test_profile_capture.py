@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from tools import profile_capture as profiler
+from swordx.adb import ADBError
 
 
 class FakeDevice:
@@ -48,6 +49,34 @@ class ProfileTests(unittest.TestCase):
         self.assertAlmostEqual(sample['total_ms'], sum(sample[k] for k in
             ('adb_exec_ms', 'decode_ms', 'normalize_ms')), places=3)
         self.assertEqual(sample['decode_ms'], sample['png_decode_ms'])
+
+    def test_profiler_rejects_non_png_and_truncated_adb_packets(self):
+        device = FakeDevice('127.0.0.1:16384')
+        jpeg_ok, jpeg = cv2.imencode('.jpg', np.zeros((960, 540, 3), np.uint8))
+        self.assertTrue(jpeg_ok)
+        for payload in (b'', b'error: device offline', jpeg.tobytes(),
+                        device.png[:25]):
+            with self.subTest(payload_length=len(payload)):
+                device.png = payload
+                with self.assertRaises(ADBError):
+                    profiler.capture_frame(device)
+        # The shared decoder must never silently credit JPEG/diagnostic bytes
+        # as valid PNG frames, even if OpenCV could decode them.
+        class InvalidDevice(FakeDevice):
+            def __init__(self, serial):
+                super().__init__(serial)
+                self.png = jpeg.tobytes()
+        result = profiler.profile('127.0.0.1:16384', .2, .01, 0,
+                                  device_factory=InvalidDevice)
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['frames'], 0)
+        self.assertEqual(result['errors'], 5)
+
+    def test_profiler_converts_opencv_decode_errors_into_adb_errors(self):
+        device = FakeDevice('127.0.0.1:16384')
+        with patch('swordx.adb.cv2.imdecode', side_effect=cv2.error('bad png')):
+            with self.assertRaisesRegex(ADBError, 'decode failed'):
+                profiler.capture_frame(device)
 
     def test_native_fidelity_capture_retains_full_resolution_without_resize(self):
         source = np.zeros((1920, 1080, 3), dtype=np.uint8)

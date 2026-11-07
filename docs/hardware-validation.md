@@ -99,8 +99,10 @@ Compare `timings_ms.adb_exec_ms`, `png_decode_ms` and `normalize_ms`
 (mean and p95), plus `effective_fps` and `png_bytes_mean`. ADB exec time
 includes Android PNG encoding, ADB process startup and transport; these cannot
 be separated further by this tool. Profiling sends no game input, starts no
-H.264 encoders, and rejects invalid frames, missing devices, errors, and FPS
-below the unchanged 0.8 threshold. **This is diagnosis, not proof of a faster
+H.264 encoders, and uses the exact same strict PNG decoder as production
+screenshots: non-PNG diagnostics, truncated data and OpenCV decode failures
+cannot be counted as valid frames. Missing devices, errors, and FPS below the
+unchanged 0.8 threshold remain failures. **This is diagnosis, not proof of a faster
 capture backend or ten-instance acceptance.**
 
 ### One-command M6 PNG/raw comparison (stationary screen only)

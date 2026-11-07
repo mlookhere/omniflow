@@ -17,7 +17,7 @@ import numpy as np
 
 from omniflow.devices import Device, canonical_mumu_serial, discover_mumu
 from omniflow.raw_capture import decode_raw_screencap
-from swordx.adb import ADB
+from swordx.adb import ADB, decode_png_screenshot
 from swordx.detection import normalize
 from tools.benchmark_mumu import percentile, write_json
 
@@ -35,11 +35,9 @@ def capture_frame(device: Device, *, capture_format: str = 'png',
     args = ('exec-out', 'screencap', '-p') if capture_format == 'png' else ('exec-out', 'screencap')
     payload = device._run(*args, timeout=15)
     transferred = clock()
-    frame = (cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
-             if capture_format == 'png' else decode_raw_screencap(payload))
+    frame = (decode_png_screenshot(payload) if capture_format == 'png'
+             else decode_raw_screencap(payload))
     decoded = clock()
-    if frame is None:
-        raise ValueError('ADB returned an empty or unreadable screenshot')
     # Production performance profiling still measures normalization. Fidelity
     # comparisons must inspect every original pixel; downscaling can erase
     # fine texture or opposite checkerboards and give a false equivalence.
