@@ -11,8 +11,38 @@ import cv2
 import numpy as np
 
 from swordx.workflows import step_order
-from .engine import OmniDetector, WorkflowError
-from .visual import condition_summary
+from .engine import OmniDetector, WorkflowError, resolve_action_chain
+from .visual import action_summary, condition_summary
+
+
+def describe_selected_actions(detector: OmniDetector, key: str,
+                              trigger: int) -> list[str]:
+    """Show intended steps for the winning state, never issue input.
+
+    Text payloads may contain secrets, so report the action kind but never the
+    contents. The runner uses this same chain selector during actual execution.
+    """
+    if not key:
+        return []
+    action = detector.actions[key]
+    if action.get('passive'):
+        return ['WAIT — no input will be sent']
+    chain = resolve_action_chain(
+        action, len(detector.manifest['states'].get(key, [])), trigger)
+    steps = []
+    delay = int(action.get('pre_tap_delay_seconds', 0))
+    if delay:
+        steps.append(f'Initial delay {delay}s after stable recognition')
+    for item in chain:
+        if not isinstance(item, dict):
+            steps.append('Invalid action step — review before running')
+        elif item.get('kind') == 'text':
+            steps.append('Type text (contents hidden)')
+        elif item.get('kind') == 'field_text':
+            steps.append('Tap selected field and type text (contents hidden)')
+        else:
+            steps.append(action_summary(item))
+    return steps or ['No configured action']
 
 
 def replay_saved_captures(folder: Path) -> list[dict]:
@@ -34,6 +64,7 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             'status': 'unavailable',
             'reason': '',
             'overlaps': [],
+            'action_plan': [],
         }
         results.append(item)
         name = action.get('capture')
@@ -63,12 +94,14 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             continue
         try:
             winner, details = detector.inspect(frame)
-        except (WorkflowError, cv2.error, ValueError, KeyError) as exc:
+            plan = describe_selected_actions(detector, winner.key, winner.trigger)
+        except (WorkflowError, cv2.error, ValueError, KeyError, TypeError) as exc:
             item['status'] = 'error'
             item['reason'] = f'Recognition failed: {exc}'
             continue
         item['actual_key'] = winner.key
         item['actual'] = winner.label
+        item['action_plan'] = plan
         # A selected state can still be ambiguous. Expose other candidates
         # that passed recognition, even when the expected state won.
         item['overlaps'] = [
