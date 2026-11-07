@@ -189,17 +189,32 @@ def evaluate(results: list[DeviceResult], requested: int, min_fps: float,
     if len({result.serial for result in results}) != len(results):
         failures.append('Duplicate ADB serials detected')
     for result in results:
-        if (not math.isfinite(result.elapsed_seconds) or
-                result.elapsed_seconds < minimum_seconds):
+        elapsed, frames, errors, fps = (result.elapsed_seconds, result.frames,
+                                       result.errors, result.effective_fps)
+        if (type(elapsed) not in (int, float) or not math.isfinite(elapsed) or
+                elapsed <= 0):
+            failures.append(f'{result.serial}: invalid measured duration')
+        elif elapsed < minimum_seconds:
             failures.append(
-                f'{result.serial}: measured {result.elapsed_seconds:.3f}s; '
+                f'{result.serial}: measured {elapsed:.3f}s; '
                 f'required at least {minimum_seconds:.3f}s')
-        if result.frames == 0:
+        if type(frames) is not int or frames < 0:
+            failures.append(f'{result.serial}: invalid whole-number screenshot count')
+        elif frames == 0:
             failures.append(f'{result.serial}: no valid screenshots')
-        if result.errors:
-            failures.append(f'{result.serial}: {result.errors} capture/detector error(s)')
-        if min_fps and result.effective_fps < min_fps:
-            failures.append(f'{result.serial}: {result.effective_fps:.2f} FPS below {min_fps:.2f} minimum')
+        if type(errors) is not int or errors < 0:
+            failures.append(f'{result.serial}: invalid whole-number error count')
+        elif errors:
+            failures.append(f'{result.serial}: {errors} capture/detector error(s)')
+        if type(fps) not in (int, float) or not math.isfinite(fps) or fps < 0:
+            failures.append(f'{result.serial}: invalid capture FPS')
+        else:
+            if (type(elapsed) in (int, float) and math.isfinite(elapsed) and
+                    elapsed > 0 and type(frames) is int and frames >= 0 and
+                    abs(frames / elapsed - fps) > 0.06):
+                failures.append(f'{result.serial}: frame count and FPS disagree')
+            if min_fps and fps < min_fps:
+                failures.append(f'{result.serial}: {fps:.2f} FPS below {min_fps:.2f} minimum')
         gap = result.max_frame_gap_seconds
         if (type(gap) not in (int, float) or
                 not math.isfinite(gap) or gap < 0):
