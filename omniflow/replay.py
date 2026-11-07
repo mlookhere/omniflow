@@ -11,38 +11,38 @@ import cv2
 import numpy as np
 
 from swordx.workflows import step_order
-from .engine import OmniDetector, WorkflowError, resolve_action_chain
+from .engine import OmniDetector, WorkflowError, resolve_action_chain, validate_action
 from .visual import action_summary, condition_summary
 
 
-def describe_selected_actions(detector: OmniDetector, key: str,
-                              trigger: int) -> list[str]:
-    """Show intended steps for the winning state, never issue input.
-
-    Text payloads may contain secrets, so report the action kind but never the
-    contents. The runner uses this same chain selector during actual execution.
-    """
-    if not key:
-        return []
-    action = detector.actions[key]
+def describe_action_plan(action: dict, chain: list[dict]) -> list[str]:
+    """Validate and describe a draft or saved action sequence without input."""
     if action.get('passive'):
         return ['WAIT — no input will be sent']
-    chain = resolve_action_chain(
-        action, len(detector.manifest['states'].get(key, [])), trigger)
     steps = []
     delay = int(action.get('pre_tap_delay_seconds', 0))
     if delay:
         steps.append(f'Initial delay {delay}s after stable recognition')
     for item in chain:
-        if not isinstance(item, dict):
-            steps.append('Invalid action step — review before running')
-        elif item.get('kind') == 'text':
+        kind = validate_action(item)
+        if kind == 'text':
             steps.append('Type text (contents hidden)')
-        elif item.get('kind') == 'field_text':
+        elif kind == 'field_text':
             steps.append('Tap selected field and type text (contents hidden)')
         else:
             steps.append(action_summary(item))
     return steps or ['No configured action']
+
+
+def describe_selected_actions(detector: OmniDetector, key: str,
+                              trigger: int) -> list[str]:
+    """Preview the actual winning state using the live runner's chain resolver."""
+    if not key:
+        return []
+    action = detector.actions[key]
+    chain = resolve_action_chain(
+        action, len(detector.manifest['states'].get(key, [])), trigger)
+    return describe_action_plan(action, chain)
 
 
 def replay_saved_captures(folder: Path) -> list[dict]:
