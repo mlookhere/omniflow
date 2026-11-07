@@ -199,14 +199,14 @@ class EngineTests(unittest.TestCase):
             with patch.object(device, 'screenshot_timed',
                               return_value=(self.match.copy(),
                                             {'adb_exec_ms': 1400.0,
-                                             'png_decode_ms': 24.0})) as timed:
+                                             'png_decode_ms': 24.0}), create=True) as timed:
                 runner.step(101)
             timed.assert_called_once_with()
             self.assertEqual(runner.last_capture_stages_ms,
                              {'adb_exec_ms': 1400.0, 'png_decode_ms': 24.0})
             self.assertEqual(len(device.taps), 1)
             with patch.object(device, 'screenshot_timed',
-                              side_effect=ADBError('offline')):
+                              side_effect=ADBError('offline'), create=True):
                 with self.assertRaises(ADBError):
                     runner.step(102)
             self.assertIsNone(runner.last_capture_stages_ms)
