@@ -79,7 +79,8 @@ class CollectEvidenceTests(unittest.TestCase):
             report = json.loads((next(Path(tmp).glob('run-*')) / 'run-manifest.json').read_text())
             self.assertEqual(seen[1][seen[1].index('--instances') + 1], '10')
             self.assertEqual(seen[2][seen[2].index('--instances') + 1], '10')
-            self.assertTrue(report['ten_instance_operation_verified'])
+            self.assertFalse(report['ten_instance_operation_verified'])
+            self.assertTrue(report['ten_instance_capture_benchmark_passed'])
             self.assertIsNone(report['capacity_estimate'])
             self.assertFalse(report['hardware_acceptance_complete'])
 

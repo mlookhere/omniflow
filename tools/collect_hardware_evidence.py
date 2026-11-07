@@ -120,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         'instances_requested': args.instances,
         'projection_target_instances': 10,
         'ten_instance_operation_verified': False,
+        'ten_instance_capture_benchmark_passed': False,
         'hardware_acceptance_complete': False,
         'live_game_gestures_and_rotation_verified': False,
         'branch_protection_verified': False,
@@ -139,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest['finished_utc'] = datetime.now(timezone.utc).isoformat()
         if args.instances == 1 and manifest['steps'].get('benchmark', {}).get('passed'):
             manifest['capacity_estimate'] = estimate_ten_instance_capture(benchmark)
-        manifest['ten_instance_operation_verified'] = (
+        manifest['ten_instance_capture_benchmark_passed'] = (
             args.instances == 10 and manifest['steps'].get('benchmark', {}).get('passed', False))
         manifest['passed_read_only_checks'] = (len(manifest['steps']) == 3 and
                                                all(s['passed'] for s in manifest['steps'].values()))
