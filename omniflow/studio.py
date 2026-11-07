@@ -904,6 +904,16 @@ class OmniStudio(RecorderDialog):
             self._field_changed()
 
     def _save(self):
+        # Imported or copied chains can bypass the ActionEditor dialog.
+        # Reject malformed commands before the recorder writes any manifest.
+        if self.extra_chain is not None:
+            from .engine import WorkflowError, validate_action
+            try:
+                for step in self.extra_chain:
+                    validate_action(step)
+            except WorkflowError as exc:
+                QMessageBox.warning(self, 'Actions', str(exc))
+                return
         if self.rules_only.isChecked() and not self.extra_conditions:
             QMessageBox.warning(self,'Rules','Condition-only states require at least one condition')
             return
