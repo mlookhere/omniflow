@@ -214,8 +214,8 @@ class VisualStudioGuiTests(unittest.TestCase):
                     {'kind': 'field_text', 'point': [150, 250],
                      'text': 'secret-987'},
                 ]
-                with patch('omniflow.devices.Device.screenshot') as capture, \\
-                     patch('swordx.workflows._write_manifest') as write:
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
                     studio._preview_draft_actions()
                     capture.assert_not_called()
                     write.assert_not_called()
