@@ -207,6 +207,18 @@ files or simulates recognition/retries. Its result resets when edits change
 the draft. Windows Qt and pure tests cover valid/invalid previews, redaction,
 passive states, legacy actions and disk/device isolation.
 
+**Authoring-time recognition validation (November 7, 2026):** The shared
+`validate_condition` preflight checks OCR expressions/regex, detector kind,
+integer screenshot region, pixel location, BGR components and finite color
+tolerances without invoking OCR or examining pixels. It runs before a Studio
+Save, before unsaved condition previews (validating the full rule set before
+any OCR), and once at workflow load before real matching. This catches copied,
+imported or externally edited malformed rules, including a dangerous invalid
+negated color tolerance that could otherwise appear to pass. Errors identify
+the affected condition/state, and refused Studio saves leave the manifest,
+screenshots and anchors unchanged. Unit and offscreen Qt regressions cover bad
+regex/regions/pixels/colors/tolerances and preserved valid saved workflows.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
