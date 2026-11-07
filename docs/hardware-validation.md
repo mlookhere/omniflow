@@ -381,8 +381,11 @@ video or screenshot capture was attempted.
 
 Run the video and ten-emulator diagnostics **concurrently on the actual
 Windows/MuMu PC**, retaining both JSON outputs. Each report now records actual
-Unix start/end timestamps, and every emulator must overlap the selected-device
-video diagnostic by the full 120-second acceptance window. Two successful
+Unix start/end timestamps and every valid displayed H.264 or PNG frame time.
+Every emulator must overlap the selected-device video diagnostic by the full
+120-second acceptance window. The independent verifier checks actual **FPS
+and frame gaps inside the shared concurrent window**, not just rates averaged
+over faster, separate portions before or after the other diagnostic. Two successful
 sequential 120-second runs cannot establish concurrent capacity. To allow for
 startup and shutdown skew, start the video diagnostic in one terminal for
 150 seconds and the ten-emulator PNG benchmark in a second terminal for

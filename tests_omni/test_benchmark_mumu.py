@@ -67,6 +67,9 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIsInstance(result.started_at_unix, float)
         self.assertIsInstance(result.ended_at_unix, float)
         self.assertGreater(result.ended_at_unix, result.started_at_unix)
+        self.assertEqual(len(result.valid_frame_times_unix), result.frames)
+        self.assertTrue(all(result.started_at_unix <= x <= result.ended_at_unix
+                            for x in result.valid_frame_times_unix))
         self.assertGreaterEqual(command.call_count, result.frames)
         for call in command.call_args_list:
             self.assertEqual(call.args, ('exec-out', 'screencap', '-p'))

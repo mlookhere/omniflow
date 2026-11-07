@@ -74,6 +74,45 @@ def _window(source: Mapping, label: str, measured_seconds: float,
     return float(start), float(end)
 
 
+def _frame_timeline(source: Mapping, field: str, label: str,
+                    expected: float, window: tuple[float, float] | None,
+                    failures: list[str]) -> list[float] | None:
+    """Reject fabricated totals, missing samples or unordered capture times."""
+    times = source.get(field)
+    if not isinstance(times, list) or len(times) != expected:
+        failures.append(f'{label}: {field} missing or count disagrees with frames')
+        return None
+    if window is None:
+        return None
+    previous = window[0]
+    for t in times:
+        if (type(t) not in (int, float) or not math.isfinite(t) or
+                t <= previous or t > window[1]):
+            failures.append(f'{label}: invalid or unordered {field}')
+            return None
+        previous = t
+    return [float(t) for t in times]
+
+
+def _shared_window_rate(times: list[float], start: float, end: float,
+                        label: str, minimum_fps: float, max_gap: float,
+                        failures: list[str]) -> None:
+    """Check real frames during concurrency, not the surrounding solo run."""
+    shared = [t for t in times if start <= t <= end]
+    duration = end - start
+    if duration <= 0:
+        return
+    fps = len(shared) / duration
+    if fps < minimum_fps:
+        failures.append(
+            f'{label}: concurrent frame FPS {fps:.3f} below {minimum_fps:.3f}')
+    points = [start, *shared, end]
+    gap = max(b - a for a, b in zip(points, points[1:]))
+    if gap > max_gap:
+        failures.append(
+            f'{label}: concurrent frame gap {gap:.3f}s exceeds {max_gap:.3f}s')
+
+
 def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
                                criteria: EvidenceCriteria = EvidenceCriteria()) -> dict:
     """Verify read-only evidence; never claim untested GPU/gesture behavior.
@@ -106,6 +145,8 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     video_window = _window(video, 'video', elapsed, failures)
     fps = _number(video, 'displayed_video_fps', 'video', failures)
     frames = _count(video, 'displayed_video_frames', 'video', failures)
+    video_frames = _frame_timeline(
+        video, 'video_frame_times_unix', 'video', frames, video_window, failures)
     _count(video, 'fallback_snapshots', 'video', failures)
     preview_gap = _number(video, 'max_preview_gap_seconds', 'video', failures)
     video_gap = _number(video, 'max_video_gap_seconds', 'video', failures)
@@ -173,6 +214,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         failures.append(f'Benchmark has {len(devices)} device results, expected {criteria.instances}')
     serials: set[str] = set()
     device_windows: list[tuple[float, float]] = []
+    device_frames: list[tuple[str, list[float]]] = []
     for i, device in enumerate(devices):
         label = f'device[{i}]'
         if not isinstance(device, dict):
@@ -193,6 +235,10 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         if window is not None:
             device_windows.append(window)
         frames_captured = _count(device, 'frames', label, failures)
+        timeline = _frame_timeline(
+            device, 'valid_frame_times_unix', label, frames_captured, window, failures)
+        if timeline is not None:
+            device_frames.append((label, timeline))
         errors = _count(device, 'errors', label, failures)
         capture_fps = _number(device, 'effective_fps', label, failures)
         _number(device, 'capture_p95_ms', label, failures)
@@ -224,6 +270,14 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             failures.append(
                 f'Concurrent video and screenshot measurement overlap '
                 f'{concurrent_seconds:.2f}s below required {criteria.seconds:g}s')
+        elif video_frames is not None and len(device_frames) == criteria.instances:
+            _shared_window_rate(
+                video_frames, start, end, 'video', criteria.min_video_fps,
+                criteria.max_video_gap, failures)
+            for label, timeline in device_frames:
+                _shared_window_rate(
+                    timeline, start, end, label, criteria.min_capture_fps,
+                    MAX_FRAME_GAP_SECONDS, failures)
     elif video_window is None or len(device_windows) != criteria.instances:
         failures.append('Concurrent capture overlap cannot be established')
 

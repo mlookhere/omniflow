@@ -21,6 +21,8 @@ def samples(*, devices=10, workflow='MyWorkflow'):
         'max_error22_recovery_seconds': 2.8,
         'started_at_unix': 1_800_000_000.0,
         'ended_at_unix': 1_800_000_120.02,
+        'video_frame_times_unix': [
+            1_800_000_000.0 + (i + .5) / 25 for i in range(3000)],
     }
     benchmark = {
         'passed': True, 'requested_instances': devices,
@@ -35,6 +37,8 @@ def samples(*, devices=10, workflow='MyWorkflow'):
             'detection_p95_ms': 40 if workflow else None,
             'started_at_unix': 1_800_000_000.0,
             'ended_at_unix': 1_800_000_120.0,
+            'valid_frame_times_unix': [
+                1_800_000_000.0 + (j + .5) for j in range(120)],
         } for i in range(devices)],
     }
     return video, benchmark
@@ -50,6 +54,57 @@ class HardwareEvidenceTests(unittest.TestCase):
         self.assertTrue(result['workflow_recognition_measured'])
         self.assertFalse(result['hardware_acceptance_complete'])
         self.assertTrue(any('GPU' in x for x in result['outstanding']))
+
+    def test_global_average_cannot_hide_bad_concurrent_capture_rate(self):
+        video, bench = samples()
+        # Extend the device's solo 135-second run so it has >0.8 FPS overall,
+        # but put almost all good frames in the final 15 seconds after video.
+        device = bench['devices'][0]
+        device.update(
+            frames=120, elapsed_seconds=135, effective_fps=round(120 / 135, 3),
+            ended_at_unix=1_800_000_135.0,
+            valid_frame_times_unix=[
+                1_800_000_000.5 + i * 3 for i in range(40)] +
+                [1_800_000_120.1 + i * .15 for i in range(80)],
+            max_frame_gap_seconds=3.0,
+        )
+        # Validate both the missing-on-overlap rate and the longer solo run.
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertIn('concurrent frame FPS', ' '.join(result['failures']))
+
+    def test_missing_unordered_or_fake_frame_timelines_fail(self):
+        for field in ('video_frame_times_unix', 'valid_frame_times_unix'):
+            for case in ('missing', 'too_few', 'duplicate', 'outside', 'nan'):
+                with self.subTest(field=field, case=case):
+                    video, bench = samples()
+                    source = video if field.startswith('video') else bench['devices'][0]
+                    if case == 'missing':
+                        source.pop(field)
+                    elif case == 'too_few':
+                        source[field] = source[field][:-1]
+                    elif case == 'duplicate':
+                        source[field][1] = source[field][0]
+                    elif case == 'outside':
+                        source[field][-1] += 10
+                    else:
+                        source[field][0] = float('nan')
+                    result = evaluate_hardware_evidence(video, bench)
+                    self.assertFalse(result['passed'])
+                    self.assertIn(field, ' '.join(result['failures']))
+
+    def test_video_frames_outside_overlap_cannot_hide_stalled_shared_video(self):
+        video, bench = samples()
+        video.update(
+            elapsed_seconds=140, ended_at_unix=1_800_000_140.,
+            displayed_video_fps=round(3000 / 140, 2),
+            video_frame_times_unix=[
+                1_800_000_000.001 + i * .07 for i in range(1500)] +
+                [1_800_000_120.001 + i * .013 for i in range(1500)],
+        )
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertIn('concurrent frame', ' '.join(result['failures']))
 
     def test_video_and_capture_reports_must_actually_overlap(self):
         video, bench = samples()

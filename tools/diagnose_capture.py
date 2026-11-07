@@ -74,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     started_at_unix = time.time()
     started = time.monotonic()
     health = CaptureHealth(started)
+    video_frame_times_unix: list[float] = []
     # Qt invokes this callback on the diagnostic main thread during event polling.
     video.error.connect(lambda message: health.record_error(time.monotonic(), message))
     print(f'Read-only capture diagnostic: {serial}, {args.seconds}s.', flush=True)
@@ -86,7 +87,12 @@ def main(argv: list[str] | None = None) -> int:
         while time.monotonic() < deadline:
             app.processEvents()
             frame, kind = video.take()
-            health.observe(time.monotonic(), kind if frame is not None else None)
+            observed_at = time.monotonic()
+            observed_kind = kind if frame is not None else None
+            health.observe(observed_at, observed_kind)
+            if observed_kind == 'video':
+                video_frame_times_unix.append(
+                    started_at_unix + observed_at - started)
             if time.monotonic() - started > 3 and not video.isRunning():
                 worker_exited = True
                 break  # An unexpected worker exit must not look like a healthy preview.
@@ -104,7 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     report = {'device': serial, **health.summary(finished),
               'started_at_unix': started_at_unix,
               'ended_at_unix': ended_at_unix,
-              'preview_adb_fallback_suppressed': args.capture_worker_active}
+              'preview_adb_fallback_suppressed': args.capture_worker_active,
+              'video_frame_times_unix': video_frame_times_unix}
     failures = evaluate_capture(report, allow_snapshot_only=args.allow_snapshot_only,
                                 min_video_fps=args.min_video_fps,
                                 max_preview_gap=args.max_preview_gap)

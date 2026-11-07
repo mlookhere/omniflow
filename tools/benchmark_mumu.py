@@ -54,6 +54,7 @@ class DeviceResult:
     max_frame_gap_seconds: float | None = None
     started_at_unix: float | None = None
     ended_at_unix: float | None = None
+    valid_frame_times_unix: list[float] | None = None
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -103,6 +104,7 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     started = clock()
     deadline = started + seconds
     capture_times: list[float] = []
+    valid_frame_times_unix: list[float] = []
     detect_times: list[float] = []
     source_shape: tuple[int, int, int] | None = None
     last_valid_at = started
@@ -141,6 +143,9 @@ def measure(serial: str, seconds: float, poll_seconds: float,
             max_frame_gap = max(max_frame_gap, valid_at - last_valid_at)
             last_valid_at = valid_at
             capture_times.append(acquired - sample_started)
+            # Use the same monotonic clock as FPS/continuity, anchored to
+            # Unix time once. No extra ADB calls or per-frame wall-clock reads.
+            valid_frame_times_unix.append(started_at_unix + valid_at - started)
             consecutive_errors = 0
         except Exception as exc:
             errors += 1
@@ -168,6 +173,7 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         max_frame_gap_seconds=round(max_frame_gap, 3),
         started_at_unix=started_at_unix,
         ended_at_unix=ended_at_unix,
+        valid_frame_times_unix=valid_frame_times_unix,
     )
 
 
