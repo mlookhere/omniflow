@@ -42,13 +42,25 @@ class ProfileTests(unittest.TestCase):
         device = FakeDevice('127.0.0.1:16384')
         sample = profiler.capture_sample(device)
         self.assertEqual(device.calls, [
-            (('exec-out', 'screencap', '-p'), {'timeout': 15})])
+            (('exec-out', 'screencap', '-p'), {'timeout': 6.0})])
         self.assertGreater(sample['png_bytes'], 0)
         for key in ('adb_exec_ms', 'png_decode_ms', 'normalize_ms', 'total_ms'):
             self.assertGreaterEqual(sample[key], 0)
         self.assertAlmostEqual(sample['total_ms'], sum(sample[k] for k in
             ('adb_exec_ms', 'decode_ms', 'normalize_ms')), places=3)
         self.assertEqual(sample['decode_ms'], sample['png_decode_ms'])
+
+    def test_png_fidelity_and_profile_use_production_equivalent_timeout(self):
+        device = FakeDevice('127.0.0.1:16384')
+        frame, sample = profiler.capture_frame(device, native_pixels=True)
+        self.assertEqual(frame.shape, (960, 540, 3))
+        self.assertEqual(device.calls[-1], (
+            ('exec-out', 'screencap', '-p'), {'timeout': 6.0}))
+        self.assertGreater(sample['payload_bytes'], 0)
+        result = profiler.profile('127.0.0.1:16384', .08, .02, 0,
+                                  device_factory=FakeDevice)
+        self.assertEqual(result['adb_timeout_seconds'], 6.0)
+        self.assertEqual(result['max_capture_gap_limit_seconds'], 6.0)
 
     def test_profiler_rejects_non_png_and_truncated_adb_packets(self):
         device = FakeDevice('127.0.0.1:16384')
@@ -132,6 +144,7 @@ class ProfileTests(unittest.TestCase):
                                   capture_format='raw', device_factory=RawDevice)
         self.assertTrue(report['passed'], report['failures'])
         self.assertEqual(report['capture_format'], 'raw')
+        self.assertEqual(report['adb_timeout_seconds'], 15.0)
         self.assertIsNone(report['png_bytes_mean'])
         self.assertGreater(report['payload_bytes_mean'], 0)
         self.assertIn('raw_decode_ms', report['timings_ms'])

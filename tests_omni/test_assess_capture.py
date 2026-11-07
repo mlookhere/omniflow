@@ -17,6 +17,7 @@ def profile(kind: str, fps: float, p95: float) -> dict:
     return {
         'serial': '127.0.0.1:16640', 'read_only': True,
         'capture_format': kind,
+        'adb_timeout_seconds': 6.0 if kind == 'png' else 15.0,
         'capture_source': ('ADB exec-out screencap -p (PNG)' if kind == 'png'
                            else 'ADB exec-out screencap (raw framebuffer)'),
         'requested_seconds': seconds, 'elapsed_seconds': seconds,
@@ -72,6 +73,26 @@ class CaptureAssessmentTests(unittest.TestCase):
         raw = profile('raw', .7, 2000)
         result = assessment.assess(self.png, raw, self.fidelity)
         self.assertTrue(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_png_timeout_must_match_production_safety_budget(self):
+        for value in (None, 15.0, 6.01, 0, -1.0, float('nan'), True):
+            with self.subTest(timeout=value):
+                png = copy.deepcopy(self.png)
+                if value is None:
+                    png.pop('adb_timeout_seconds')
+                else:
+                    png['adb_timeout_seconds'] = value
+                result = assessment.assess(png, self.raw, self.fidelity)
+                self.assertFalse(result['comparison_complete'])
+                self.assertFalse(result['raw_candidate_for_further_validation'])
+                self.assertIn('timeout', ' '.join(result['failures']).lower())
+
+    def test_raw_timeout_must_be_bounded_for_diagnostic_comparison(self):
+        raw = copy.deepcopy(self.raw)
+        raw['adb_timeout_seconds'] = 30.0
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertFalse(result['comparison_complete'])
         self.assertFalse(result['raw_candidate_for_further_validation'])
 
     def test_mismatched_identity_fails_closed(self):

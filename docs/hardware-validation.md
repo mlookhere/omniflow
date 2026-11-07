@@ -17,8 +17,12 @@ PNG stage is local decoding, and the difference from total includes
 normalization. The built-in production PNG screenshot command now has a
 **6-second subprocess timeout**, matching the unchanged six-second
 frame-age limit; a timeout raises a recoverable ADB error and forces two
-fresh matching captures before further input. Other ADB operations and
-read-only 120-second PNG/raw diagnostics retain their existing timeouts.
+fresh matching captures before further input. Read-only PNG profiling now
+uses the same six-second ADB subprocess timeout and records this provenance,
+so a stalled PNG request cannot be accepted under a looser diagnostic policy.
+Raw framebuffer profiling remains separate with a 15-second diagnostic
+timeout; other ADB operations are unaffected. The independent assessor
+rejects missing or >6s PNG timeout evidence.
 This change bounds a blocked screenshot, **not** measured screenshot FPS.
 These rolling metrics are **not** sustained 120-second FPS/continuity
 acceptance tests.
@@ -44,6 +48,8 @@ Run a separate 120-second read-only profile on the same game screen:
 Compare with the normal PNG profile. Both include `timings_ms.decode_ms`,
 `adb_exec_ms`, `normalize_ms`, total timings and `payload_bytes_mean`.
 The PNG mode continues to report its legacy `png_decode_ms` and `png_bytes_mean`.
+Both modes now record `adb_timeout_seconds` (PNG 6s, raw 15s); reports
+with missing or loosened timeout provenance fail the independent assessor.
 Raw mode reports `raw_decode_ms`. Large uncompressed transfers can be
 **slower**, so never assume raw is faster or switch the production workflow
 without real, repeated device measurements and image-equivalence checks.

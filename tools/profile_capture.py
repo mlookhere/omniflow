@@ -15,25 +15,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 
-from omniflow.devices import Device, canonical_mumu_serial, discover_mumu
+from omniflow.devices import (MAX_CAPTURE_AGE_SECONDS, Device,
+                              canonical_mumu_serial, discover_mumu)
 from omniflow.raw_capture import decode_raw_screencap
 from swordx.adb import ADB, decode_png_screenshot
 from swordx.detection import normalize
 from tools.benchmark_mumu import percentile, write_json
 
 
-MAX_CAPTURE_GAP_SECONDS = 6.0  # Matches the existing runner input-freshness limit.
+MAX_CAPTURE_GAP_SECONDS = MAX_CAPTURE_AGE_SECONDS
+# Raw framebuffer capture is diagnostic only, not used to authorize input.
+RAW_DIAGNOSTIC_TIMEOUT_SECONDS = 15.0
+
+
+def capture_timeout(capture_format: str) -> float:
+    if capture_format == 'png':
+        return MAX_CAPTURE_AGE_SECONDS
+    if capture_format == 'raw':
+        return RAW_DIAGNOSTIC_TIMEOUT_SECONDS
+    raise ValueError(f'Unsupported capture format: {capture_format}')
 
 
 def capture_frame(device: Device, *, capture_format: str = 'png',
                   native_pixels: bool = False,
                   clock: Callable[[], float] = time.monotonic) -> tuple[np.ndarray, dict]:
     """Capture pixels with stage timings; preserve full source only for fidelity checks."""
-    if capture_format not in ('png', 'raw'):
-        raise ValueError(f'Unsupported capture format: {capture_format}')
+    timeout = capture_timeout(capture_format)
     started = clock()
     args = ('exec-out', 'screencap', '-p') if capture_format == 'png' else ('exec-out', 'screencap')
-    payload = device._run(*args, timeout=15)
+    payload = device._run(*args, timeout=timeout)
     transferred = clock()
     frame = (decode_png_screenshot(payload) if capture_format == 'png'
              else decode_raw_screencap(payload))
@@ -135,6 +145,7 @@ def profile(serial: str, seconds: float, poll: float, min_fps: float,
         'serial': serial,
         'read_only': True,
         'capture_format': capture_format,
+        'adb_timeout_seconds': capture_timeout(capture_format),
         'capture_source': ('ADB exec-out screencap -p (PNG)' if capture_format == 'png'
                            else 'ADB exec-out screencap (raw framebuffer)'),
         'requested_seconds': seconds,

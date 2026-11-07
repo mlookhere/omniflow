@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from omniflow.devices import canonical_mumu_serial
+from omniflow.devices import MAX_CAPTURE_AGE_SECONDS, canonical_mumu_serial
 from swordx.adb import ADB
 from tools.benchmark_mumu import write_json
 
@@ -38,6 +38,13 @@ def _profile(report: dict, capture_format: str) -> tuple[str, float, float, floa
         raise ValueError(f'{capture_format}: profile is not an object')
     if report.get('read_only') is not True or report.get('capture_format') != capture_format:
         raise ValueError(f'{capture_format}: incorrect source or missing read-only provenance')
+    timeout = _number(report.get('adb_timeout_seconds'),
+                      f'{capture_format} ADB timeout', positive=True)
+    limit = MAX_CAPTURE_AGE_SECONDS if capture_format == 'png' else 15.0
+    if timeout > limit:
+        raise ValueError(
+            f'{capture_format}: ADB screenshot timeout exceeds '
+            f'{limit:.0f}-second source policy')
     serial = report.get('serial')
     if not isinstance(serial, str) or not ADB.is_mumu_serial(serial):
         raise ValueError(f'{capture_format}: missing or invalid MuMu ADB serial')
