@@ -221,6 +221,24 @@ def validate_recognition_manifest(manifest: dict) -> None:
                 validate_condition(rule)
             except WorkflowError as exc:
                 raise WorkflowError(f'{prefix}, condition {index}: {exc}') from exc
+        for index, probe in enumerate(probes, 1):
+            description = f'{prefix}, template {index}'
+            if not isinstance(probe, dict):
+                raise WorkflowError(f'{description}: image probe must be an object')
+            name = probe.get('file')
+            if (not isinstance(name, str) or not name or
+                    name in ('.', '..') or '/' in name or '\\' in name or
+                    ':' in name or '\x00' in name):
+                raise WorkflowError(f'{description}: unsafe anchor filename')
+            rect = probe.get('rect')
+            if (not isinstance(rect, (list, tuple)) or len(rect) != 4 or
+                    any(type(v) is not int for v in rect)):
+                raise WorkflowError(
+                    f'{description}: image region needs four integer coordinates')
+            x1, y1, x2, y2 = rect
+            if not (0 <= x1 < x2 <= SIZE[0] and 0 <= y1 < y2 <= SIZE[1]):
+                raise WorkflowError(
+                    f'{description}: image region is outside the normalized screen')
         if action.get('skip_template'):
             if not conditions:
                 raise WorkflowError(
@@ -244,6 +262,16 @@ class OmniDetector:
         validate_recognition_manifest(self.manifest)
         self.actions = self.manifest['actions']
         self.threshold = float(self.manifest.get('threshold', 0.82))
+        # Check path containment before invoking either the legacy or mixed
+        # template loader. Neither can safely consume untrusted paths itself.
+        anchors_root = (self.folder / 'anchors').resolve()
+        for key, probes in self.manifest['states'].items():
+            for index, probe in enumerate(probes, 1):
+                path = self.folder / 'anchors' / probe['file']
+                if not path.resolve().is_relative_to(anchors_root):
+                    raise WorkflowError(
+                        f'State {self.actions[key].get("label", key)!r}, '
+                        f'template {index}: anchor resolves outside workflow')
         self.legacy = ScreenDetector(folder) if all(self.manifest['states'].values()) else None
         self.templates = {} if self.legacy is None else self.legacy.templates
         if self.legacy is None:
@@ -258,6 +286,14 @@ class OmniDetector:
                     if image is None:
                         raise WorkflowError(f'Missing template: {file}')
                     self.templates[key].append(Anchor(image, tuple(probe['rect'])))
+        for key, anchors in self.templates.items():
+            for index, anchor in enumerate(anchors, 1):
+                x1, y1, x2, y2 = anchor.rect
+                if (anchor.gray.ndim != 2 or anchor.gray.dtype != np.uint8 or
+                        anchor.gray.shape != (y2 - y1, x2 - x1)):
+                    raise WorkflowError(
+                        f'State {self.actions[key].get("label", key)!r}, '
+                        f'template {index}: saved image size differs from its region')
         if not self.actions:
             raise WorkflowError('The workflow contains no recorded states')
         self._previous = ''
