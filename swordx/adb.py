@@ -106,8 +106,17 @@ class ADB:
 
     def screenshot(self, *, timeout: float = 15.0) -> np.ndarray:
         png = self._run('exec-out', 'screencap', '-p', timeout=timeout)
-        frame = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
-        if frame is None:
+        # ADB and emulator failures may return truncated data or diagnostics
+        # instead of PNG. Keep these errors recoverable by the runner's
+        # existing ADB retry/reconfirmation path, not fatal OpenCV exceptions.
+        if not png.startswith(b'\x89PNG\r\n\x1a\n'):
+            raise ADBError('ADB screenshot did not contain PNG data')
+        try:
+            frame = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
+        except (cv2.error, ValueError) as exc:
+            raise ADBError(f'ADB screenshot decode failed: {exc}') from exc
+        if (frame is None or frame.ndim != 3 or frame.shape[2] != 3 or
+                frame.dtype != np.uint8 or not frame.size):
             raise ADBError('ADB screenshot was empty or unreadable')
         return frame
 
