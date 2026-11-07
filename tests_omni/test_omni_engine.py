@@ -766,6 +766,44 @@ class EngineTests(unittest.TestCase):
         self.assertIsNone(states[0]['condition_results'])
         self.assertTrue(states[0]['has_template'])
 
+    def test_invalid_recognition_rules_fail_before_ocr_or_saved_runtime(self):
+        from omniflow.engine import preview_conditions, validate_condition
+        valid_ocr = {'type': 'ocr', 'rect': [155, 712, 434, 810],
+                     'text': 'READY'}
+        invalid = [
+            ({'type': 'ocr', 'rect': [155, 712, 434, 810],
+              'text': '[', 'regex': True}, 'regular expression'),
+            ({'type': 'ocr', 'rect': [0, 0, 0, 20],
+              'text': 'READY'}, 'outside the normalized screen'),
+            ({'type': 'pixel', 'point': [540, 200],
+              'bgr': [50, 60, 70]}, 'Selected pixel'),
+            ({'type': 'color', 'bgr': [50, 60]}, 'three BGR'),
+            ({'type': 'color', 'bgr': [50, 60, 256]}, 'three BGR'),
+            ({'type': 'color', 'bgr': [50, 60, 70],
+              'tolerance': float('nan')}, 'finite number'),
+            ({'type': 'color', 'bgr': [50, 60, 70],
+              'tolerance': -1, 'negate': True}, 'finite number'),
+            ({'type': 'unknown', 'rect': [1, 1, 30, 30]},
+             'Unknown detector type'),
+        ]
+        for rule, error in invalid:
+            with self.subTest(rule=rule):
+                with self.assertRaisesRegex(WorkflowError, error):
+                    validate_condition(rule)
+                # Validate the whole draft first: a previous OCR rule cannot
+                # trigger any inference before a later broken rule is rejected.
+                with patch('omniflow.engine.OCREngine.read') as ocr:
+                    with self.assertRaisesRegex(WorkflowError, error):
+                        preview_conditions(self.match, [valid_ocr, rule])
+                    ocr.assert_not_called()
+                self.change(self.key, conditions=[rule])
+                with self.assertRaisesRegex(
+                        WorkflowError, 'State .Match., condition 1'):
+                    OmniDetector(self.folder)
+        self.change(self.key, conditions=[valid_ocr])
+        detector = OmniDetector(self.folder)
+        self.assertIn(self.key, detector.actions)
+
     def test_condition_only_ocr_state_and_negation(self):
         self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[155,712,434,810], 'text':'PLAY'}])
         with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
