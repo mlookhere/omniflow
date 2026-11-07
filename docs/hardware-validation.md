@@ -37,6 +37,10 @@ A frame that becomes older than six seconds during OCR is rejected before
 it reaches live capture telemetry; another check after preview publication
 still prevents slow callbacks from authorizing stale input. Such stale
 observations reset recognition and capture-stage latency state.
+Every Android tap, swipe, key, text entry and workflow launch now rechecks
+screenshot age immediately before dispatch, including the first command.
+Delayed coordinate preparation cannot authorize input from expired pixels.
+This is simulated input safety validation, not a physical game-input test.
 They are **not** strict hardware acceptance: a full unbroken 120-second
 benchmark, explicit failure accounting, ten-device contention and real-game
 input/recovery tests are still required.

@@ -300,6 +300,11 @@ class OmniRunner:
                 f'Captured frame is stale during input ({age:.2f}s > '
                 f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing further input')
 
+    def _require_device_input(self) -> None:
+        """Validate ownership and capture age immediately before Android I/O."""
+        self._require_action_permission()
+        self._require_fresh_capture()
+
     def _execute(self, action: dict, now: float) -> bool:
         # Every step must retain session ownership, including waits, dry runs
         # and run counters that do not send Android commands.
@@ -323,12 +328,11 @@ class OmniRunner:
             return True
         if kind in ('tap', 'double_tap'):
             x, y = self._map_point(action['point'])
-            self._require_action_permission()
+            self._require_device_input()
             self.device.tap(x, y)
             if kind == 'double_tap':
-                # Device ownership may be revoked between the two touches.
-                self._require_action_permission()
-                self._require_fresh_capture()
+                # Recheck ownership and freshness before a follow-up touch.
+                self._require_device_input()
                 self.device.tap(x, y)
         elif kind in ('drag', 'swipe', 'hold'):
             start = self._map_point(action.get('start', action.get('point')))
@@ -336,13 +340,13 @@ class OmniRunner:
             duration = int(action.get('duration_ms', 650))
             if not 50 <= duration <= 10000:
                 raise WorkflowError('Gesture duration must be 50–10000 ms')
-            self._require_action_permission()
+            self._require_device_input()
             self.device.swipe(*start, *end, duration)
         elif kind == 'key':
             code = int(action.get('code', 4))
             if not 0 <= code <= 300:
                 raise WorkflowError('Invalid Android key event')
-            self._require_action_permission()
+            self._require_device_input()
             self.device.keyevent(code)
         elif kind in ('text', 'field_text'):
             text = str(action.get('text', ''))
@@ -350,14 +354,12 @@ class OmniRunner:
                 # Select the recorded input field; check ownership again before
                 # the second command so lease revocation never types into it.
                 x, y = self._map_point(action['point'])
-                self._require_action_permission()
+                self._require_device_input()
                 self.device.tap(x, y)
-            self._require_action_permission()
-            if kind == 'field_text':
-                self._require_fresh_capture()
+            self._require_device_input()
             self.device.input_text(text)
         elif kind == 'launch':
-            self._require_action_permission()
+            self._require_device_input()
             self.device.launch(self.package)
         elif kind == 'count_run':
             self._finish_run()

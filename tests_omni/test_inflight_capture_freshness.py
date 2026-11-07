@@ -54,6 +54,54 @@ class InFlightFreshnessTests(unittest.TestCase):
         runner = OmniRunner(device, self.folder, 'com.game')
         return runner, device, clock
 
+    def test_slow_mapping_refuses_first_tap_then_rearms(self):
+        runner, device, clock = self.runner(
+            {'kind': 'tap', 'point': [290, 770]}, tap_delay=0.0)
+        with patch('omniflow.engine.time.monotonic',
+                   side_effect=lambda: clock[0]), \
+             patch.object(runner.detector, 'detect',
+                          return_value=Match(self.key, 'Match', 1.0)):
+            runner.step(100)
+            original = runner._map_point
+
+            def slow_mapping(point):
+                position = original(point)
+                clock[0] += 7.0
+                return position
+
+            with patch.object(runner, '_map_point', side_effect=slow_mapping):
+                with self.assertRaisesRegex(ADBError, 'stale during input'):
+                    runner.step(101)
+            self.assertEqual(device.taps, [])
+            self.assertEqual(runner._streak, 0)
+            self.assertEqual(runner.current, '')
+            runner.step(102)
+            self.assertEqual(device.taps, [])
+            runner.step(103)
+        self.assertEqual(len(device.taps), 1)
+
+    def test_slow_swipe_mapping_refuses_first_gesture(self):
+        runner, device, clock = self.runner(
+            {'kind': 'swipe', 'start': [290, 770], 'end': [300, 700],
+             'duration_ms': 650}, tap_delay=0.0)
+        with patch('omniflow.engine.time.monotonic',
+                   side_effect=lambda: clock[0]), \
+             patch.object(runner.detector, 'detect',
+                          return_value=Match(self.key, 'Match', 1.0)):
+            runner.step(100)
+            original = runner._map_point
+
+            def slow_mapping(point):
+                clock[0] += 3.6
+                return original(point)
+
+            with patch.object(runner, '_map_point', side_effect=slow_mapping), \
+                 patch.object(device, 'swipe', create=True) as swipe:
+                with self.assertRaisesRegex(ADBError, 'stale during input'):
+                    runner.step(101)
+                swipe.assert_not_called()
+            self.assertEqual(runner._streak, 0)
+
     def test_stalled_first_double_tap_rearms_before_second_touch(self):
         runner, device, clock = self.runner(
             {'kind': 'double_tap', 'point': [290, 770]}, tap_delay=7.0)

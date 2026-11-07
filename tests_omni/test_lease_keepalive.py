@@ -151,6 +151,7 @@ class ActionLeaseGuards(unittest.TestCase):
         runner = OmniRunner(device, self.folder, 'com.example.game',
                             can_act=lambda: next(allowed))
         runner.device_size = (540,960)
+        runner.last_capture_started_at = time.monotonic()
         with self.assertRaisesRegex(WorkflowError, 'refusing input'):
             runner._execute({'kind':'double_tap','point':[200,200]}, 100)
         device.tap.assert_called_once()
