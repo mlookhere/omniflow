@@ -187,6 +187,63 @@ class EngineTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'invalid workflow code'):
                 runner.step(100)
 
+    def test_stale_game_status_probe_rearms_before_relaunch(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        clock = [100.0]
+        unknown = Match('', 'Unknown', 0.0)
+        def running(package):
+            if clock[0] == 114.0:
+                clock[0] += 7.0  # ADB app-status probe exceeds freshness.
+            return False
+        with patch.object(device, 'foreground', return_value='com.other.app'), \
+             patch.object(device, 'running', side_effect=running), \
+             patch.object(runner.detector, 'detect', return_value=unknown), \
+             patch('omniflow.engine.time.monotonic',
+                   side_effect=lambda: clock[0]):
+            for now in (100, 101, 102, 103):
+                runner.step(now)
+            self.assertEqual(runner.missing_since, 103)
+            clock[0] = 114.0
+            with self.assertRaisesRegex(ADBError, 'stale during input'):
+                runner.step(114)
+            self.assertEqual(device.launches, [])
+            self.assertIsNone(runner.missing_since)
+            self.assertEqual(runner._streak, 0)
+            self.assertEqual(runner.unknown_count, 0)
+            self.assertIsNone(runner.last_frame)
+            self.assertIsNone(runner.last_capture_latency_ms)
+            for now in (125, 126, 127, 128):
+                clock[0] = float(now)
+                runner.step(now)
+            self.assertEqual(runner.missing_since, 128)
+            self.assertEqual(device.launches, [])
+            clock[0] = 139.0
+            runner.step(139)
+        self.assertEqual(device.launches, ['com.game.demo'])
+        self.assertIsNone(runner.missing_since)
+        self.assertEqual(runner._streak, 0)
+        self.assertIsNone(runner.last_frame)
+        self.assertIsNone(runner.last_capture_latency_ms)
+
+    def test_game_relaunch_still_requires_fresh_proof_and_respects_disable(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        runner.last_capture_started_at = 125.0
+        with patch.object(device, 'foreground', return_value='com.other.app'), \
+             patch.object(device, 'running', return_value=False), \
+             patch('omniflow.engine.time.monotonic', return_value=125.0):
+            runner._monitor_game(100)
+            runner._monitor_game(125)
+        self.assertEqual(device.launches, ['com.game.demo'])
+        self.assertIsNone(runner.missing_since)
+        self.assertEqual(runner._streak, 0)
+        other = OmniRunner(Device(self.match), self.folder, 'com.game.demo',
+                           auto_relaunch=False)
+        other._monitor_game(100)
+        other._monitor_game(125)
+        self.assertEqual(other.device.launches, [])
+
     def test_titlebar_cropped_screenshot_maps_touch_swipe_and_field_focus(self):
         from swordx.detection import capture_crop_top, normalize
         screenshot = np.zeros((1369, 749, 3), np.uint8)

@@ -43,6 +43,11 @@ Delayed coordinate preparation cannot authorize input from expired pixels.
 Transient OpenCV recognition or thumbnail-processing errors also discard
 the current frame and recognition sequence and enter the existing bounded
 ADB/capture retry path; non-image programming errors are not suppressed.
+Automatic game relaunch also checks screenshot age **after** its ADB
+foreground/process probes and **before** issuing a launch; delayed or failed
+probes discard stale stopped-app evidence and require new observations.
+Successful relaunches reset the old recognition chain. These are simulated
+safety and recovery tests, not measured Windows/MuMu crash-relaunch proof.
 This is simulated input safety validation, not a physical game-input test.
 They are **not** strict hardware acceptance: a full unbroken 120-second
 benchmark, explicit failure accounting, ten-device contention and real-game

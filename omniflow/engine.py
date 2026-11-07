@@ -392,11 +392,16 @@ class OmniRunner:
             self.missing_since = now
             return
         if now - self.missing_since >= 10 and now - self.last_launch >= 25:
-            self._require_action_permission()
+            # Foreground and process probes are ADB operations themselves.
+            # Never relaunch using an observation that aged out during them.
+            self._require_device_input()
             self.log(f'{self.package}: confirmed stopped; relaunching via ADB')
             self.device.launch(self.package)
             self.last_launch = now
             self.missing_since = None
+            # The game may have changed screen while launching. Reconfirm
+            # with two new captures before any subsequent workflow input.
+            self._discard_capture(now)
 
     def _invalidate_visual_state(self, now: float) -> None:
         """A failed I/O attempt makes the previous state/action progress uncertain.
@@ -538,7 +543,14 @@ class OmniRunner:
         if not observation.key:
             self.unknown_count += 1
             if self.unknown_count >= 3:
-                self._monitor_game(now)
+                try:
+                    self._monitor_game(now)
+                except (ADBError, OSError):
+                    # A failed app probe or stale relaunch invalidates the
+                    # previous stopped-game evidence and capture state.
+                    self._discard_capture(now)
+                    self.missing_since = None
+                    raise
             return observation
         self.unknown_count = 0
         action = self.detector.actions[observation.key]
