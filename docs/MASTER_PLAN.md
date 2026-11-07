@@ -80,6 +80,16 @@ existing tests and documented minimums. Do not claim hardware acceptance, change
 required CI gates or merge into an unprotected `dev` branch on the strength of
 Studio-only tests.
 
+**Studio recognition-inspection implementation (current work branch):** The
+saved-workflow read-only test now shares the exact production detector path and
+shows, per saved state, image-threshold rejection, unevaluated conditions,
+individual OCR/pixel/color/negative condition PASS/FAIL, the chosen state and
+other matching states overridden by a passive WAIT or rank. The unsaved-rule
+preview remains separate: it tests the current WHEN rules on a screenshot but
+cannot claim that a whole workflow or edited unsaved template would be selected.
+Neither test sends Android input or writes workflow data. Next work should
+improve trace clarity and inline visual editing rather than multi-device scaling.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
