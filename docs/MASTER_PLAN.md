@@ -152,6 +152,19 @@ requires two fresh matching observations, active device ownership and any
 configured timing before an input command. Tests verify alternate-anchor
 selection, action-chain precedence, WAIT override, step order and text redaction.
 
+**Unsaved Studio editing history (current iteration):** WHEN conditions,
+condition-only recognition mode and THEN action steps now support a bounded
+30-edit **Undo / Redo** history. Adding, changing, deleting, reordering and
+resetting rules or actions can be reversed without re-recording a screen or
+writing workflow files. Rule and action selections remain visible after list
+refreshes. History is scoped to the currently edited state, is cleared after
+a successful Save, New State or state switch, and is preserved if an unsaved
+transition is canceled. Undo/redo does not roll back screenshot geometry,
+timing/retry fields or workflow-level changes; conservative unsaved-change
+prompts remain enabled. Qt tests cover condition toggles, action reorder/reset,
+selection restoration and save boundaries. This is draft-only undo, not a
+persistent version history.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
