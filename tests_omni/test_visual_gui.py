@@ -15,7 +15,8 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSpinBox
-    from omniflow.studio import ActionEditor, RuleEditor, ZoneCaptureDialog, OmniStudio
+    from omniflow.studio import (ActionEditor, RuleEditor, ZoneCaptureDialog,
+                                 OmniStudio, ReplayResultsDialog)
     from swordx.workflows import create_workflow, record_step
     QT = True
 except ImportError:
@@ -234,23 +235,40 @@ class VisualStudioGuiTests(unittest.TestCase):
                       folder.rglob('*') if p.is_file()}
             studio = OmniStudio('127.0.0.1:16384', 'ReplayOffline', base=root)
             try:
-                with patch('omniflow.studio.QMessageBox') as box, \
+                with patch.object(ReplayResultsDialog, 'exec') as shown, \
                      patch('omniflow.devices.Device.screenshot') as capture:
                     studio._replay_saved_screenshots()
                     capture.assert_not_called()
-                dialog = box.return_value
-                self.assertIn('1/1 readable screenshots',
-                              dialog.setText.call_args.args[0])
-                self.assertIn('no actions, timing, or emulator input',
-                              dialog.setInformativeText.call_args.args[0])
-                self.assertIn('MATCHED · Recorded screen',
-                              dialog.setDetailedText.call_args.args[0])
-                dialog.exec.assert_called_once()
+                    shown.assert_called_once()
                 self.assertEqual(
                     before, {p.relative_to(folder): p.read_bytes()
                              for p in folder.rglob('*') if p.is_file()})
             finally:
                 studio.close()
+
+    def test_replay_dialog_shows_overlaps_without_hiding_failing_states(self):
+        rows = [
+            {'expected': 'Waiting for match', 'status': 'matched',
+             'actual': 'Waiting for match', 'reason': 'Recorded state selected',
+             'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}]},
+            {'expected': 'Press Match', 'status': 'different',
+             'actual': 'Waiting for match', 'reason': 'overridden by WAIT',
+             'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}]},
+            {'expected': 'Legacy state', 'status': 'unavailable',
+             'actual': '', 'reason': 'No saved screenshot',
+             'overlaps': []},
+        ]
+        dialog = ReplayResultsDialog(rows)
+        self.addCleanup(dialog.close)
+        self.assertIn('1/2 readable screenshots', dialog.summary.text())
+        self.assertIn('2 with overlapping matches', dialog.counts.text())
+        self.assertIn('1 unavailable', dialog.counts.text())
+        self.assertEqual(dialog.table.rowCount(), 3)
+        self.assertEqual(dialog.table.item(0, 1).text(), 'MATCHED')
+        self.assertEqual(dialog.table.item(0, 3).text(), 'Press Match')
+        self.assertEqual(dialog.table.item(1, 1).text(), 'DIFFERENT')
+        self.assertEqual(dialog.table.item(1, 4).text(), 'overridden by WAIT')
+        self.assertEqual(dialog.table.item(2, 1).text(), 'UNAVAILABLE')
 
     def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
         from swordx import workflows
