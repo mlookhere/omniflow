@@ -250,7 +250,8 @@ class VisualStudioGuiTests(unittest.TestCase):
         rows = [
             {'expected': 'Waiting for match', 'status': 'matched',
              'actual': 'Waiting for match', 'reason': 'Recorded state selected',
-             'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}]},
+             'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}],
+             'action_plan': ['WAIT — no input will be sent']},
             {'expected': 'Press Match', 'status': 'different',
              'actual': 'Waiting for match', 'reason': 'overridden by WAIT',
              'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}]},
@@ -264,6 +265,10 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertIn('2 with overlapping matches', dialog.counts.text())
         self.assertIn('1 unavailable', dialog.counts.text())
         self.assertEqual(dialog.table.rowCount(), 3)
+        self.assertEqual(dialog.table.columnCount(), 6)
+        self.assertEqual(dialog.table.item(0, 5).text(),
+                         'WAIT — no input will be sent')
+        self.assertEqual(dialog.table.item(1, 5).text(), '—')
         self.assertEqual(dialog.table.item(0, 1).text(), 'MATCHED')
         self.assertEqual(dialog.table.item(0, 3).text(), 'Press Match')
         self.assertEqual(dialog.table.item(1, 1).text(), 'DIFFERENT')
