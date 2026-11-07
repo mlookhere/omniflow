@@ -126,12 +126,16 @@ class VisualStudioGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             folder = create_workflow('SavedInspect', root)
-            record_step(folder, 'Recognized state', self.frame,
+            # Recorded image anchors require distinctive artwork; a flat
+            # screenshot is intentionally rejected by the real recorder.
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Recognized state', image,
                         [(100, 200, 230, 300)], taps=[(150, 250)])
             manifest = (folder / 'manifest.json').read_bytes()
             studio = OmniStudio('', 'SavedInspect', base=root)
             try:
-                studio.canvas.load(self.frame)
+                studio.canvas.load(image)
                 with patch('omniflow.studio.QMessageBox') as box, \
                      patch('omniflow.devices.Device.screenshot') as capture:
                     studio._test_detection()
