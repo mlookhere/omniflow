@@ -16,7 +16,7 @@ try:
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QLabel, QSpinBox
     from omniflow.studio import ActionEditor, RuleEditor, ZoneCaptureDialog, OmniStudio
-    from swordx.workflows import create_workflow
+    from swordx.workflows import create_workflow, record_step
     QT = True
 except ImportError:
     QT = False
@@ -118,6 +118,30 @@ class VisualStudioGuiTests(unittest.TestCase):
                 self.assertIn('PASS', message)
                 self.assertIn('FAIL', message)
                 self.assertIn('nothing was saved or tapped', message)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), manifest)
+            finally:
+                studio.close()
+
+    def test_saved_studio_inspection_explains_states_without_input_or_save(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('SavedInspect', root)
+            record_step(folder, 'Recognized state', self.frame,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'SavedInspect', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                with patch('omniflow.studio.QMessageBox') as box, ${'\'}
+                     patch('omniflow.devices.Device.screenshot') as capture:
+                    studio._test_detection()
+                    capture.assert_not_called()
+                info = box.return_value
+                self.assertIn('No actions were executed', info.setInformativeText.call_args.args[0])
+                details = info.setDetailedText.call_args.args[0]
+                self.assertIn('Recognized state: selected', details)
+                self.assertIn('Image ', details)
+                info.exec.assert_called_once()
                 self.assertEqual((folder / 'manifest.json').read_bytes(), manifest)
             finally:
                 studio.close()
