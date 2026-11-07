@@ -620,8 +620,8 @@ class VisualStudioGuiTests(unittest.TestCase):
                     with self.subTest(rule=bad_rule):
                         studio.extra_conditions = [bad_rule]
                         studio._field_changed()
-                        with patch('omniflow.studio.QMessageBox.warning') as warn, \\
-                             patch('swordx.workflows._write_manifest') as write:
+                        with (patch('omniflow.studio.QMessageBox.warning') as warn,
+                              patch('swordx.workflows._write_manifest') as write):
                             studio._save()
                             warn.assert_called_once()
                             write.assert_not_called()
