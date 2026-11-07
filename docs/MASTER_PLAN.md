@@ -140,6 +140,18 @@ not automatically a replay failure, because the normal priority ordering still
 chooses one state. The audit only inspects static saved captures; it does not
 predict state transitions or change runtime tap behavior.
 
+**Selected-state action preview (current iteration):** Saved screenshot replay
+now shows the *intended* action sequence for whichever state actually wins,
+rather than for the recorded state's label. The runner and audit share one
+resolver for modern sequential actions, older single gestures and historical
+two-anchor alternative taps. A winning passive WAIT explicitly previews *no
+input*, and text content is hidden to avoid exposing field values. The visible
+audit includes configured initial delay and step order; it does **not** execute
+actions, type text, count a run or simulate retries. Physical execution still
+requires two fresh matching observations, active device ownership and any
+configured timing before an input command. Tests verify alternate-anchor
+selection, action-chain precedence, WAIT override, step order and text redaction.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
