@@ -598,6 +598,83 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(device.swipes,[(100,100,100,300,650),(200,400,200,400,700)])
         self.assertEqual(device.keys,[4]);self.assertEqual(device.texts,['hi world']);self.assertEqual(runs,[1])
 
+    def test_dry_run_rejects_unsupported_and_malformed_actions_without_io(self):
+        device = Device(self.match)
+        messages = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            dry_run=True, log=messages.append)
+        runner.last_observation = Match(self.key, 'Match', 1.0)
+        invalid = [
+            {'kind': 'teleport', 'point': [100, 200]},
+            {'kind': 'tap'},
+            {'kind': 'tap', 'point': [800, 200]},
+            {'kind': 'swipe', 'start': [100, 200], 'end': [200, 300],
+             'duration_ms': 10001},
+            {'kind': 'hold', 'point': [100, 200], 'duration_ms': 20},
+            {'kind': 'key', 'code': 999},
+            {'kind': 'field_text', 'text': 'hello', 'point': [900, 200]},
+            {'kind': 'field_text', 'text': 'not;safe', 'point': [200, 300]},
+            {'kind': 'wait', 'seconds': -1},
+            {'kind': 'wait', 'seconds': float('nan')},
+        ]
+        for action in invalid:
+            with self.subTest(action=action):
+                with self.assertRaises(WorkflowError):
+                    runner._execute(action, 100)
+                self.assertEqual(runner.chain_index, 0)
+        self.assertEqual(messages, [])
+        self.assertEqual(device.taps, [])
+        self.assertEqual(device.swipes, [])
+        self.assertEqual(device.keys, [])
+        self.assertEqual(device.texts, [])
+        self.assertEqual(device.launches, [])
+
+    def test_dry_run_traces_each_step_waits_and_redacts_text(self):
+        secret = 'account-private-42'
+        self.change(self.key, action_chain=[
+            {'kind': 'tap', 'point': [200, 400]},
+            {'kind': 'wait', 'seconds': 2},
+            {'kind': 'field_text', 'point': [200, 400], 'text': secret},
+            {'kind': 'count_run'},
+        ])
+        device = Device(self.match)
+        logs, runs = [], []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            log=logs.append, completed=runs.append,
+                            dry_run=True)
+        runner.step(100)
+        runner.step(101)
+        runner.step(102)
+        runner.step(103)
+        self.assertEqual(runner.chain_index, 2)
+        runner.step(104)
+        runner.step(105)
+        traces = [message for message in logs if message.startswith('DRY RUN:')]
+        self.assertEqual(len(traces), 4)
+        for index, kind in enumerate(('tap', 'wait', 'field_text', 'count_run'), 1):
+            self.assertIn(f'step {index} on Match: {kind}', traces[index - 1])
+            self.assertIn('no input', traces[index - 1])
+        self.assertNotIn(secret, repr(logs))
+        self.assertEqual(device.taps, [])
+        self.assertEqual(device.swipes, [])
+        self.assertEqual(device.keys, [])
+        self.assertEqual(device.texts, [])
+        self.assertEqual(device.launches, [])
+        self.assertEqual(runner.runs, 0)
+        self.assertEqual(runs, [])
+
+    def test_live_run_validates_action_before_any_device_input(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        runner.device_size = (2160, 3840)
+        runner.last_capture_started_at = 100.0
+        with patch('omniflow.engine.time.monotonic', return_value=100.0):
+            with self.assertRaisesRegex(WorkflowError, 'Invalid field_text'):
+                runner._execute(
+                    {'kind': 'field_text', 'point': [900, 200], 'text': 'valid'}, 100)
+        self.assertEqual(device.taps, [])
+        self.assertEqual(device.texts, [])
+
     def test_field_text_taps_and_types_with_normalized_coordinates(self):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')
