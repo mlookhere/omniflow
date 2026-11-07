@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from omniflow.devices import Device, discover_mumu
+from omniflow.devices import Device, canonical_mumu_serial, discover_mumu
+from swordx.adb import ADB
 from omniflow.resources import HostResourceMonitor
 from swordx.detection import normalize
 
@@ -166,6 +167,7 @@ def write_json(path: Path, payload: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--instances', type=int, default=10, help='Exact number of required devices (1–10)')
+    parser.add_argument('--serial', default='', help='MuMu device to include first; fail if absent')
     parser.add_argument('--seconds', type=int, default=30, help='Read-only test duration (3–300)')
     parser.add_argument('--poll', type=float, default=0.9, help='Per-device capture period in seconds (>= 0.35)')
     parser.add_argument('--workflow', type=Path, help='Optional workflow folder for actual recognition load')
@@ -193,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = {
         'requested_instances': args.instances,
+        'requested_serial': args.serial or None,
         'tested_instances': 0,
         'discovered_instances': 0,
         'duration_seconds': args.seconds,
@@ -213,13 +216,29 @@ def main(argv: list[str] | None = None) -> int:
         print(message, file=sys.stderr)
         return 1
 
+    if args.serial and not ADB.is_mumu_serial(args.serial):
+        return fail_before_measurement('Requested serial is not a supported MuMu ADB address')
+
     cv2.setNumThreads(1)
     try:
         discovered = discover_mumu()
     except Exception as exc:
         return fail_before_measurement(f'MuMu discovery failed: {exc}')
-    unique_serials = list(dict.fromkeys(discovered))
+    # ADB may report both localhost and 127.0.0.1 for the same MuMu port.
+    # Preserve the actual -s spelling but never count/capture an alias twice.
+    seen = {}
+    for serial in discovered:
+        seen.setdefault(canonical_mumu_serial(serial), serial)
+    unique_serials = list(seen.values())
     report['discovered_instances'] = len(unique_serials)
+    if args.serial:
+        requested = canonical_mumu_serial(args.serial)
+        selected = seen.get(requested)
+        if selected is None:
+            return fail_before_measurement(
+                f'Requested MuMu device {args.serial} was not discovered; no substitutes accepted')
+        unique_serials.remove(selected)
+        unique_serials.insert(0, selected)
     serials = unique_serials[:args.instances]
     if len(serials) != args.instances:
         return fail_before_measurement(

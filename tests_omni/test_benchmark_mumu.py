@@ -151,6 +151,60 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(report['tested_instances'], 1)
             self.assertEqual(report['devices'][0]['serial'], '127.0.0.1:16384')
 
+    def test_explicit_serial_selects_matching_discovered_device_not_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'selected.json'
+            observed = []
+            def measure(serial, seconds, poll, barrier, **kwargs):
+                observed.append(serial)
+                return benchmark.DeviceResult(serial, 5, 0, 3.0, 1.67, 300.0, 400.0, None)
+            with patch.object(benchmark, 'discover_mumu',
+                              return_value=['127.0.0.1:16384', 'localhost:16416',
+                                            '127.0.0.1:16416']), \
+                 patch.object(benchmark, 'measure', side_effect=measure), \
+                 patch.object(benchmark, 'HostResourceMonitor') as monitor:
+                monitor.return_value.stop.return_value = {'metrics': {}}
+                result = benchmark.main(['--instances', '1', '--seconds', '3',
+                                         '--serial', '127.0.0.1:16416',
+                                         '--output', str(output)])
+            report = json.loads(output.read_text())
+            self.assertEqual(result, 0)
+            self.assertEqual(observed, ['localhost:16416'])
+            self.assertEqual(report['requested_serial'], '127.0.0.1:16416')
+            self.assertEqual(report['discovered_instances'], 2)
+            self.assertEqual(report['tested_instances'], 1)
+            self.assertEqual(report['devices'][0]['serial'], 'localhost:16416')
+
+    def test_missing_requested_serial_fails_without_sampling_substitute(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'missing.json'
+            benchmark.write_json(output, {'passed': True})
+            with patch.object(benchmark, 'discover_mumu',
+                              return_value=['127.0.0.1:16384']), \
+                 patch.object(benchmark, 'measure') as measure:
+                status = benchmark.main(['--instances', '1', '--seconds', '3',
+                                         '--serial', '127.0.0.1:16416',
+                                         '--output', str(output)])
+            measure.assert_not_called()
+            report = json.loads(output.read_text())
+            self.assertEqual(status, 1)
+            self.assertFalse(report['passed'])
+            self.assertEqual(report['discovered_instances'], 1)
+            self.assertEqual(report['tested_instances'], 0)
+            self.assertIn('no substitutes', ' '.join(report['failures']))
+
+    def test_invalid_requested_serial_overwrites_stale_green_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'invalid.json'
+            benchmark.write_json(output, {'passed': True})
+            with patch.object(benchmark, 'discover_mumu') as discover:
+                status = benchmark.main(['--instances', '1', '--seconds', '3',
+                                         '--serial', 'usb:123',
+                                         '--output', str(output)])
+            discover.assert_not_called()
+            self.assertEqual(status, 1)
+            self.assertFalse(json.loads(output.read_text())['passed'])
+
     def test_main_records_discovery_exception_as_failure_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / 'failures' / 'benchmark.json'
