@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from swordx.adb import ADBError
+from .devices import android_text_argument
 from swordx.detection import SIZE, ScreenDetector, normalize
 
 
@@ -274,6 +275,11 @@ class OmniRunner:
             self.chain_wait_until = now + seconds
             self.chain_index += 1
             return False
+        if kind in ('text', 'field_text'):
+            try:
+                android_text_argument(str(action.get('text', '')))
+            except ValueError as exc:
+                raise WorkflowError(str(exc)) from exc
         if self.dry_run and kind != 'wait':
             self.chain_index += 1
             self.log(f'DRY RUN: would execute {kind} on {self.last_observation.label}')
@@ -300,10 +306,14 @@ class OmniRunner:
                 raise WorkflowError('Invalid Android key event')
             self._require_action_permission()
             self.device.keyevent(code)
-        elif kind == 'text':
+        elif kind in ('text', 'field_text'):
             text = str(action.get('text', ''))
-            if not text or len(text) > 250:
-                raise WorkflowError('Text input must be 1–250 characters')
+            if kind == 'field_text':
+                # Select the recorded input field; check ownership again before
+                # the second command so lease revocation never types into it.
+                x, y = _target(action['point'], size)
+                self._require_action_permission()
+                self.device.tap(x, y)
             self._require_action_permission()
             self.device.input_text(text)
         elif kind == 'launch':

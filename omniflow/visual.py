@@ -70,6 +70,8 @@ def action_summary(action: dict) -> str:
         return f'Android key {action.get("code", "?")}'
     if kind == 'text':
         return f'Type {str(action.get("text", ""))[:35]!r}'
+    if kind == 'field_text':
+        return f'Tap selected field and type {str(action.get("text", ""))[:35]!r}'
     if kind == 'launch':
         return 'Launch selected game'
     if kind == 'count_run':

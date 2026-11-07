@@ -3,8 +3,24 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from string import ascii_letters, digits
 
 from swordx.adb import ADB, ADBError, MUMU_MAX_PORT_SLOTS, mumu_port_numbers
+
+
+# The built-in Android "input text" command is not a general-purpose IME.
+# Fail before touching a field rather than typing a partially mangled value.
+_ALLOWED_ADB_TEXT = frozenset(ascii_letters + digits + ' _.-@+/:')
+
+
+def android_text_argument(value: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 250:
+        raise ValueError('Text must contain 1–250 nonempty characters')
+    if any(char not in _ALLOWED_ADB_TEXT for char in value):
+        raise ValueError(
+            'Android ADB text only supports ASCII letters, numbers, spaces, '
+            'and _ . - @ + / :; Unicode and other punctuation need an IME adapter')
+    return value.replace(' ', '%s')
 
 
 @dataclass
@@ -26,10 +42,11 @@ class Device(ADB):
         self._run('shell', 'input', 'keyevent', str(code))
 
     def input_text(self, value: str) -> None:
-        # Android input text needs escaped spaces; avoid injecting shell syntax.
-        if any(ch in value for ch in '\n\r\\&|;<>$`'):
-            raise ADBError('Text contains characters unsupported by Android input text')
-        self._run('shell', 'input', 'text', value.replace(' ', '%s'))
+        try:
+            argument = android_text_argument(value)
+        except ValueError as exc:
+            raise ADBError(str(exc)) from exc
+        self._run('shell', 'input', 'text', argument)
 
     def apps(self) -> list[str]:
         lines = self._run('shell', 'pm', 'list', 'packages', '-3', timeout=15).decode(errors='replace').splitlines()

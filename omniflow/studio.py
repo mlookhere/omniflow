@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
 
 from swordx.recorder import CaptureCanvas, RecorderDialog
 from swordx.workflows import _write_manifest
+from .devices import android_text_argument
 from .visual import (action_summary, condition_summary, require_frame,
                      sample_average, sample_color, validate_point, validate_zone)
 
@@ -86,7 +87,8 @@ class ActionEditor(QDialog):
     """Touch actions are recorded visually; only timing and key text are typed."""
     TYPES = [('Tap', 'tap'), ('Double tap', 'double_tap'), ('Swipe / drag', 'swipe'),
              ('Press & hold', 'hold'), ('Wait', 'wait'), ('Back', 'back'),
-             ('Android key', 'key'), ('Type text', 'text'),
+             ('Android key', 'key'), ('Type text into focused field', 'text'),
+             ('Tap field and type text', 'field_text'),
              ('Launch app', 'launch'), ('Count run', 'count_run')]
 
     def __init__(self, initial=None, parent=None, frame=None):
@@ -97,7 +99,7 @@ class ActionEditor(QDialog):
         self.initial = dict(initial or {})
         self.selection = None
         kind = 'swipe' if self.initial.get('kind') == 'drag' else self.initial.get('kind', 'tap')
-        if kind in ('tap','double_tap','hold') and 'point' in self.initial:
+        if kind in ('tap','double_tap','hold','field_text') and 'point' in self.initial:
             self.selection = list(validate_point(self.initial['point']))
         if kind in ('swipe','drag') and 'start' in self.initial and 'end' in self.initial:
             self.selection = {'start': list(validate_point(self.initial['start'])),
@@ -133,6 +135,8 @@ class ActionEditor(QDialog):
         self.keycode.setValue(int(self.initial.get('code', 4)))
         form.addRow('Android key', self.keycode)
         self.text = QLineEdit(str(self.initial.get('text', '')))
+        self.text.setMaxLength(250)
+        self.text.setPlaceholderText('ASCII text; for Unicode use an IME (planned)')
         form.addRow('Text to type', self.text)
         self.form = form
         self.kind.currentIndexChanged.connect(self._visibility)
@@ -145,13 +149,13 @@ class ActionEditor(QDialog):
 
     def _visibility(self, *_):
         kind = self.kind.currentData()
-        needs_point = kind in ('tap', 'double_tap', 'hold')
+        needs_point = kind in ('tap', 'double_tap', 'hold', 'field_text')
         needs_swipe = kind in ('swipe', 'drag')
         for widget, visible in ((self.pick, needs_point or needs_swipe),
                                 (self.duration, kind in ('hold','swipe','drag')),
                                 (self.seconds, kind == 'wait'),
                                 (self.keycode, kind == 'key'),
-                                (self.text, kind == 'text')):
+                                (self.text, kind in ('text', 'field_text'))):
             self.form.setRowVisible(widget, visible)
         if self.selection is not None:
             is_path = isinstance(self.selection, dict)
@@ -161,7 +165,7 @@ class ActionEditor(QDialog):
 
     def _refresh_summary(self):
         kind = self.kind.currentData()
-        if kind in ('tap', 'double_tap', 'hold','swipe','drag'):
+        if kind in ('tap', 'double_tap', 'hold','swipe','drag','field_text'):
             self.summary.setText('Target recorded on the screenshot' if self.selection is not None
                                  else 'Select the target visually; no coordinates to type')
             self.pick.setEnabled(self.frame is not None)
@@ -203,9 +207,14 @@ class ActionEditor(QDialog):
             return {'kind': 'wait','seconds': self.seconds.value()}
         if kind == 'key':
             return {'kind': 'key', 'code': self.keycode.value()}
-        if kind == 'text':
-            if not self.text.text().strip():
-                raise ValueError('Enter the text to type')
+        if kind in ('text', 'field_text'):
+            android_text_argument(self.text.text())
+            if kind == 'field_text':
+                if not isinstance(self.selection, list):
+                    raise ValueError('Select the input field on a screenshot first')
+                return {'kind': 'field_text',
+                        'point': list(validate_point(self.selection)),
+                        'text': self.text.text()}
             return {'kind': 'text', 'text': self.text.text()}
         return {'kind':kind}
 

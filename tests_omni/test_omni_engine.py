@@ -97,6 +97,31 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(device.swipes,[(100,100,100,300,650),(200,400,200,400,700)])
         self.assertEqual(device.keys,[4]);self.assertEqual(device.texts,['hi world']);self.assertEqual(runs,[1])
 
+    def test_field_text_taps_and_types_with_normalized_coordinates(self):
+        device=Device(self.match)
+        runner=OmniRunner(device,self.folder,'com.game.demo')
+        runner._execute({'kind':'field_text','point':[200,400],'text':'Agent 21'},100)
+        self.assertEqual(device.taps,[(800,1600)])
+        self.assertEqual(device.texts,['Agent 21'])
+
+    def test_field_text_validates_before_tap_even_in_dry_run(self):
+        device=Device(self.match)
+        runner=OmniRunner(device,self.folder,'com.game.demo',dry_run=True)
+        with self.assertRaisesRegex(WorkflowError,'IME adapter'):
+            runner._execute({'kind':'field_text','point':[200,400],'text':'hello;world'},100)
+        self.assertFalse(device.taps)
+        self.assertFalse(device.texts)
+
+    def test_field_text_rechecks_lease_after_focus_tap(self):
+        device=Device(self.match)
+        runner=OmniRunner(device,self.folder,'com.game.demo')
+        checks=iter([True,False])
+        runner.can_act=lambda: next(checks)
+        with self.assertRaisesRegex(WorkflowError,'refusing input'):
+            runner._execute({'kind':'field_text','point':[200,400],'text':'Ready'},100)
+        self.assertEqual(device.taps,[(800,1600)])
+        self.assertFalse(device.texts)
+
     def test_pre_action_delay_stays_nonblocking(self):
         self.change(self.key,pre_tap_delay_seconds=300)
         device=Device(self.match);r=OmniRunner(device,self.folder,'com.game.demo')

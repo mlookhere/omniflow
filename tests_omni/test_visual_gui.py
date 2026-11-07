@@ -50,6 +50,21 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.result_action()['end'], [150, 160])
         dialog.close()
 
+    def test_text_field_action_has_visual_target_and_validates_text(self):
+        dialog = ActionEditor(frame=self.frame)
+        dialog.kind.setCurrentIndex(dialog.kind.findData('field_text'))
+        dialog.text.setText('Test 123')
+        with self.assertRaisesRegex(ValueError, 'Select the input field'):
+            dialog.result_action()
+        dialog.selection = [210, 330]
+        self.assertEqual(dialog.result_action(), {
+            'kind': 'field_text', 'point': [210, 330], 'text': 'Test 123'
+        })
+        dialog.text.setText('unsafe;command')
+        with self.assertRaisesRegex(ValueError, 'IME adapter'):
+            dialog.result_action()
+        dialog.close()
+
     def test_ocr_autofill_populates_the_selected_zone(self):
         from unittest.mock import patch
         dialog = RuleEditor(frame=self.frame)

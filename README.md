@@ -160,11 +160,14 @@ To verify dependencies again without touching an emulator:
 .\.venv\Scripts\python.exe tools\check_requirements.py
 ```
 
-Text-entry actions are separate from OCR: **Type text** sends characters to
-the selected Android input field using ADB, and the game must have focus. The
-ADB text command does not yet support arbitrary Unicode/IME text reliably;
-a verified Unicode input adapter and field-focus confirmation are roadmap
-work, not a silently completed capability.
+Text-entry actions are separate from OCR. **Tap field and type text** now
+lets you select the field on a screenshot, then performs a bounded tap followed
+by Android ADB text input. It checks device ownership before *both* commands
+and rejects unsupported characters before the initial tap. **Type text into
+focused field** remains available for already-focused controls. Android ADB
+text input is limited to a safe ASCII subset; arbitrary Unicode, proof of
+keyboard focus, and post-input text verification are M7 work, not claimed as
+completed.
 
 ### How the engine decides
 
