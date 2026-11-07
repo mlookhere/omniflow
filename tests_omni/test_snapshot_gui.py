@@ -88,7 +88,7 @@ class SnapshotGuiTests(unittest.TestCase):
     def test_snapshot_cache_uses_acquisition_time_and_expires(self):
         import numpy as np
         worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)
-        with patch('omniflow.ui.ADB') as adb, \\
+        with patch('omniflow.ui.ADB') as adb, \
              patch('omniflow.ui.time.monotonic',
                    side_effect=[100.0, 100.0, 101.0, 102.2, 102.2]):
             adb.return_value.screenshot.side_effect = [
