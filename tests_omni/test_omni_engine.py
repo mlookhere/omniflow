@@ -766,6 +766,70 @@ class EngineTests(unittest.TestCase):
         self.assertIsNone(states[0]['condition_results'])
         self.assertTrue(states[0]['has_template'])
 
+    def test_matcher_metadata_is_checked_before_screenshots_or_ocr(self):
+        manifest = self.folder / 'manifest.json'
+        base = json.loads(manifest.read_text(encoding='utf-8'))
+        cases = [
+            ('NaN global threshold', lambda d: d.update(threshold=float('nan')),
+             'Workflow image threshold must be a finite number'),
+            ('infinite global threshold', lambda d: d.update(threshold=float('inf')),
+             'Workflow image threshold must be a finite number'),
+            ('global threshold above one', lambda d: d.update(threshold=1.1),
+             'Workflow image threshold must be between 0 and 1'),
+            ('per-state NaN threshold', lambda d: d['actions'][self.key].update(
+                threshold=float('nan')), 'image threshold must be a finite number'),
+            ('negative state threshold', lambda d: d['actions'][self.key].update(
+                threshold=-0.1), 'image threshold must be between 0 and 1'),
+            ('NaN priority', lambda d: d['actions'][self.key].update(
+                priority=float('nan')), 'priority must be a finite number'),
+            ('unknown match mode', lambda d: d['actions'][self.key].update(
+                match='sometimes'), 'image match mode must be all or any'),
+            ('truthy passive string', lambda d: d['actions'][self.key].update(
+                passive='false'), 'passive must be true or false'),
+            ('truthy skip flag', lambda d: d['actions'][self.key].update(
+                skip_template='false'), 'skip_template must be true or false'),
+            ('non-list conditions', lambda d: d['actions'][self.key].update(
+                conditions={}), 'recognition conditions must be a list'),
+            ('unrecorded image template', lambda d: d['states'].update(
+                {self.key: []}), 'image matching requires a captured template'),
+            ('condition-only without rules', lambda d: d['actions'][self.key].update(
+                skip_template=True), 'condition-only recognition needs a condition'),
+            ('action without corresponding state', lambda d: d['states'].pop(
+                self.key), 'state keys and action keys must match'),
+        ]
+        for name, corrupt, message in cases:
+            with self.subTest(case=name):
+                data = json.loads(json.dumps(base))
+                corrupt(data)
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                device = Device(self.match)
+                with patch.object(device, 'screenshot') as capture, \\
+                     patch('omniflow.engine.OCREngine.read') as ocr:
+                    with self.assertRaisesRegex(WorkflowError, message):
+                        OmniRunner(device, self.folder, 'com.game.demo')
+                    capture.assert_not_called()
+                    ocr.assert_not_called()
+                self.assertEqual(device.taps, [])
+        manifest.write_text(json.dumps(base), encoding='utf-8')
+        self.assertEqual(OmniDetector(self.folder).detect(self.match).key, self.key)
+
+    def test_condition_only_requires_explicit_mode_and_keeps_valid_mixed_states(self):
+        manifest = self.folder / 'manifest.json'
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        data['states'][self.key] = []
+        data['actions'][self.key]['conditions'] = [
+            {'type': 'color', 'rect': [155, 712, 434, 810],
+             'bgr': [51, 58, 69], 'tolerance': 255}]
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        with self.assertRaisesRegex(
+                WorkflowError, 'image matching requires a captured template'):
+            OmniDetector(self.folder)
+        data['actions'][self.key]['skip_template'] = True
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        detector = OmniDetector(self.folder)
+        self.assertIn(self.key, detector.actions)
+        self.assertTrue(detector.actions[self.key]['skip_template'])
+
     def test_invalid_recognition_rules_fail_before_ocr_or_saved_runtime(self):
         from omniflow.engine import preview_conditions, validate_condition
         valid_ocr = {'type': 'ocr', 'rect': [155, 712, 434, 810],
