@@ -159,7 +159,7 @@ class DashboardPreviewTests(unittest.TestCase):
         # Recognition/publishing ends three seconds after acquisition,
         # without making the test sleep in real time.
         with patch('omniflow.engine.time.monotonic',
-                   side_effect=[100.0, 100.1, 103.0]):
+                   side_effect=[100.0, 100.1, 103.0, 103.1]):
             runner.step(100)
         self.assertEqual(runner.last_capture_started_at, 100.0)
         self.assertEqual(self.session.image_at, 100.0)

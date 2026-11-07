@@ -482,20 +482,25 @@ class OmniRunner:
             self._invalidate_visual_state(now)
         observation = self.detector.detect(frame)
         self.last_observation = observation
-        # Recognition intentionally uses a fixed coordinate canvas for saved
-        # workflows. The dashboard must display the *original* screen aspect
-        # ratio instead of the stretched recognition image.
+
+        def require_fresh_observation() -> None:
+            age = time.monotonic() - capture_started
+            if age > MAX_CAPTURE_AGE_SECONDS:
+                self._invalidate_visual_state(now)
+                self.last_frame = None
+                self.last_observation = UNKNOWN
+                self.last_capture_latency_ms = None
+                self.last_capture_stages_ms = None
+                raise ADBError(
+                    f'Captured frame is stale after recognition ({age:.2f}s > '
+                    f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing input')
+
+        # A delayed OCR result must not inflate valid-frame telemetry.
+        require_fresh_observation()
+        # Preview displays original source geometry, not normalized OCR canvas.
         self.on_image(observation, raw)
-        # OCR and callbacks can block after ADB returns. Freshness must hold
-        # when the screenshot authorizes input, not only after PNG decoding.
-        age = time.monotonic() - capture_started
-        if age > MAX_CAPTURE_AGE_SECONDS:
-            self._invalidate_visual_state(now)
-            self.last_frame = None
-            self.last_observation = UNKNOWN
-            raise ADBError(
-                f'Captured frame is stale after recognition ({age:.2f}s > '
-                f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing input')
+        # A slow preview callback must not authorize input from stale pixels.
+        require_fresh_observation()
         if observation.key != self._stable_key:
             self._stable_key, self._streak = observation.key, 1
         else:

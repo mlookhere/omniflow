@@ -33,6 +33,10 @@ observation window (up to 120s), and the largest valid-frame gap including
 time since the last capture. The rate appears after at least 10 seconds of
 observation, and stalled/paused workers can show growing gaps. These metrics
 do not initiate screenshots or count stale thumbnail repaints as captures.
+A frame that becomes older than six seconds during OCR is rejected before
+it reaches live capture telemetry; another check after preview publication
+still prevents slow callbacks from authorizing stale input. Such stale
+observations reset recognition and capture-stage latency state.
 They are **not** strict hardware acceptance: a full unbroken 120-second
 benchmark, explicit failure accounting, ten-device contention and real-game
 input/recovery tests are still required.

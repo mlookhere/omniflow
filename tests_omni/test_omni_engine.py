@@ -290,6 +290,23 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(runner.last_observation.key, '')
         self.assertEqual(runner._streak, 0)
 
+    def test_slow_recognition_never_publishes_stale_frame(self):
+        device = Device(self.match)
+        published = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            image=lambda *args: published.append(args))
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found), \
+             patch('omniflow.engine.time.monotonic',
+                   side_effect=[20.0, 20.4, 27.0]):
+            with self.assertRaisesRegex(ADBError, 'stale after recognition'):
+                runner.step(100)
+        self.assertEqual(published, [])
+        self.assertEqual(device.taps, [])
+        self.assertIsNone(runner.last_capture_latency_ms)
+        self.assertIsNone(runner.last_capture_stages_ms)
+        self.assertEqual(runner._streak, 0)
+
     def test_stalled_preview_callback_cannot_authorize_tap(self):
         device = Device(self.match)
         runner = OmniRunner(device, self.folder, 'com.game.demo',
@@ -297,7 +314,7 @@ class EngineTests(unittest.TestCase):
         found = Match(self.key, 'Match', 1.0)
         with patch.object(runner.detector, 'detect', return_value=found), \
              patch('omniflow.engine.time.monotonic',
-                   side_effect=[20.0, 20.1, 26.2]):
+                   side_effect=[20.0, 20.1, 20.2, 26.2]):
             with self.assertRaisesRegex(ADBError, 'stale after recognition'):
                 runner.step(100)
         self.assertEqual(device.taps, [])
@@ -351,7 +368,7 @@ class EngineTests(unittest.TestCase):
         device = Device(self.match)
         runner = OmniRunner(device, self.folder, 'com.game.demo')
         with patch('omniflow.engine.time.monotonic',
-                   side_effect=[100.0, 101.5, 101.6]):
+                   side_effect=[100.0, 101.5, 101.6, 101.7]):
             runner.step(100)
         self.assertAlmostEqual(runner.last_capture_latency_ms, 1500, places=3)
         # A subsequent failed screenshot cannot repeat the previous measurement.
@@ -364,7 +381,8 @@ class EngineTests(unittest.TestCase):
         device = Device(self.match)
         runner = OmniRunner(device, self.folder, 'com.game.demo')
         with patch('omniflow.engine.time.monotonic',
-                   side_effect=[20.0, 21.8, 22.0, 30.0, 31.2, 31.3]):
+                   side_effect=[20.0, 21.8, 22.0, 22.1,
+                                30.0, 31.2, 31.3, 31.4]):
             runner.step(100)
             runner.step(101)
         self.assertEqual(len(device.taps), 1)
