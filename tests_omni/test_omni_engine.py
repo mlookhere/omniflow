@@ -382,7 +382,7 @@ class EngineTests(unittest.TestCase):
         runner = OmniRunner(device, self.folder, 'com.game.demo')
         with patch('omniflow.engine.time.monotonic',
                    side_effect=[20.0, 21.8, 22.0, 22.1,
-                                30.0, 31.2, 31.3, 31.4]):
+                                30.0, 31.2, 31.3, 31.4, 31.5]):
             runner.step(100)
             runner.step(101)
         self.assertEqual(len(device.taps), 1)
