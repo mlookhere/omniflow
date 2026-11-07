@@ -173,8 +173,11 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
         raise ValueError('Saved state no longer exists; reload the workflow')
     action = content['actions'][key]
     chain = studio['action_chain'] if studio is not None else action.get('action_chain')
-    if studio is not None and studio['skip_template'] and not studio['conditions']:
-        raise ValueError('Condition-only states require a recognition condition')
+    if studio is not None:
+        if studio['skip_template'] and not studio['conditions']:
+            raise ValueError('Condition-only states require a recognition condition')
+        if not studio['skip_template'] and not content['states'][key]:
+            raise ValueError('Image matching requires a saved template; recapture a detection region')
     if not passive and action.get('passive') and not (action.get('gestures') or
                                                     action.get('taps') or action.get('tap') or chain):
         raise ValueError('Add a tap or drag to convert this Wait state into an action')
