@@ -445,14 +445,10 @@ class OmniRunner:
             start = self._map_point(action.get('start', action.get('point')))
             end = self._map_point(action.get('end', action.get('point')))
             duration = int(action.get('duration_ms', 650))
-            if not 50 <= duration <= 10000:
-                raise WorkflowError('Gesture duration must be 50–10000 ms')
             self._require_device_input()
             self.device.swipe(*start, *end, duration)
         elif kind == 'key':
             code = int(action.get('code', 4))
-            if not 0 <= code <= 300:
-                raise WorkflowError('Invalid Android key event')
             self._require_device_input()
             self.device.keyevent(code)
         elif kind in ('text', 'field_text'):
