@@ -133,6 +133,61 @@ class EngineTests(unittest.TestCase):
             runner.step(104)
         self.assertEqual(len(device.taps), 2)
 
+    def test_titlebar_cropped_screenshot_maps_touch_swipe_and_field_focus(self):
+        from swordx.detection import capture_crop_top, normalize
+        screenshot = np.zeros((1369, 749, 3), np.uint8)
+        screenshot[:40] = 255
+        screenshot[40:] = cv2.resize(self.match, (749, 1329))
+        self.assertEqual(capture_crop_top(749, 1369), 40)
+        self.assertEqual(normalize(screenshot).shape, (960, 540, 3))
+        self.change(self.key, action_chain=[
+            {'kind': 'tap', 'point': [290, 770]},
+            {'kind': 'swipe', 'start': [100, 100], 'end': [100, 300],
+             'duration_ms': 650},
+            {'kind': 'field_text', 'point': [200, 400], 'text': 'Ready'},
+        ])
+        device = Device(screenshot)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        with patch.object(runner.detector, 'detect',
+                          return_value=Match(self.key, 'Match', 1.0)):
+            for now in range(100, 104):
+                runner.step(now)
+        def expected(x, y):
+            return (min(748, round(x * 749 / 540)),
+                    min(1368, 40 + round(y * 1329 / 960)))
+        self.assertEqual(runner._capture_crop_top, 40)
+        self.assertEqual(device.taps, [expected(290, 770), expected(200, 400)])
+        self.assertEqual(device.swipes,
+                         [(*expected(100, 100), *expected(100, 300), 650)])
+        self.assertEqual(device.texts, ['Ready'])
+        self.assertEqual(runner._map_point([0, 0]), (0, 40))
+        self.assertEqual(runner._map_point([540, 960]), (748, 1368))
+
+    def test_generic_crop_and_rotation_rearm_action_geometry(self):
+        from swordx.detection import capture_crop_top
+        self.assertEqual(capture_crop_top(1080, 1940), 20)
+        self.assertEqual(capture_crop_top(1080, 1920), 0)
+        self.assertEqual(capture_crop_top(1920, 1080), 0)
+        device = Device(np.zeros((1940, 1080, 3), np.uint8))
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(runner._capture_crop_top, 20)
+            self.assertEqual(device.taps[-1],
+                             (round(290 * 1080 / 540),
+                              20 + round(770 * 1920 / 960)))
+            device.frame = np.zeros((1080, 1940, 3), np.uint8)
+            runner.step(102)
+            self.assertEqual(runner._capture_crop_top, 0)
+            self.assertEqual(len(device.taps), 1)
+            self.assertEqual(runner.current, '')
+            runner.step(103)
+        self.assertEqual(len(device.taps), 2)
+        self.assertEqual(device.taps[-1],
+                         (round(290 * 1940 / 540), round(770 * 1080 / 960)))
+
     def test_geometry_change_reconfirms_state_before_new_input(self):
         device = Device(self.match)
         logs = []

@@ -27,16 +27,20 @@ class Anchor:
     rect: tuple[int, int, int, int]
 
 
+def capture_crop_top(width: int, height: int) -> int:
+    """Return the exact screenshot titlebar crop used for recognition."""
+    expected = round(width * 16 / 9)
+    if height <= expected:
+        return 0
+    # Annotated 749x1369 legacy references have a 40px titlebar.
+    return BASE_TOP if (width, height) == (749, 1369) else height - expected
+
+
 def normalize(image: np.ndarray) -> np.ndarray:
     """Strip emulator chrome if present and downscale for fast on-device matching."""
     height, width = image.shape[:2]
-    expected = round(width * 16 / 9)
-    if height > expected:
-        # Original annotated references have 40px of desktop/emulator title bar.
-        excess = height - expected
-        offset = 40 if (width, height) == (749, 1369) else excess
-        image = image[offset:]
-    return cv2.resize(image, SIZE, interpolation=cv2.INTER_AREA)
+    return cv2.resize(image[capture_crop_top(width, height):], SIZE,
+                      interpolation=cv2.INTER_AREA)
 
 
 def to_device(x: int, y: int, width: int, height: int) -> tuple[int, int]:

@@ -104,7 +104,11 @@ screenshots: non-PNG diagnostics, truncated data and OpenCV decode failures
 cannot be counted as valid frames. The runtime runner also rejects invalid BGR
 frames returned by alternative device adapters and converts screenshot
 normalization errors to recoverable ADB errors, clearing pending actions until
-two fresh matching screenshots arrive. Missing devices, errors, and FPS below the
+two fresh matching screenshots arrive. When normalization removes a top strip
+(e.g. 40px in the legacy 749x1369 source), tap, swipe and field-focus points
+are now mapped into the **same source content viewport**, rather than the
+removed chrome. Rotation still requires two new matches; these simulated
+tests do not replace real-game input verification. Missing devices, errors, and FPS below the
 unchanged 0.8 threshold remain failures. **This is diagnosis, not proof of a faster
 capture backend or ten-instance acceptance.**
 

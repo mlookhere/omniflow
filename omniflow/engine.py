@@ -17,7 +17,7 @@ import numpy as np
 
 from swordx.adb import ADBError
 from .devices import android_text_argument
-from swordx.detection import SIZE, ScreenDetector, normalize
+from swordx.detection import SIZE, ScreenDetector, capture_crop_top, normalize
 
 
 class WorkflowError(ValueError):
@@ -214,14 +214,17 @@ class OmniDetector:
                                                float(self.actions[m.key].get('priority', 0)), m.key))
 
 
-def _target(point, device_size: tuple[int, int]) -> tuple[int, int]:
+def _target(point, device_size: tuple[int, int], crop_top: int = 0) -> tuple[int, int]:
     if len(point) != 2:
         raise WorkflowError('Action point must have two coordinates')
     w, h = device_size
     x, y = map(float, point)
     if not 0 <= x <= SIZE[0] or not 0 <= y <= SIZE[1]:
         raise WorkflowError(f'Point {point} outside 540×960 normalized screen')
-    return max(0, min(w - 1, round(x * w / SIZE[0]))), max(0, min(h - 1, round(y * h / SIZE[1])))
+    if not 0 <= crop_top < h:
+        raise WorkflowError('Invalid screenshot crop geometry')
+    return (max(0, min(w - 1, round(x * w / SIZE[0]))),
+            max(0, min(h - 1, crop_top + round(y * (h - crop_top) / SIZE[1]))))
 
 
 class OmniRunner:
@@ -241,6 +244,7 @@ class OmniRunner:
         self.is_paused = is_paused
         self.device_size = None
         self._capture_geometry: tuple[int, int] | None = None
+        self._capture_crop_top = 0
         self.current = ''
         self.last_recognized = ''
         self.unknown_count = 0
@@ -280,6 +284,10 @@ class OmniRunner:
             return [gestures[min(trigger, len(gestures) - 1)]]
         return list(gestures)
 
+    def _map_point(self, point) -> tuple[int, int]:
+        """Map detector coordinates back through its screenshot viewport."""
+        return _target(point, self.device_size, self._capture_crop_top)
+
     def _require_action_permission(self) -> None:
         if not self.can_act():
             raise WorkflowError('Device ownership lost or automation stopped; refusing input')
@@ -299,7 +307,6 @@ class OmniRunner:
         # and run counters that do not send Android commands.
         self._require_action_permission()
         kind = action.get('kind')
-        size = self.device_size
         if kind == 'wait':
             seconds = float(action.get('seconds', 0))
             if not 0 <= seconds <= 86400:
@@ -317,7 +324,7 @@ class OmniRunner:
             self.log(f'DRY RUN: would execute {kind} on {self.last_observation.label}')
             return True
         if kind in ('tap', 'double_tap'):
-            x, y = _target(action['point'], size)
+            x, y = self._map_point(action['point'])
             self._require_action_permission()
             self.device.tap(x, y)
             if kind == 'double_tap':
@@ -326,8 +333,8 @@ class OmniRunner:
                 self._require_fresh_capture()
                 self.device.tap(x, y)
         elif kind in ('drag', 'swipe', 'hold'):
-            start = _target(action.get('start', action.get('point')), size)
-            end = _target(action.get('end', action.get('point')), size)
+            start = self._map_point(action.get('start', action.get('point')))
+            end = self._map_point(action.get('end', action.get('point')))
             duration = int(action.get('duration_ms', 650))
             if not 50 <= duration <= 10000:
                 raise WorkflowError('Gesture duration must be 50–10000 ms')
@@ -344,7 +351,7 @@ class OmniRunner:
             if kind == 'field_text':
                 # Select the recorded input field; check ownership again before
                 # the second command so lease revocation never types into it.
-                x, y = _target(action['point'], size)
+                x, y = self._map_point(action['point'])
                 self._require_action_permission()
                 self.device.tap(x, y)
             self._require_action_permission()
@@ -454,8 +461,12 @@ class OmniRunner:
         # geometry, and never continue an action chain across a rotation or
         # resolution change on the strength of stale state recognition.
         geometry = (raw.shape[1], raw.shape[0])
-        changed = self._capture_geometry is not None and geometry != self._capture_geometry
+        crop_top = capture_crop_top(*geometry)
+        changed = (self._capture_geometry is not None and
+                   (geometry != self._capture_geometry or
+                    crop_top != self._capture_crop_top))
         self._capture_geometry = geometry
+        self._capture_crop_top = crop_top
         self.device_size = geometry
         if changed:
             self.log(f'Display geometry changed to {geometry[0]}x{geometry[1]}; '
