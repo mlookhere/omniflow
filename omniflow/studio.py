@@ -238,6 +238,7 @@ class RuleEditor(QDialog):
         self.bounds = list(initial.get('rect', region or [])) or None
         self.point = list(initial['point']) if initial.get('point') else None
         self.bgr = list(initial.get('bgr', [])) or None
+        self._selected_kind = initial.get('type', 'ocr')
         layout = QVBoxLayout(self)
         instruction = QLabel('Choose a detector, draw its target on the captured screen, then set the expected text or color.')
         instruction.setWordWrap(True)
@@ -284,16 +285,30 @@ class RuleEditor(QDialog):
         layout.addWidget(self.buttons)
 
     def _visibility(self, *_):
-        ocr = self.kind.currentData() == 'ocr'
+        kind = self.kind.currentData()
+        if kind != self._selected_kind:
+            # Pixel points and rectangular zones are different selections.
+            # A converted rule must never inherit color from the old target.
+            if 'pixel' in (kind, self._selected_kind):
+                self.bounds = None
+                self.point = None
+            self.bgr = (sample_average(self.frame, self.bounds)
+                        if kind == 'color' and self.frame is not None
+                        and self.bounds is not None else None)
+            self._selected_kind = kind
+        ocr = kind == 'ocr'
         for widget in (self.text, self.read_text, self.regex):
             self.form.setRowVisible(widget, ocr)
         self.form.setRowVisible(self.tolerance, not ocr)
         self.form.setRowVisible(self.color_info, not ocr)
         self.pick.setEnabled(self.frame is not None)
-        self.pick.setText('Select pixel on screenshot…' if self.kind.currentData() == 'pixel'
+        self.pick.setText('Select pixel on screenshot…' if kind == 'pixel'
                           else 'Draw recognition zone on screenshot…')
-        self.zone_status.setText('Zone selected' if self.bounds is not None
-                                 else 'Capture a screenshot and draw a zone before saving')
+        selected = self.point is not None if kind == 'pixel' else self.bounds is not None
+        self.zone_status.setText(
+            ('Pixel selected' if kind == 'pixel' else 'Zone selected') if selected else
+            ('Select a pixel on the screenshot before saving' if kind == 'pixel'
+             else 'Capture a screenshot and draw a zone before saving'))
 
     def _pick(self):
         if self.frame is None:
