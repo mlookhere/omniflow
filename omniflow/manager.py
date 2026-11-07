@@ -41,6 +41,8 @@ class Session:
     image: np.ndarray | None = None
     image_at: float = 0.0
     capture_latencies_ms: deque[float] = field(default_factory=lambda: deque(maxlen=120))
+    capture_stages_ms: deque[tuple[float, float]] = field(
+        default_factory=lambda: deque(maxlen=120))
     logs: deque = field(default_factory=lambda: deque(maxlen=200))
     failures: int = 0
     lease_lost: bool = False
@@ -74,6 +76,16 @@ class Session:
                 return None
             ordered = sorted(self.capture_latencies_ms)
         return ordered[math.ceil(len(ordered) * .95) - 1]
+
+    def capture_stage_p95_ms(self) -> tuple[float, float] | None:
+        """ADB exec and PNG decode p95 for the last 120 timed screenshots."""
+        with self._image_lock:
+            samples = tuple(self.capture_stages_ms)
+        if not samples:
+            return None
+        rank = math.ceil(len(samples) * .95) - 1
+        return (sorted(sample[0] for sample in samples)[rank],
+                sorted(sample[1] for sample in samples)[rank])
 
     def log(self, message: str) -> None:
         self.logs.append(f'{time.strftime("%H:%M:%S")}  {message}')
@@ -165,7 +177,8 @@ class InstanceManager:
                                 image=lambda match, frame: self._image(
                                     session, match, frame,
                                     captured_at=runner.last_capture_started_at,
-                                    capture_latency_ms=runner.last_capture_latency_ms),
+                                    capture_latency_ms=runner.last_capture_latency_ms,
+                                    capture_stages_ms=runner.last_capture_stages_ms),
                                 auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None,
                                 can_act=lambda: not session.stop_event.is_set(),
                                 is_paused=session.pause_event.is_set)
@@ -258,7 +271,8 @@ class InstanceManager:
 
     def _image(self, session: Session, match: Match, frame: np.ndarray,
                *, captured_at: float | None = None,
-               capture_latency_ms: float | None = None) -> None:
+               capture_latency_ms: float | None = None,
+               capture_stages_ms: dict[str, float] | None = None) -> None:
         session.current, session.confidence = match.label, match.confidence
         # Reuse the runner's captured screenshot rather than requesting another
         # ADB frame. Preserve its real orientation and aspect ratio, keeping
@@ -274,6 +288,13 @@ class InstanceManager:
             session.image_at = time.monotonic() if captured_at is None else captured_at
             if capture_latency_ms is not None and math.isfinite(capture_latency_ms):
                 session.capture_latencies_ms.append(max(0.0, capture_latency_ms))
+            if isinstance(capture_stages_ms, dict):
+                adb = capture_stages_ms.get('adb_exec_ms')
+                png = capture_stages_ms.get('png_decode_ms')
+                if (type(adb) in (int, float) and type(png) in (int, float) and
+                        math.isfinite(adb) and math.isfinite(png) and
+                        adb >= 0 and png >= 0):
+                    session.capture_stages_ms.append((float(adb), float(png)))
 
     def stop(self, serial: str) -> None:
         with self._lock:

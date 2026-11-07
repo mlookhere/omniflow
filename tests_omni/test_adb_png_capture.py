@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from omniflow.engine import Match, OmniRunner
+from omniflow.devices import Device as MuMuDevice
 from swordx.adb import ADB, ADBError
 from swordx.workflows import create_workflow, record_step
 
@@ -28,6 +29,24 @@ class ScreenshotTransportTests(unittest.TestCase):
             screenshot = self.adb.screenshot(timeout=4)
         execute.assert_called_once_with('exec-out', 'screencap', '-p', timeout=4)
         np.testing.assert_array_equal(screenshot, self.frame)
+
+    def test_production_timed_png_splits_adb_and_decode_without_second_capture(self):
+        device = MuMuDevice(serial='127.0.0.1:16384')
+        with patch.object(device, '_run', return_value=self.png) as command, \
+             patch('omniflow.devices.monotonic',
+                   side_effect=[10.0, 11.2, 11.26]):
+            pixels, timing = device.screenshot_timed(timeout=4)
+        np.testing.assert_array_equal(pixels, self.frame)
+        command.assert_called_once_with('exec-out', 'screencap', '-p', timeout=4)
+        self.assertAlmostEqual(timing['adb_exec_ms'], 1200)
+        self.assertAlmostEqual(timing['png_decode_ms'], 60)
+
+    def test_production_timed_png_does_not_credit_failed_decode(self):
+        device = MuMuDevice(serial='127.0.0.1:16384')
+        with patch.object(device, '_run', return_value=self.png[:25]) as command:
+            with self.assertRaises(ADBError):
+                device.screenshot_timed()
+        command.assert_called_once_with('exec-out', 'screencap', '-p', timeout=15.0)
 
     def test_empty_diagnostics_and_truncated_png_fail_closed(self):
         for payload in (b'', b'error: device offline', self.png[:25]):

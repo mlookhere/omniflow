@@ -264,6 +264,7 @@ class OmniRunner:
         # recognition eventually publishes the captured pixels.
         self.last_capture_started_at = 0.0
         self.last_capture_latency_ms: float | None = None
+        self.last_capture_stages_ms: dict[str, float] | None = None
         self._stable_key = ''
         self._streak = 0
         self._acted = False
@@ -430,8 +431,15 @@ class OmniRunner:
         capture_started = time.monotonic()
         self.last_capture_started_at = capture_started
         self.last_capture_latency_ms = None
+        self.last_capture_stages_ms = None
         try:
-            raw = self.device.screenshot()
+            # Built-in MuMu devices expose per-stage PNG timings. Custom
+            # adapters keep the unchanged screenshot() compatibility path.
+            screenshot_timed = getattr(self.device, 'screenshot_timed', None)
+            if callable(screenshot_timed):
+                raw, self.last_capture_stages_ms = screenshot_timed()
+            else:
+                raw = self.device.screenshot()
             # Device adapters can return invalid frames without raising ADBError.
             # Reject them before OCR, geometry updates or any Android input.
             if (not isinstance(raw, np.ndarray) or raw.ndim != 3 or
@@ -453,6 +461,7 @@ class OmniRunner:
             self.last_capture_latency_ms = max(0.0, capture_age) * 1000
         except (ADBError, OSError):
             self._invalidate_visual_state(now)
+            self.last_capture_stages_ms = None
             self.last_frame = None
             self.last_observation = UNKNOWN
             raise

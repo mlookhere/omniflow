@@ -4,8 +4,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from string import ascii_letters, digits
+from time import monotonic
 
-from swordx.adb import ADB, ADBError, MUMU_MAX_PORT_SLOTS, mumu_port_numbers
+import numpy as np
+
+from swordx.adb import (ADB, ADBError, MUMU_MAX_PORT_SLOTS,
+                       decode_png_screenshot, mumu_port_numbers)
 
 
 # The built-in Android "input text" command is not a general-purpose IME.
@@ -25,6 +29,22 @@ def android_text_argument(value: str) -> str:
 
 @dataclass
 class Device(ADB):
+    def screenshot_timed(self, *, timeout: float = 15.0) -> tuple[np.ndarray, dict[str, float]]:
+        """Use production PNG transport while measuring its two costly stages.
+
+        This sends exactly one normal screenshot command and shares ADB's
+        strict PNG decoder; it never starts video or changes capture formats.
+        """
+        started = monotonic()
+        payload = self._run('exec-out', 'screencap', '-p', timeout=timeout)
+        transferred = monotonic()
+        frame = decode_png_screenshot(payload)
+        decoded = monotonic()
+        return frame, {
+            'adb_exec_ms': max(0.0, transferred - started) * 1000,
+            'png_decode_ms': max(0.0, decoded - transferred) * 1000,
+        }
+
     def ensure_connected(self) -> None:
         # Scheduled workers may be launched before the GUI has discovered any
         # MuMu TCP transports (e.g., after Windows login).

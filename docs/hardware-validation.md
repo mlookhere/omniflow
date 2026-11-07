@@ -9,7 +9,13 @@ sustainable on a particular PC. Keep control issue #1 and PR #2 open.
 Uploaded evidence from a 120-second run on `127.0.0.1:16640`:
 
 - Video delivered **2,469 frames / 20.57 FPS**, longest preview/video gap **0.39 s**, no fallback snapshots or observed MediaCodec Error 22. The video threshold passed, but Error 22 recovery remains **unverified**, not automatically green.
-- ADB screenshots: **87 captures / 121.078 s = 0.719 FPS**, below required **0.8 FPS**. Mean capture **1,373.77 ms**, p95 **1,719 ms**. Real workflow recognition p95 **16 ms**; no capture/detector errors. Screenshot acquisition, not recognition, is the measured bottleneck. The live session dashboard now also shows observed screenshot+normalization p95 for the last 120 successful frames, without new ADB calls. That rolling metric is **not** a sustained 120-second FPS/continuity acceptance test.
+- ADB screenshots: **87 captures / 121.078 s = 0.719 FPS**, below required **0.8 FPS**. Mean capture **1,373.77 ms**, p95 **1,719 ms**. Real workflow recognition p95 **16 ms**; no capture/detector errors. Screenshot acquisition, not recognition, is the measured bottleneck. The live session dashboard now shows observed screenshot+normalization p95
+and (for built-in MuMu devices) separate ADB exec and PNG decode p95 for
+the last 120 successful frames, **without additional screenshot commands**.
+The ADB stage includes Android PNG encoding, ADB startup and transfer; the
+PNG stage is local decoding, and the difference from total includes
+normalization. These rolling metrics are **not** sustained 120-second
+FPS/continuity acceptance tests.
 - Whole-host usage (59 samples): CPU avg **27.51%**, RAM avg **28,368.43 MiB** (43.87%), NVIDIA GPU avg **8.05%** (VRAM avg **3,859.81 MiB**). No idle baseline, so these figures **cannot be extrapolated numerically** to ten emulators.
 - Read-only verifier **failed** on capture FPS. No 10× capacity projection was generated (correctly fail-closed). Ten-device contention, real gestures and branch policy remain outstanding.
 

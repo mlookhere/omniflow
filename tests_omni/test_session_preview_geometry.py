@@ -93,6 +93,27 @@ class DashboardPreviewTests(unittest.TestCase):
         self.assertEqual(len(self.session.capture_latencies_ms), 120)
         self.assertEqual(self.session.capture_p95_ms(), 1400.0)
 
+    def test_stage_telemetry_is_bounded_and_rejects_missing_or_invalid_samples(self):
+        frame = np.zeros((960, 540, 3), dtype=np.uint8)
+        self.assertIsNone(self.session.capture_stage_p95_ms())
+        for sample in (
+            {'adb_exec_ms': 50.0, 'png_decode_ms': 10.0},
+            {'adb_exec_ms': 750.0, 'png_decode_ms': 60.0},
+            {'adb_exec_ms': float('nan'), 'png_decode_ms': 12.0},
+            {'adb_exec_ms': -1, 'png_decode_ms': 5},
+            {'adb_exec_ms': True, 'png_decode_ms': 5.0},
+            {'adb_exec_ms': 10.0},
+        ):
+            self.manager._image(self.session, self.match, frame,
+                                capture_stages_ms=sample)
+        self.assertEqual(self.session.capture_stage_p95_ms(), (750.0, 60.0))
+        for _ in range(125):
+            self.manager._image(
+                self.session, self.match, frame,
+                capture_stages_ms={'adb_exec_ms': 1200.0, 'png_decode_ms': 38.0})
+        self.assertEqual(len(self.session.capture_stages_ms), 120)
+        self.assertEqual(self.session.capture_stage_p95_ms(), (1200.0, 38.0))
+
     def test_runner_passes_original_capture_timestamp_to_preview(self):
         device = CapturedScreen(self.template.copy())
         holder = {}

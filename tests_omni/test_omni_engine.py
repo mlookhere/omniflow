@@ -188,6 +188,34 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(device.taps[-1],
                          (round(290 * 1940 / 540), round(770 * 1080 / 960)))
 
+    def test_optional_stage_telemetry_preserves_custom_adapter_and_failure_reset(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        self.assertFalse(hasattr(device, 'screenshot_timed'))
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            self.assertIsNone(runner.last_capture_stages_ms)
+            with patch.object(device, 'screenshot_timed',
+                              return_value=(self.match.copy(),
+                                            {'adb_exec_ms': 1400.0,
+                                             'png_decode_ms': 24.0})) as timed:
+                runner.step(101)
+            timed.assert_called_once_with()
+            self.assertEqual(runner.last_capture_stages_ms,
+                             {'adb_exec_ms': 1400.0, 'png_decode_ms': 24.0})
+            self.assertEqual(len(device.taps), 1)
+            with patch.object(device, 'screenshot_timed',
+                              side_effect=ADBError('offline')):
+                with self.assertRaises(ADBError):
+                    runner.step(102)
+            self.assertIsNone(runner.last_capture_stages_ms)
+            self.assertEqual(runner.current, '')
+            runner.step(103)
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        self.assertEqual(len(device.taps), 2)
+
     def test_geometry_change_reconfirms_state_before_new_input(self):
         device = Device(self.match)
         logs = []
