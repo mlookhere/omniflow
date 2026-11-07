@@ -11,7 +11,7 @@ from typing import Mapping
 
 from swordx.adb import ADB
 
-from .devices import canonical_mumu_serial
+from .devices import MAX_CAPTURE_AGE_SECONDS, canonical_mumu_serial
 from .capture_health import evaluate_capture
 MAX_FRAME_GAP_SECONDS = 6.0  # Same fixed gate as the read-only benchmark.
 
@@ -76,6 +76,11 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     # performance evidence only, not proof of dynamic-game visual equivalence.
     if benchmark.get('capture_format') != 'png':
         failures.append('Hardware acceptance requires the production PNG capture format')
+    timeout = _number(benchmark, 'adb_timeout_seconds', 'benchmark', failures)
+    if not 0 < timeout <= MAX_CAPTURE_AGE_SECONDS:
+        failures.append(
+            'Benchmark PNG ADB timeout must not exceed the '
+            f'{MAX_CAPTURE_AGE_SECONDS:g}s production limit')
 
     elapsed = _number(video, 'elapsed_seconds', 'video', failures)
     fps = _number(video, 'displayed_video_fps', 'video', failures)

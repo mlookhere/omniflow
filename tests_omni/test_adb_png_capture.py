@@ -31,6 +31,19 @@ class ScreenshotTransportTests(unittest.TestCase):
         execute.assert_called_once_with('exec-out', 'screencap', '-p', timeout=4)
         np.testing.assert_array_equal(screenshot, self.frame)
 
+    def test_builtin_device_plain_screenshot_uses_same_bounded_png_command(self):
+        device = MuMuDevice(serial='127.0.0.1:16384')
+        with patch.object(device, '_run', return_value=self.png) as execute:
+            screenshot = device.screenshot()
+        execute.assert_called_once_with(
+            'exec-out', 'screencap', '-p', timeout=MAX_CAPTURE_AGE_SECONDS)
+        np.testing.assert_array_equal(screenshot, self.frame)
+        with patch.object(device, '_run', return_value=self.png) as execute:
+            screenshot = device.screenshot(timeout=4)
+        execute.assert_called_once_with(
+            'exec-out', 'screencap', '-p', timeout=4)
+        np.testing.assert_array_equal(screenshot, self.frame)
+
     def test_production_timed_png_splits_adb_and_decode_without_second_capture(self):
         device = MuMuDevice(serial='127.0.0.1:16384')
         with patch.object(device, '_run', return_value=self.png) as command, \

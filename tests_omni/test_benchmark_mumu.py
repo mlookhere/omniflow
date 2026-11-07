@@ -9,8 +9,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
+from omniflow.devices import MAX_CAPTURE_AGE_SECONDS, Device as MuMuDevice
 from tools import benchmark_mumu as benchmark
 
 
@@ -51,6 +53,21 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIsNone(benchmark.percentile([], 0.95))
         self.assertEqual(benchmark.percentile([1, 3, 5, 7], 0.95), 7)
         self.assertEqual(benchmark.percentile([1, 3, 5, 7], 0.5), 3)
+
+    def test_builtin_png_benchmark_uses_production_transport_and_deadline(self):
+        ok, png = cv2.imencode('.png', np.zeros((960, 540, 3), np.uint8))
+        self.assertTrue(ok)
+        with patch.object(MuMuDevice, 'ensure_connected'), \
+             patch.object(MuMuDevice, '_run',
+                          return_value=png.tobytes()) as command:
+            result = benchmark.measure('127.0.0.1:16384', .07, .02,
+                                       device_factory=MuMuDevice)
+        self.assertGreater(result.frames, 0)
+        self.assertEqual(result.errors, 0)
+        self.assertGreaterEqual(command.call_count, result.frames)
+        for call in command.call_args_list:
+            self.assertEqual(call.args, ('exec-out', 'screencap', '-p'))
+            self.assertEqual(call.kwargs, {'timeout': MAX_CAPTURE_AGE_SECONDS})
 
     def test_ten_synchronized_workers_with_optional_real_detection_path(self):
         barrier = threading.Barrier(10)
@@ -235,6 +252,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertEqual(observed, ['raw'])
             self.assertEqual(report['capture_format'], 'raw')
+            self.assertEqual(report['adb_timeout_seconds'], 15.0)
             self.assertFalse(report['hardware_acceptance_complete'])
             self.assertTrue(report['passed'])
 
@@ -287,6 +305,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertTrue(report['passed'])
             self.assertEqual(report['requested_instances'], 1)
+            self.assertEqual(report['adb_timeout_seconds'], MAX_CAPTURE_AGE_SECONDS)
             self.assertEqual(report['discovered_instances'], 2)
             self.assertEqual(report['tested_instances'], 1)
             self.assertEqual(report['devices'][0]['serial'], '127.0.0.1:16384')

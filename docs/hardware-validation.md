@@ -22,7 +22,11 @@ uses the same six-second ADB subprocess timeout and records this provenance,
 so a stalled PNG request cannot be accepted under a looser diagnostic policy.
 Raw framebuffer profiling remains separate with a 15-second diagnostic
 timeout; other ADB operations are unaffected. The independent assessor
-rejects missing or >6s PNG timeout evidence.
+rejects missing or >6s PNG timeout evidence. The ten-device PNG benchmark
+uses the same built-in device screenshot method and six-second timeout as
+production, records `adb_timeout_seconds` in JSON, and the read-only
+verifier and one-device capacity estimate both reject absent or loosened
+timeout provenance.
 This change bounds a blocked screenshot, **not** measured screenshot FPS.
 These rolling metrics are **not** sustained 120-second FPS/continuity
 acceptance tests.

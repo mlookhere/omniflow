@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2
 
-from omniflow.devices import Device, canonical_mumu_serial, discover_mumu
+from omniflow.devices import (MAX_CAPTURE_AGE_SECONDS, Device,
+                              canonical_mumu_serial, discover_mumu)
 from swordx.adb import ADB
 from omniflow.resources import HostResourceMonitor
 from omniflow.raw_capture import decode_raw_screencap
@@ -239,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
         'requested_instances': args.instances,
         'requested_serial': args.serial or None,
         'capture_format': args.capture_format,
+        'adb_timeout_seconds': (MAX_CAPTURE_AGE_SECONDS if args.capture_format == 'png'
+                                else 15.0),
         'hardware_acceptance_complete': False,
         'tested_instances': 0,
         'discovered_instances': 0,

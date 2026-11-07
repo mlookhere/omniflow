@@ -23,7 +23,8 @@ def samples(*, devices=10, workflow='MyWorkflow'):
     benchmark = {
         'passed': True, 'requested_instances': devices,
         'tested_instances': devices, 'duration_seconds': 120,
-        'capture_format': 'png', 'workflow': workflow,
+        'capture_format': 'png', 'adb_timeout_seconds': 6.0,
+        'workflow': workflow,
         'devices': [{
             'serial': f'127.0.0.1:{16384 + i * 32}',
             'frames': 120, 'errors': 0, 'elapsed_seconds': 120.0,
@@ -73,6 +74,18 @@ class HardwareEvidenceTests(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertFalse(result['hardware_acceptance_complete'])
         self.assertIn('production PNG', ' '.join(result['failures']))
+
+    def test_png_screenshot_timeout_provenance_must_be_bounded(self):
+        for timeout in (None, 0, -1.0, 6.01, 15.0, float('nan'), True):
+            with self.subTest(timeout=timeout):
+                video, bench = samples()
+                if timeout is None:
+                    bench.pop('adb_timeout_seconds')
+                else:
+                    bench['adb_timeout_seconds'] = timeout
+                failures = evaluate_hardware_evidence(video, bench)['failures']
+                self.assertTrue(any('timeout' in issue for issue in failures),
+                                failures)
 
     def test_missing_capture_format_provenance_fails_closed(self):
         video, bench = samples()

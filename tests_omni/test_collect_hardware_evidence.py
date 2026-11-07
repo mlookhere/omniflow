@@ -151,7 +151,8 @@ class CollectEvidenceTests(unittest.TestCase):
             payload = {'passed': True, 'hardware_acceptance_complete': False}
             if Path(command[1]).name == 'benchmark_mumu.py':
                 payload.update(
-                    capture_format='png', requested_instances=1, tested_instances=1,
+                    capture_format='png', adb_timeout_seconds=6.0,
+                    requested_instances=1, tested_instances=1,
                     duration_seconds=120, min_fps=.8, failures=[],
                     devices=[{'serial': '127.0.0.1:16384', 'frames': 132,
                               'errors': 0, 'elapsed_seconds': 120,
@@ -204,7 +205,8 @@ class CollectEvidenceTests(unittest.TestCase):
     def test_projection_requires_complete_measured_png_evidence(self):
         good = {
             'passed': True, 'hardware_acceptance_complete': False,
-            'capture_format': 'png', 'requested_instances': 1,
+            'capture_format': 'png', 'adb_timeout_seconds': 6.0,
+            'requested_instances': 1,
             'tested_instances': 1, 'duration_seconds': 120, 'min_fps': .8,
             'failures': [],
             'devices': [{
@@ -215,6 +217,8 @@ class CollectEvidenceTests(unittest.TestCase):
         }
         cases = {
             'raw capture': ('capture_format', 'raw'),
+            'missing timeout': ('adb_timeout_seconds', None),
+            'relaxed timeout': ('adb_timeout_seconds', 15.0),
             'missing duration': ('duration_seconds', None),
             'short run': ('duration_seconds', 30),
             'relaxed FPS gate': ('min_fps', 0),

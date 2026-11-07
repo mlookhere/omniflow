@@ -52,6 +52,11 @@ class Device(ADB):
             'png_decode_ms': max(0.0, decoded - transferred) * 1000,
         }
 
+    def screenshot(self, timeout: float = MAX_CAPTURE_AGE_SECONDS) -> np.ndarray:
+        """Production-equivalent screenshot for read-only benchmarks too."""
+        frame, _ = self.screenshot_timed(timeout=timeout)
+        return frame
+
     def ensure_connected(self) -> None:
         # Scheduled workers may be launched before the GUI has discovered any
         # MuMu TCP transports (e.g., after Windows login).

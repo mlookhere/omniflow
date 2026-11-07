@@ -16,6 +16,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from omniflow.devices import MAX_CAPTURE_AGE_SECONDS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -64,6 +66,8 @@ def estimate_ten_instance_capture(benchmark: Path) -> dict | None:
         if (report.get('passed') is not True or
                 report.get('hardware_acceptance_complete') is not False or
                 report.get('capture_format') != 'png' or
+                type(report.get('adb_timeout_seconds')) not in (int, float) or
+                not 0 < report['adb_timeout_seconds'] <= MAX_CAPTURE_AGE_SECONDS or
                 report.get('requested_instances') != 1 or
                 report.get('tested_instances') != 1 or
                 report.get('failures') != []):
