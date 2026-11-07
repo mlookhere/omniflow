@@ -39,6 +39,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertTrue(all(c.kwargs['native_pixels'] is True
                             for c in capture.call_args_list))
         self.assertTrue(result['quality_equivalence_verified'])
+        self.assertEqual(result['comparison_pixel_space'], 'native_source')
         self.assertFalse(result['hardware_acceptance_complete'])
         self.assertEqual(result['results'][0]['raw_bytes'], 240)
 

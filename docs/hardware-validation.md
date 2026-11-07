@@ -77,7 +77,9 @@ producing a misleading format verdict.
 No screenshots are saved; the read-only JSON records original dimensions,
 payload sizes and changed-pixel fractions. Fidelity is checked at the native
 screenshot resolution, **before any 540x960 normalization**, so fine pixel
-differences cannot disappear during downsampling. Defaults allow an 8-level BGR
+differences cannot disappear during downsampling. The JSON records
+`comparison_pixel_space: native_source`; the assessor rejects older reports
+without this native-pixel provenance. Defaults allow an 8-level BGR
 per-channel difference on at most 0.5% of original source pixels. Rotation, unavailable
 capture, unstable controls and raw mismatches all fail. A passing result
 proves only the checked stationary-screen image similarity, **not** live

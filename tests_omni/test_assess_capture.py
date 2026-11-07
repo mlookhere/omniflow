@@ -40,6 +40,7 @@ def fidelity() -> dict:
         'passed': True, 'hardware_acceptance_complete': False,
         'quality_equivalence_verified': True,
         'capture_order': ['png', 'raw', 'png'],
+        'comparison_pixel_space': 'native_source',
         'triplets_requested': 3, 'triplets_checked': 3,
         'pixel_tolerance': 8, 'max_changed_fraction': .005,
         'results': [
@@ -129,6 +130,18 @@ class CaptureAssessmentTests(unittest.TestCase):
         result = assessment.assess(self.png, raw, self.fidelity)
         self.assertTrue(result['comparison_complete'])
         self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_legacy_downscaled_fidelity_reports_are_not_native_evidence(self):
+        for label, value in [('missing', None), ('old-normalized', 'normalized_540x960')]:
+            with self.subTest(label=label):
+                report = copy.deepcopy(self.fidelity)
+                if value is None:
+                    report.pop('comparison_pixel_space')
+                else:
+                    report['comparison_pixel_space'] = value
+                outcome = assessment.assess(self.png, self.raw, report)
+                self.assertFalse(outcome['comparison_complete'])
+                self.assertFalse(outcome['raw_candidate_for_further_validation'])
 
     def test_bad_fidelity_flags_and_loose_tolerance_rejected(self):
         for mutate in (lambda x: x.update(passed=False),

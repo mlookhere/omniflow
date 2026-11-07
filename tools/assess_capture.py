@@ -127,6 +127,7 @@ def _fidelity(report: dict) -> str:
             report.get('quality_equivalence_verified') is not True or
             report.get('hardware_acceptance_complete') is not False or
             report.get('capture_order') != ['png', 'raw', 'png'] or
+            report.get('comparison_pixel_space') != 'native_source' or
             report.get('failures') != []):
         raise ValueError('fidelity: source did not verify read-only PNG/raw equivalence')
     count = report.get('triplets_requested')

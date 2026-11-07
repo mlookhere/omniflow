@@ -82,6 +82,7 @@ def compare(serial: str, triplets: int = 3, pixel_tolerance: int = 8,
     return {
         'serial': serial, 'read_only': True,
         'capture_order': ['png', 'raw', 'png'],
+        'comparison_pixel_space': 'native_source',
         'triplets_requested': triplets, 'triplets_checked': len(results),
         'pixel_tolerance': pixel_tolerance,
         'max_changed_fraction': max_changed_fraction,
