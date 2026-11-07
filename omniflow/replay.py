@@ -97,7 +97,7 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             plan = describe_selected_actions(detector, winner.key, winner.trigger)
         except (WorkflowError, cv2.error, ValueError, KeyError, TypeError) as exc:
             item['status'] = 'error'
-            item['reason'] = f'Recognition failed: {exc}'
+            item['reason'] = f'Replay inspection failed: {exc}'
             continue
         item['actual_key'] = winner.key
         item['actual'] = winner.label
