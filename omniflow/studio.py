@@ -11,10 +11,11 @@ import json
 import cv2
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QMessageBox, QPushButton, QSpinBox,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
+                               QDialogButtonBox, QFormLayout, QHeaderView,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                               QMessageBox, QPushButton, QSpinBox, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
 from swordx.recorder import CaptureCanvas, RecorderDialog
 from .devices import android_text_argument
@@ -401,6 +402,57 @@ class RuleEditor(QDialog):
         super().accept()
 
 
+class ReplayResultsDialog(QDialog):
+    """Readable saved-screen audit, including states that also matched."""
+
+    def __init__(self, results: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Saved screenshot recognition replay')
+        self.resize(1050, 540)
+        layout = QVBoxLayout(self)
+        matched = sum(item['status'] == 'matched' for item in results)
+        tested = sum(item['status'] in ('matched', 'different', 'unknown')
+                     for item in results)
+        unavailable = sum(item['status'] == 'unavailable' for item in results)
+        errors = sum(item['status'] == 'error' for item in results)
+        overlaps = sum(bool(item['overlaps']) for item in results)
+        self.summary = QLabel(
+            f'{matched}/{tested} readable screenshots selected their recorded state'
+            if tested else 'No saved screenshots could be replayed')
+        layout.addWidget(self.summary)
+        self.counts = QLabel(
+            f'{overlaps} with overlapping matches · {unavailable} unavailable · '
+            f'{errors} recognition errors')
+        layout.addWidget(self.counts)
+        self.table = QTableWidget(len(results), 5)
+        self.table.setHorizontalHeaderLabels(
+            ['Recorded state', 'Result', 'Selected state', 'Other matches', 'Explanation'])
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setAlternatingRowColors(True)
+        for row, item in enumerate(results):
+            competing = ', '.join(
+                f"{match['label']} (WAIT)" if match['passive'] else match['label']
+                for match in item['overlaps'])
+            for column, value in enumerate((
+                    item['expected'], item['status'].upper(), item['actual'] or '—',
+                    competing or '—', item['reason'])):
+                self.table.setItem(row, column, QTableWidgetItem(str(value)))
+        header = self.table.horizontalHeader()
+        for column in range(4):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        layout.addWidget(self.table, 1)
+        note = QLabel(
+            'Offline, one-frame recognition only. No actions, timing or emulator input. '
+            'Unsaved Studio changes are not included.')
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        close = QDialogButtonBox(QDialogButtonBox.Close)
+        close.rejected.connect(self.reject)
+        layout.addWidget(close)
+
+
 class OmniStudio(RecorderDialog):
     def __init__(self, serial='', selected_workflow='', parent=None, base=None):
         super().__init__(serial, selected_workflow, parent, base=base)
@@ -645,28 +697,7 @@ class OmniStudio(RecorderDialog):
         except (WorkflowError, OSError, ValueError, KeyError, cv2.error) as exc:
             QMessageBox.warning(self, 'Screenshot replay', str(exc))
             return
-        matched = sum(item['status'] == 'matched' for item in results)
-        tested = sum(item['status'] in ('matched', 'different', 'unknown')
-                     for item in results)
-        unavailable = sum(item['status'] == 'unavailable' for item in results)
-        errors = sum(item['status'] == 'error' for item in results)
-        detail = []
-        for item in results:
-            actual = f" → {item['actual']}" if item['actual_key'] else ''
-            detail.append(
-                f"{item['status'].upper()} · {item['expected']}{actual} "
-                f"({item['reason']})")
-        box = QMessageBox(self)
-        box.setWindowTitle('Recorded screenshot replay')
-        box.setIcon(QMessageBox.Information)
-        box.setText(
-            f'{matched}/{tested} readable screenshots selected their recorded state'
-            if tested else 'No saved screenshots could be replayed')
-        box.setInformativeText(
-            f'{unavailable} unavailable; {errors} recognition errors. '
-            'One-frame replay only: no actions, timing, or emulator input.')
-        box.setDetailedText('\n'.join(detail))
-        box.exec()
+        ReplayResultsDialog(results, parent=self).exec()
 
     def _reset_chain(self):
         self.extra_chain=None;self._refresh_extra();self._field_changed()
