@@ -14,7 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QSpinBox
+    from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSpinBox
     from omniflow.studio import ActionEditor, RuleEditor, ZoneCaptureDialog, OmniStudio
     from swordx.workflows import create_workflow, record_step
     QT = True
@@ -92,6 +92,55 @@ class VisualStudioGuiTests(unittest.TestCase):
             dialog.result_rule()
         dialog.text.setText(r'CLAIM\\s+NOW')
         self.assertTrue(dialog.result_rule()['regex'])
+
+    def test_switching_color_to_pixel_requires_fresh_target_and_color(self):
+        frame = self.frame.copy()
+        frame[210:235, 110:135] = (10, 20, 30)
+        dialog = RuleEditor(
+            initial={'type': 'color', 'rect': [100, 200, 150, 250],
+                     'bgr': [1, 2, 3]}, frame=frame)
+        self.addCleanup(dialog.close)
+        # Opening an existing rule must not silently alter its saved color.
+        self.assertEqual(dialog.result_rule()['bgr'], [1, 2, 3])
+        dialog.kind.setCurrentIndex(dialog.kind.findData('pixel'))
+        self.assertIsNone(dialog.point)
+        self.assertIsNone(dialog.bounds)
+        self.assertIn('Select a pixel', dialog.zone_status.text())
+        with self.assertRaisesRegex(ValueError, 'Draw the detection zone'):
+            dialog.result_rule()
+        with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+            picker.return_value.exec.return_value = QDialog.Accepted
+            picker.return_value.result_selection.return_value = [120, 220]
+            dialog._pick()
+        self.assertEqual(dialog.result_rule()['point'], [120, 220])
+        self.assertEqual(dialog.result_rule()['bgr'], [10, 20, 30])
+        self.assertEqual(dialog.zone_status.text(), 'Pixel selected')
+
+        dialog.kind.setCurrentIndex(dialog.kind.findData('color'))
+        with self.assertRaisesRegex(ValueError, 'Draw the detection zone'):
+            dialog.result_rule()
+        with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+            picker.return_value.exec.return_value = QDialog.Accepted
+            picker.return_value.result_selection.return_value = [200, 300, 250, 350]
+            dialog._pick()
+        self.assertEqual(dialog.result_rule()['bgr'], [75, 75, 75])
+        self.assertNotIn('point', dialog.result_rule())
+        self.assertEqual(dialog.zone_status.text(), 'Zone selected')
+
+    def test_ocr_to_color_uses_same_zone_but_samples_its_own_color(self):
+        frame = self.frame.copy()
+        frame[210:240, 110:140] = (10, 20, 30)
+        dialog = RuleEditor(
+            initial={'type': 'ocr', 'rect': [110, 210, 140, 240],
+                     'text': 'Ready'}, frame=frame)
+        self.addCleanup(dialog.close)
+        dialog.kind.setCurrentIndex(dialog.kind.findData('color'))
+        self.assertEqual(dialog.result_rule()['rect'], [110, 210, 140, 240])
+        self.assertEqual(dialog.result_rule()['bgr'], [10, 20, 30])
+        dialog.kind.setCurrentIndex(dialog.kind.findData('ocr'))
+        self.assertEqual(dialog.result_rule()['text'], 'Ready')
+        dialog.kind.setCurrentIndex(dialog.kind.findData('color'))
+        self.assertEqual(dialog.result_rule()['bgr'], [10, 20, 30])
 
     def test_unsaved_studio_rule_preview_does_not_change_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
