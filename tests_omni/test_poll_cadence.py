@@ -1,4 +1,4 @@
-"""Worker polling uses start-to-start cadence, without shortening recovery delays."""
+"""Worker polling accounts for in-flight capture; error backoff remains separate."""
 from __future__ import annotations
 
 import tempfile
@@ -10,9 +10,10 @@ from unittest.mock import patch
 
 from omniflow.manager import InstanceManager, Session
 from omniflow.schedule import ScheduleStore
+from swordx.adb import ADBError
 
 
-class Clock:
+class SimulatedClock:
     def __init__(self):
         self.now = 100.0
 
@@ -20,8 +21,10 @@ class Clock:
         return self.now
 
 
-class FakeStop:
-    def __init__(self):
+class RecordingStop:
+    def __init__(self, clock, *, stop_after):
+        self.clock = clock
+        self.stop_after = stop_after
         self.stopped = False
         self.waits = []
 
@@ -33,28 +36,28 @@ class FakeStop:
 
     def wait(self, seconds):
         self.waits.append(seconds)
-        clock.now += seconds
-        if len(self.waits) >= 3:
+        self.clock.now += seconds
+        if len(self.waits) >= self.stop_after:
             self.stopped = True
         return self.stopped
 
 
 class PollCadenceTests(unittest.TestCase):
-    def test_slow_capture_does_not_add_another_full_poll_delay(self):
-        global clock
-        clock = Clock()
+    def exercise(self, steps):
+        clock = SimulatedClock()
         with tempfile.TemporaryDirectory() as tmp:
             db = ScheduleStore(Path(tmp) / 'jobs.sqlite3')
             folder = Path(tmp) / 'workflow'
             folder.mkdir()
             (folder / 'manifest.json').write_text('{}', encoding='utf-8')
-            manager = InstanceManager(db, poll_seconds=.35)
+            manager = InstanceManager(
+                db, device_factory=lambda serial: object(), poll_seconds=.35)
             session = Session('127.0.0.1:16384', 'com.game', 'demo',
                               folder, 'owner')
-            stop = FakeStop()
+            stop = RecordingStop(clock, stop_after=len(steps))
             session.stop_event = stop
             starts = []
-            durations = iter((.2, .8, .1))
+            upcoming = iter(steps)
 
             class TimedRunner:
                 def __init__(self, *args, **kwargs):
@@ -62,7 +65,10 @@ class PollCadenceTests(unittest.TestCase):
 
                 def step(self, started):
                     starts.append(started)
-                    clock.now += next(durations)
+                    duration, fails = next(upcoming)
+                    clock.now += duration
+                    if fails:
+                        raise ADBError('simulated screenshot transport error')
 
             with patch('omniflow.manager.OmniRunner', TimedRunner), \
                  patch('omniflow.manager.time',
@@ -70,20 +76,29 @@ class PollCadenceTests(unittest.TestCase):
                                        strftime=time.strftime)):
                 manager._run(session)
 
-        self.assertEqual(len(starts), 3)
-        for actual, expected in zip(starts, (100.0, 100.35, 101.15)):
+        return starts, stop.waits, session
+
+    def test_slow_capture_does_not_add_another_full_poll_delay(self):
+        starts, waits, session = self.exercise([
+            (.2, False), (.8, False), (.1, False)])
+        for actual, expected in zip(starts, (100.0, 100.35, 101.15), strict=True):
             self.assertAlmostEqual(actual, expected)
-        for actual, expected in zip(stop.waits, (.15, 0, .25)):
+        for actual, expected in zip(waits, (.15, 0, .25), strict=True):
             self.assertAlmostEqual(actual, expected)
+        self.assertEqual(session.failures, 0)
         self.assertIn('Stopped', session.status)
         self.assertFalse(session.lease_lost)
 
-    def test_pause_and_capture_errors_do_not_take_success_poll_path(self):
-        # The normal manager integration tests cover pause, stop, lease loss,
-        # and ADB recovery. The new cadence is only reached after a
-        # successful step; it must never replace those separate wait paths.
-        from omniflow.manager import InstanceManager
-        self.assertGreaterEqual(InstanceManager.__init__.__code__.co_argcount, 2)
+    def test_capture_error_keeps_existing_full_backoff(self):
+        starts, waits, session = self.exercise([
+            (.2, True), (.1, False)])
+        for actual, expected in zip(starts, (100.0, 101.2), strict=True):
+            self.assertAlmostEqual(actual, expected)
+        for actual, expected in zip(waits, (1.0, .25), strict=True):
+            self.assertAlmostEqual(actual, expected)
+        self.assertEqual(session.failures, 0)
+        self.assertTrue(any('simulated screenshot transport error' in item
+                            for item in session.logs))
 
 
 if __name__ == '__main__':
