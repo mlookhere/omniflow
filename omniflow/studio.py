@@ -530,6 +530,13 @@ class OmniStudio(RecorderDialog):
         reset.clicked.connect(self._reset_chain)
         chain_col.addWidget(reset)
         self._add_history_controls(chain_col)
+        draft_actions = QPushButton('Preview current draft actions (no taps)')
+        draft_actions.clicked.connect(self._preview_draft_actions)
+        chain_col.addWidget(draft_actions)
+        self.action_preview_status = QLabel(
+            'Unsaved actions can be checked before saving or running.')
+        self.action_preview_status.setWordWrap(True)
+        chain_col.addWidget(self.action_preview_status)
         self.tabs.addTab(chain,'THEN · Actions')
         self._load_extra()
 
@@ -662,6 +669,9 @@ class OmniStudio(RecorderDialog):
         self.actions_list.clear()
         if hasattr(self, 'rule_test_status'):
             self.rule_test_status.setText('Unsaved rules can be tested before saving.')
+        if hasattr(self, 'action_preview_status'):
+            self.action_preview_status.setText(
+                'Unsaved actions can be checked before saving or running.')
         self.canvas.extra_zones = [dict(item) for item in self.extra_conditions]
         self.canvas.update()
         for rule in self.extra_conditions:
@@ -813,6 +823,39 @@ class OmniStudio(RecorderDialog):
             self.extra_chain.pop(row)
             self._refresh_extra(action_row=row)
             self._field_changed()
+
+    def _preview_draft_actions(self):
+        """Check unsaved THEN steps without any screenshot, save or Android I/O."""
+        from .engine import WorkflowError, resolve_action_chain
+        from .replay import describe_action_plan
+
+        action = {
+            'passive': self.passive.isChecked(),
+            'pre_tap_delay_seconds': self._delay_seconds(),
+        }
+        if self.extra_chain is not None:
+            action['action_chain'] = self.extra_chain
+        else:
+            action['gestures'] = [dict(step) for step in self.canvas.gestures
+                                  if step]
+        regions = len(self.canvas.boxes)
+        chain = resolve_action_chain(action, regions)
+        try:
+            steps = describe_action_plan(action, chain)
+        except (WorkflowError, ValueError, TypeError, KeyError) as exc:
+            self.action_preview_status.setText(
+                f'Draft action invalid: {exc}. Nothing saved or tapped.')
+            return
+        note = (' Legacy paired regions: only the first alternative is shown; '
+                'the selected region decides the live action.'
+                if self.extra_chain is None and regions > 1 and
+                len(action['gestures']) > 1 and not action['passive']
+                else '')
+        self.action_preview_status.setText(
+            'Draft-only action preview (no taps or saves):\n' +
+            '\n'.join(f'{index}. {step}' for index, step in enumerate(steps, 1)) +
+            note + '\nLive execution additionally requires confirmed fresh '
+            'screenshots, permission and timing.')
 
     def _test_draft_conditions(self):
         """Inspect current WHEN rules without saving or sending game input."""
