@@ -98,6 +98,7 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     deadline = started + seconds
     capture_times: list[float] = []
     detect_times: list[float] = []
+    source_shape: tuple[int, int, int] | None = None
     last_valid_at = started
     max_frame_gap = 0.0
     errors = 0
@@ -113,6 +114,14 @@ def measure(serial: str, seconds: float, poll_seconds: float,
                 frame = decode_raw_screencap(payload)
             else:
                 frame = device.screenshot()
+            # Comparing normalized dimensions alone hides a live rotation:
+            # portrait and landscape both normalize to 540x960.
+            shape = tuple(frame.shape)
+            if source_shape is None:
+                source_shape = shape
+            elif shape != source_shape:
+                raise ValueError(
+                    f'Screenshot source geometry changed: {source_shape} -> {shape}')
             frame = normalize(frame)
             if frame.shape != (960, 540, 3):
                 raise ValueError(f'Unexpected normalized frame dimensions: {frame.shape}')

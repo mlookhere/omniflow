@@ -148,6 +148,39 @@ class BenchmarkTests(unittest.TestCase):
             max_frame_gap_seconds=2.0)
         self.assertEqual(benchmark.evaluate([good], 1, .8), [])
 
+    def test_png_orientation_change_fails_instead_of_normalizing_it_away(self):
+        class RotatingDevice(FakeDevice):
+            def screenshot(self):
+                self.calls += 1
+                return np.zeros((960, 540, 3) if self.calls % 2 else
+                                (540, 960, 3), dtype=np.uint8)
+
+        result = benchmark.measure('mumu:test', .10, .01,
+                                   device_factory=RotatingDevice)
+        self.assertGreater(result.frames, 0)
+        self.assertGreater(result.errors, 0)
+        self.assertIn('source geometry changed', result.last_error)
+        self.assertTrue(benchmark.evaluate([result], 1, 0.0))
+
+    def test_raw_orientation_change_fails_without_png_substitution(self):
+        class RotatingRawDevice(FakeDevice):
+            def screenshot(self):
+                raise AssertionError('Raw mode must never request PNG')
+
+            def _run(self, *args, **kwargs):
+                self.calls += 1
+                width, height = ((540, 960) if self.calls % 2 else (960, 540))
+                return (struct.pack('<III', width, height, 1) +
+                        bytes((12, 24, 36, 255)) * (width * height))
+
+        result = benchmark.measure('mumu:test', .10, .01,
+                                   device_factory=RotatingRawDevice,
+                                   capture_format='raw')
+        self.assertGreater(result.frames, 0)
+        self.assertGreater(result.errors, 0)
+        self.assertIn('source geometry changed', result.last_error)
+        self.assertTrue(benchmark.evaluate([result], 1, 0.0))
+
     def test_raw_format_decodes_read_only_capture_without_png_path(self):
         class RawDevice(FakeDevice):
             def screenshot(self):

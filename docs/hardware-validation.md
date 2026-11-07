@@ -227,8 +227,10 @@ measure real ADB transfer contention:
 
 The default remains `--capture-format png`. Raw mode invokes uncompressed
 `adb exec-out screencap` and strictly decodes each framebuffer; unsupported
-layouts and transport failures are counted as capture errors. Per-device FPS,
-latency, continuity, and host-resource gates remain unchanged. A passing raw
+layouts and transport failures are counted as capture errors. Both PNG and raw
+benchmarks reject source orientation or resolution changes during a run,
+rather than treating resized portrait/landscape images as equivalent.
+Per-device FPS, latency, continuity, and host-resource gates remain unchanged. A passing raw
 benchmark is **diagnostic performance evidence only**, not a substitute for
 live-game image equivalence or a production switch. The independent
 `verify_hardware_evidence.py` requires PNG provenance and rejects a raw
