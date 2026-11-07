@@ -177,6 +177,60 @@ def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
     return 1.0 if passed else 0.0
 
 
+def validate_recognition_manifest(manifest: dict) -> None:
+    """Reject unsafe state matching configuration once, before running OCR.
+
+    A missing template must never silently turn an image-matching state into a
+    condition-only state, and NaN thresholds must never bypass image checks.
+    """
+    states = manifest.get('states')
+    actions = manifest.get('actions')
+    if not isinstance(states, dict) or not isinstance(actions, dict):
+        raise WorkflowError('Workflow must contain states and actions')
+    if set(states) != set(actions):
+        raise WorkflowError('Workflow state keys and action keys must match')
+
+    def finite_number(value, description: str, *, unit_interval: bool = False):
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise WorkflowError(f'{description} must be a finite number')
+        if unit_interval and not 0 <= value <= 1:
+            raise WorkflowError(f'{description} must be between 0 and 1')
+
+    finite_number(manifest.get('threshold', 0.82),
+                  'Workflow image threshold', unit_interval=True)
+    for key, probes in states.items():
+        action = actions[key]
+        if not isinstance(action, dict) or not isinstance(probes, list):
+            raise WorkflowError(f'State {key!r} must define action and image probe data')
+        label = action.get('label', key)
+        prefix = f'State {label!r}'
+        for flag in ('passive', 'skip_template'):
+            if flag in action and type(action[flag]) is not bool:
+                raise WorkflowError(f'{prefix}: {flag} must be true or false')
+        mode = action.get('match', 'all')
+        if mode not in ('all', 'any'):
+            raise WorkflowError(f'{prefix}: image match mode must be all or any')
+        finite_number(action.get('threshold', manifest.get('threshold', 0.82)),
+                      f'{prefix} image threshold', unit_interval=True)
+        finite_number(action.get('priority', 0), f'{prefix} priority')
+        conditions = action.get('conditions', [])
+        if not isinstance(conditions, list):
+            raise WorkflowError(f'{prefix}: recognition conditions must be a list')
+        for index, rule in enumerate(conditions, 1):
+            try:
+                validate_condition(rule)
+            except WorkflowError as exc:
+                raise WorkflowError(f'{prefix}, condition {index}: {exc}') from exc
+        if action.get('skip_template'):
+            if not conditions:
+                raise WorkflowError(
+                    f'{prefix}: condition-only recognition needs a condition')
+        elif not probes:
+            raise WorkflowError(
+                f'{prefix}: image matching requires a captured template '
+                '(enable condition-only recognition explicitly)')
+
+
 class OmniDetector:
     """Fast legacy template matching + optional OCR/color/negative conditions.
 
@@ -187,15 +241,8 @@ class OmniDetector:
         import json
         self.folder = Path(folder)
         self.manifest = json.loads((self.folder / 'manifest.json').read_text(encoding='utf-8'))
-        self.actions = self.manifest.get('actions', {})
-        for key, action in self.actions.items():
-            for index, rule in enumerate(action.get('conditions', []), 1):
-                try:
-                    validate_condition(rule)
-                except WorkflowError as exc:
-                    raise WorkflowError(
-                        f'State {action.get("label", key)!r}, condition {index}: {exc}'
-                    ) from exc
+        validate_recognition_manifest(self.manifest)
+        self.actions = self.manifest['actions']
         self.threshold = float(self.manifest.get('threshold', 0.82))
         self.legacy = ScreenDetector(folder) if all(self.manifest['states'].values()) else None
         self.templates = {} if self.legacy is None else self.legacy.templates
