@@ -48,6 +48,10 @@ foreground/process probes and **before** issuing a launch; delayed or failed
 probes discard stale stopped-app evidence and require new observations.
 Successful relaunches reset the old recognition chain. These are simulated
 safety and recovery tests, not measured Windows/MuMu crash-relaunch proof.
+The selected-video watchdog also treats OpenCV screenshot/color-conversion
+and static-screen comparison failures as inconclusive probes, preserving
+the existing H.264 stall interruption/retry path rather than losing its
+watchdog thread. Tests simulate such failures, not a real MediaCodec Error 22.
 This is simulated input safety validation, not a physical game-input test.
 They are **not** strict hardware acceptance: a full unbroken 120-second
 benchmark, explicit failure accounting, ten-device contention and real-game

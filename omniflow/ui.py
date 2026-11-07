@@ -156,7 +156,9 @@ class VideoThread(QThread):
             if self.stopped.is_set() or frame is None:
                 return
             self._publish(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), 'snapshot')
-        except (ADBError, OSError, ValueError) as exc:
+        except (ADBError, OSError, ValueError, cv2.error) as exc:
+            # Malformed snapshot pixels/OpenCV conversion are transient preview
+            # errors, not a reason to terminate the video retry thread.
             # Keep retrying video, but do not flood the log every 1.5 seconds
             # when a device is disconnected or screenshots are unsupported.
             if not self.stopped.is_set():
@@ -187,13 +189,19 @@ class VideoThread(QThread):
                     # One selected worker already taking screenshots can answer
                     # the static-screen probe without another ADB request.
                     snapshot = self._read_selected_snapshot()
-                except (ADBError, OSError, ValueError):
+                except (ADBError, OSError, ValueError, cv2.error):
+                    # A snapshot or OpenCV comparison failure is not evidence
+                    # the H.264 stream is healthy. Allow normal stall recovery.
                     snapshot = None
                 with self.lock:
                     if (self.stopped.is_set() or self.stream is not stream or
                             self.interrupted or self.last_frame_at != at):
                         continue  # The decoder already resumed during the probe.
-                    if screen_is_unchanged(source, snapshot):
+                    try:
+                        static = screen_is_unchanged(source, snapshot)
+                    except (cv2.error, ValueError):
+                        static = False
+                    if static:
                         self.last_frame_at = time.monotonic()
                         continue  # Static screen: no need to reset MediaCodec.
             if self.interrupt_if_stale(time.monotonic()):

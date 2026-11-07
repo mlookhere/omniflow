@@ -2,6 +2,7 @@
 import os
 import sys
 import threading
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -58,6 +59,63 @@ class SnapshotGuiTests(unittest.TestCase):
         adb.assert_not_called()
         self.assertEqual(publish.call_args.args[1], 'snapshot')
         self.assertEqual(publish.call_args.args[0][0, 0].tolist(), [35, 25, 15])
+
+    def test_snapshot_opencv_error_does_not_terminate_video_fallback(self):
+        import cv2
+        import numpy as np
+        worker = VideoThread(
+            '127.0.0.1:16384',
+            snapshot_source=lambda: np.zeros((8, 8, 3), dtype=np.uint8))
+        errors = []
+        worker.error.connect(errors.append)
+        with patch('omniflow.ui.cv2.cvtColor',
+                   side_effect=cv2.error('malformed screenshot')):
+            worker._fallback_screenshot()
+            worker._fallback_screenshot()
+        self.assertEqual(len(errors), 1)
+        self.assertIn('malformed screenshot', errors[0])
+        self.assertFalse(worker.stopped.is_set())
+
+    def test_watchdog_opencv_match_failure_still_restarts_stalled_encoder(self):
+        import cv2
+        import numpy as np
+        from unittest.mock import MagicMock
+        from swordx.preview import VIDEO_STALE_SECONDS
+        worker = VideoThread('127.0.0.1:16384')
+        stream = MagicMock()
+        worker.stream = stream
+        worker.stream_started_at = time.monotonic() - VIDEO_STALE_SECONDS - 5
+        worker.last_frame_at = time.monotonic() - VIDEO_STALE_SECONDS - 5
+        worker.last_rgb = np.zeros((8, 8, 3), dtype=np.uint8)
+        errors = []
+        worker.error.connect(errors.append)
+        with patch.object(worker.stopped, 'wait', side_effect=[False, True]), \
+             patch.object(worker, '_read_selected_snapshot',
+                          return_value=np.zeros((8, 8, 3), dtype=np.uint8)), \
+             patch('omniflow.ui.screen_is_unchanged',
+                   side_effect=cv2.error('match failed')):
+            worker._watchdog()
+        stream.interrupt.assert_called_once_with()
+        self.assertTrue(worker.interrupted)
+        self.assertTrue(any('restarting encoder' in issue for issue in errors))
+
+    def test_watchdog_opencv_screenshot_failure_still_restarts_encoder(self):
+        import cv2
+        import numpy as np
+        from unittest.mock import MagicMock
+        from swordx.preview import VIDEO_STALE_SECONDS
+        worker = VideoThread('127.0.0.1:16384')
+        stream = MagicMock()
+        worker.stream = stream
+        worker.stream_started_at = time.monotonic() - VIDEO_STALE_SECONDS - 5
+        worker.last_frame_at = time.monotonic() - VIDEO_STALE_SECONDS - 5
+        worker.last_rgb = np.zeros((8, 8, 3), dtype=np.uint8)
+        with patch.object(worker.stopped, 'wait', side_effect=[False, True]), \
+             patch.object(worker, '_read_selected_snapshot',
+                          side_effect=cv2.error('decode failed')):
+            worker._watchdog()
+        stream.interrupt.assert_called_once_with()
+        self.assertTrue(worker.interrupted)
 
     def test_watchdog_and_retry_share_one_inflight_adb_screenshot(self):
         import numpy as np
