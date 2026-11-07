@@ -918,13 +918,21 @@ class RecorderDialog(QDialog):
                                   condition_only=condition_only)
             else:
                 key = self.editing_key
+                # Studio-only fields participate in the same atomic settings
+                # write; the legacy editor preserves them when it has none.
+                studio = ({
+                    'action_chain': self.extra_chain,
+                    'conditions': self.extra_conditions,
+                    'skip_template': condition_only,
+                } if hasattr(self, 'extra_conditions') else None)
                 update_step_settings(folder, key, self.step_name.text(),
                                      end=self.terminal.isChecked(), retry=self.retry.isChecked(),
                                      retry_mode=self.retry_mode.currentData(),
                                      retry_interval_seconds=self.retry_interval.value(),
                                      pre_tap_delay_seconds=self._delay_seconds(),
                                      passive=self.passive.isChecked(),
-                                     max_extra_taps=self.max_extra_taps.value())
+                                     max_extra_taps=self.max_extra_taps.value(),
+                                     studio=studio)
         except (ValueError, OSError, KeyError) as exc:
             QMessageBox.warning(self, 'Could not save state', str(exc))
             return
