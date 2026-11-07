@@ -149,7 +149,9 @@ class InstanceManager:
                     session.log(f'Initial device connect failed, retrying: {exc}')
             runner = OmniRunner(device, session.folder, session.package,
                                 log=session.log, completed=lambda _: session.stats.complete(),
-                                image=lambda match, frame: self._image(session, match, frame),
+                                image=lambda match, frame: self._image(
+                                    session, match, frame,
+                                    captured_at=runner.last_capture_started_at),
                                 auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None,
                                 can_act=lambda: not session.stop_event.is_set(),
                                 is_paused=session.pause_event.is_set)
@@ -240,7 +242,8 @@ class InstanceManager:
                         del self.sessions[session.serial]
                     self.completed_sessions.append(session)
 
-    def _image(self, session: Session, match: Match, frame: np.ndarray) -> None:
+    def _image(self, session: Session, match: Match, frame: np.ndarray,
+               *, captured_at: float | None = None) -> None:
         session.current, session.confidence = match.label, match.confidence
         # Reuse the runner's captured screenshot rather than requesting another
         # ADB frame. Preserve its real orientation and aspect ratio, keeping
@@ -251,7 +254,9 @@ class InstanceManager:
         thumbnail = cv2.resize(frame, target, interpolation=cv2.INTER_AREA)
         with session._image_lock:
             session.image = thumbnail
-            session.image_at = time.monotonic()
+            # A slowly decoded or recognized image must never become "new"
+            # merely because its thumbnail was published recently.
+            session.image_at = time.monotonic() if captured_at is None else captured_at
 
     def stop(self, serial: str) -> None:
         with self._lock:

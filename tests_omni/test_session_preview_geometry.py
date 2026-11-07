@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -63,6 +65,38 @@ class DashboardPreviewTests(unittest.TestCase):
         prior = self.session.latest()
         prior[:] = 0
         self.assertTrue(np.all(self.session.latest() == 77))
+
+    def test_cached_preview_age_is_from_adb_capture_not_publication(self):
+        frame = np.zeros((960, 540, 3), dtype=np.uint8)
+        acquisition = time.monotonic() - 5.0
+        self.manager._image(self.session, self.match, frame,
+                            captured_at=acquisition)
+        self.assertEqual(self.session.image_at, acquisition)
+        self.assertIsNone(self.session.recent_image())
+        self.assertEqual(self.session.latest().shape, (480, 270, 3))
+
+        self.manager._image(self.session, self.match, frame,
+                            captured_at=time.monotonic())
+        self.assertIsNotNone(self.session.recent_image())
+
+    def test_runner_passes_original_capture_timestamp_to_preview(self):
+        device = CapturedScreen(self.template.copy())
+        holder = {}
+        runner = OmniRunner(
+            device, self.folder, 'com.example',
+            image=lambda match, image: self.manager._image(
+                self.session, match, image,
+                captured_at=holder['runner'].last_capture_started_at),
+            auto_relaunch=False, dry_run=True)
+        holder['runner'] = runner
+        # Recognition/publishing ends three seconds after acquisition,
+        # without making the test sleep in real time.
+        with patch('omniflow.engine.time.monotonic',
+                   side_effect=[100.0, 100.1, 103.0]):
+            runner.step(100)
+        self.assertEqual(runner.last_capture_started_at, 100.0)
+        self.assertEqual(self.session.image_at, 100.0)
+        self.assertIsNone(self.session.recent_image())
 
     def test_runner_passes_raw_screen_to_dashboard_not_detection_canvas(self):
         # A distorted 540x960 canvas is still used for matching old workflow

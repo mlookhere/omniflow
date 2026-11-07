@@ -256,6 +256,9 @@ class OmniRunner:
         self.last_launch = float('-inf')
         self.last_observation = UNKNOWN
         self.last_frame: np.ndarray | None = None
+        # Conservative preview age starts before ADB acquisition, not when
+        # recognition eventually publishes the captured pixels.
+        self.last_capture_started_at = 0.0
         self._stable_key = ''
         self._streak = 0
         self._acted = False
@@ -406,6 +409,7 @@ class OmniRunner:
         now = time.monotonic() if now is None else now
         self.wait_remaining = None
         capture_started = time.monotonic()
+        self.last_capture_started_at = capture_started
         try:
             raw = self.device.screenshot()
             frame = normalize(raw)
