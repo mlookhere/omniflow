@@ -103,6 +103,52 @@ class SnapshotGuiTests(unittest.TestCase):
         self.assertEqual(updated[0, 0, 0], 20)
         self.assertEqual(adb.return_value.screenshot.call_count, 2)
 
+    def test_running_worker_prevents_duplicate_preview_screenshot(self):
+        import numpy as np
+        worker = VideoThread(
+            '127.0.0.1:16384', snapshot_source=lambda: None,
+            capture_active=lambda: True)
+        with patch('omniflow.ui.ADB') as adb, \
+             patch.object(worker, '_publish') as publish:
+            self.assertIsNone(worker._read_selected_snapshot())
+            worker._fallback_screenshot()
+        adb.assert_not_called()
+        publish.assert_not_called()
+
+        # Worker captures remain useful even when extra ADB reads are barred.
+        frame = np.full((10, 10, 3), 17, np.uint8)
+        worker.snapshot_source = lambda: frame
+        with patch('omniflow.ui.ADB') as adb:
+            self.assertIs(worker._read_selected_snapshot(), frame)
+        adb.assert_not_called()
+
+    def test_paused_or_absent_worker_keeps_adb_snapshot_fallback(self):
+        import numpy as np
+        worker = VideoThread(
+            '127.0.0.1:16384', snapshot_source=lambda: None,
+            capture_active=lambda: False)
+        with patch('omniflow.ui.ADB') as adb:
+            adb.return_value.screenshot.return_value = np.zeros(
+                (960, 540, 3), dtype=np.uint8)
+            self.assertEqual(worker._read_selected_snapshot().shape,
+                             (960, 540, 3))
+        adb.return_value.screenshot.assert_called_once_with(timeout=4)
+
+    def test_selected_capture_activity_is_alias_scoped_and_respects_pause(self):
+        from types import SimpleNamespace
+        from omniflow.ui import OmniWindow
+        sessions = [
+            SimpleNamespace(serial='localhost:16384', status='Running'),
+            SimpleNamespace(serial='127.0.0.1:16416', status='Paused'),
+        ]
+        window = SimpleNamespace(manager=SimpleNamespace(snapshot=lambda: sessions))
+        self.assertTrue(OmniWindow._selected_capture_active(
+            window, '127.0.0.1:16384'))
+        self.assertFalse(OmniWindow._selected_capture_active(
+            window, '127.0.0.1:16416'))
+        self.assertFalse(OmniWindow._selected_capture_active(
+            window, '127.0.0.1:16640'))
+
     def test_cache_miss_still_uses_selected_device_adb_snapshot(self):
         import numpy as np
         worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)

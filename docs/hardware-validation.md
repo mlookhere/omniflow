@@ -33,7 +33,15 @@ acceptance tests.
 - Whole-host usage (59 samples): CPU avg **27.51%**, RAM avg **28,368.43 MiB** (43.87%), NVIDIA GPU avg **8.05%** (VRAM avg **3,859.81 MiB**). No idle baseline, so these figures **cannot be extrapolated numerically** to ten emulators.
 - Read-only verifier **failed** on capture FPS. No 10× capacity projection was generated (correctly fail-closed). Ten-device contention, real gestures and branch policy remain outstanding.
 
-**Next measurement:** profile ADB `screencap` transport/decode latency; evaluate a bounded **shared decoded H.264 frame source** as a capture alternative for the selected instance, with freshness/rotation and automatic fallback. The selected preview's watchdog and retry fallback now serialize their own ADB screenshot requests and may reuse one frame for at most 2 seconds from capture start. This preview-only optimization never substitutes an automation recognition frame or proves capture FPS. Do not enable ten encoders by default or weaken the 0.8 FPS criterion.
+**Next measurement:** profile ADB `screencap` transport/decode latency; evaluate a bounded **shared decoded H.264 frame source** as a capture alternative for the selected instance, with freshness/rotation and automatic fallback. The selected preview's watchdog and retry fallback serialize their own
+ADB screenshot requests and may reuse one frame for at most 2 seconds from
+capture start. While the selected workflow is actively taking screenshots,
+the video preview now uses its latest worker-captured thumbnail and **skips
+separate ADB fallback requests** when the thumbnail is stale or absent;
+paused or inactive sessions still permit standalone fallback screenshots.
+This avoids two competing screenshot loops for one device, without adding
+encoders or supplying a cached frame to automation decisions. It is a
+software contention safeguard, **not** measured capture-FPS improvement. Do not enable ten encoders by default or weaken the 0.8 FPS criterion.
 
 ### Compare uncompressed Android capture (opt-in diagnostic only)
 

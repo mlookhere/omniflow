@@ -63,11 +63,14 @@ class VideoThread(QThread):
     """
     error = Signal(str)
 
-    def __init__(self, serial: str, parent=None, *, snapshot_source=None):
+    def __init__(self, serial: str, parent=None, *, snapshot_source=None,
+                 capture_active=None):
         super().__init__(parent)
         self.serial = serial
-        # Optional read-only cache from the same selected automation session.
+        # Selected workflow pixels take priority over any extra preview ADB
+        # screenshot. Never compete with a running worker for the same device.
         self.snapshot_source = snapshot_source
+        self.capture_active = capture_active
         self.stopped = threading.Event()
         self.lock = threading.Lock()
         self.latest = None
@@ -121,7 +124,13 @@ class VideoThread(QThread):
         frame = self.snapshot_source() if self.snapshot_source else None
         if frame is not None:
             return frame
+        if self.capture_active and self.capture_active():
+            return None  # The workflow owns screenshot polling on this MuMu.
         with self._snapshot_lock:
+            # A workflow can become active while we wait for another preview
+            # caller; do not initiate a new ADB read after that transition.
+            if self.capture_active and self.capture_active():
+                return None
             started = time.monotonic()
             age = started - self._adb_snapshot_at
             if self._adb_snapshot is not None and 0 <= age <= 2.0:
@@ -144,7 +153,7 @@ class VideoThread(QThread):
             # The selected worker may already have a fresh frame. ADB remains
             # the fallback if the selected session is absent or its image aged.
             frame = self._read_selected_snapshot()
-            if self.stopped.is_set():
+            if self.stopped.is_set() or frame is None:
                 return
             self._publish(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), 'snapshot')
         except (ADBError, OSError, ValueError) as exc:
@@ -742,6 +751,13 @@ class OmniWindow(QMainWindow):
                         if canonical_mumu_serial(s.serial) == device), None)
         return session.recent_image() if session is not None else None
 
+    def _selected_capture_active(self, serial: str) -> bool:
+        """A running selected workflow has exclusive priority for screenshots."""
+        key = canonical_mumu_serial(serial)
+        return any(canonical_mumu_serial(session.serial) == key and
+                   session.status == 'Running'
+                   for session in self.manager.snapshot())
+
     def _start_requested_video(self):
         self.video_serial = ''
         self.last_video_serial = ''
@@ -751,7 +767,9 @@ class OmniWindow(QMainWindow):
             return
         self.video_serial = serial
         thread = VideoThread(
-            serial, self, snapshot_source=lambda: self._cached_session_frame(serial))
+            serial, self,
+            snapshot_source=lambda: self._cached_session_frame(serial),
+            capture_active=lambda: self._selected_capture_active(serial))
         self.video = thread
         thread.error.connect(self._video_error)
         thread.finished.connect(self._video_finished)
