@@ -59,12 +59,33 @@ def estimate_ten_instance_capture(benchmark: Path) -> dict | None:
     """
     try:
         report = json.loads(benchmark.read_text(encoding='utf-8'))
-        if (report.get('passed') is not True or report.get('tested_instances') != 1
-                or len(report.get('devices', [])) != 1):
+        # A reported pass is necessary but not enough even for an idealized
+        # capacity estimate. Validate actual PNG provenance and measurements.
+        if (report.get('passed') is not True or
+                report.get('hardware_acceptance_complete') is not False or
+                report.get('capture_format') != 'png' or
+                report.get('requested_instances') != 1 or
+                report.get('tested_instances') != 1 or
+                report.get('failures') != []):
             return None
-        rate = report['devices'][0]['effective_fps']
-        if (isinstance(rate, bool) or not isinstance(rate, (int, float))
-                or not math.isfinite(rate) or rate <= 0):
+        devices = report.get('devices')
+        if not isinstance(devices, list) or len(devices) != 1 or not isinstance(devices[0], dict):
+            return None
+        device = devices[0]
+        duration, minimum = report.get('duration_seconds'), report.get('min_fps')
+        elapsed, rate = device.get('elapsed_seconds'), device.get('effective_fps')
+        gap, p95 = device.get('max_frame_gap_seconds'), device.get('capture_p95_ms')
+        frames, errors = device.get('frames'), device.get('errors')
+        if not all(type(value) in (int, float) and math.isfinite(value)
+                   for value in (duration, minimum, elapsed, rate, gap, p95)):
+            return None
+        if (duration < 120 or minimum < .8 or elapsed < duration * .95 or
+                rate < minimum or gap < 0 or gap > 6 or gap > elapsed or
+                p95 < 0 or type(frames) is not int or frames <= 0 or
+                type(errors) is not int or errors != 0 or
+                not isinstance(device.get('serial'), str) or
+                not device['serial'].strip() or
+                abs(frames / elapsed - rate) > .015):
             return None
     except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
         return None

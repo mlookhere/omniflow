@@ -150,7 +150,13 @@ class CollectEvidenceTests(unittest.TestCase):
         def fake_run(command, **kwargs):
             payload = {'passed': True, 'hardware_acceptance_complete': False}
             if Path(command[1]).name == 'benchmark_mumu.py':
-                payload.update(tested_instances=1, devices=[{'effective_fps': 1.1}])
+                payload.update(
+                    capture_format='png', requested_instances=1, tested_instances=1,
+                    duration_seconds=120, min_fps=.8, failures=[],
+                    devices=[{'serial': '127.0.0.1:16384', 'frames': 132,
+                              'errors': 0, 'elapsed_seconds': 120,
+                              'effective_fps': 1.1, 'max_frame_gap_seconds': 1.1,
+                              'capture_p95_ms': 600}])
             Path(command[command.index('--output') + 1]).write_text(json.dumps(payload))
             return subprocess.CompletedProcess(command, 0, '', '')
         with tempfile.TemporaryDirectory() as tmp, \
@@ -193,6 +199,59 @@ class CollectEvidenceTests(unittest.TestCase):
                             'devices': [{'effective_fps': 1}]}):
                 with self.subTest(sample=sample):
                     path.write_text(json.dumps(sample))
+                    self.assertIsNone(collector.estimate_ten_instance_capture(path))
+
+    def test_projection_requires_complete_measured_png_evidence(self):
+        good = {
+            'passed': True, 'hardware_acceptance_complete': False,
+            'capture_format': 'png', 'requested_instances': 1,
+            'tested_instances': 1, 'duration_seconds': 120, 'min_fps': .8,
+            'failures': [],
+            'devices': [{
+                'serial': '127.0.0.1:16384', 'frames': 132, 'errors': 0,
+                'elapsed_seconds': 120, 'effective_fps': 1.1,
+                'max_frame_gap_seconds': 1.1, 'capture_p95_ms': 600,
+            }],
+        }
+        cases = {
+            'raw capture': ('capture_format', 'raw'),
+            'missing duration': ('duration_seconds', None),
+            'short run': ('duration_seconds', 30),
+            'relaxed FPS gate': ('min_fps', 0),
+            'different requested coverage': ('requested_instances', 10),
+            'inconsistent tested count': ('tested_instances', 10),
+            'claimed full acceptance': ('hardware_acceptance_complete', True),
+            'unreported failures': ('failures', ['capture failed']),
+            'missing devices': ('devices', []),
+        }
+        device_cases = {
+            'short observation': ('elapsed_seconds', 30),
+            'wrong frame count': ('frames', 1),
+            'fractional frame count': ('frames', 132.5),
+            'capture errors': ('errors', 1),
+            'missing serial': ('serial', ''),
+            'capture stall': ('max_frame_gap_seconds', 7),
+            'nonfinite gap': ('max_frame_gap_seconds', float('nan')),
+            'missing capture timing': ('capture_p95_ms', None),
+            'subthreshold rate': ('effective_fps', .719),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'benchmark.json'
+            path.write_text(json.dumps(good))
+            estimate = collector.estimate_ten_instance_capture(path)
+            self.assertEqual(estimate['estimated_aggregate_screenshot_fps_without_contention'], 11)
+            self.assertFalse(estimate['ten_instance_operation_verified'])
+            for label, (field, value) in cases.items():
+                with self.subTest(case=label):
+                    report = json.loads(json.dumps(good))
+                    report[field] = value
+                    path.write_text(json.dumps(report))
+                    self.assertIsNone(collector.estimate_ten_instance_capture(path))
+            for label, (field, value) in device_cases.items():
+                with self.subTest(case=label):
+                    report = json.loads(json.dumps(good))
+                    report['devices'][0][field] = value
+                    path.write_text(json.dumps(report))
                     self.assertIsNone(collector.estimate_ten_instance_capture(path))
 
     def test_missing_verifier_report_never_looks_green(self):
