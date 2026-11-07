@@ -117,6 +117,18 @@ instead of deleting them, and switching back restores the prior compatible
 selection. Incompatible targets never authorize a different action kind. An
 offscreen Qt test covers switching among those action types without entering XY.
 
+**Offline screenshot replay (current core-Studio milestone):** A separate
+`Replay recorded screenshots (no taps)` action evaluates the saved workflow
+against its actual saved full-screen captures in presentation order. It uses
+the production detector's `inspect` path and reports the recorded state,
+actual selected state, and a reason when a different state wins (including
+passive WAIT conflicts). Missing, corrupt and legacy screenshots are clearly
+`unavailable`, never green. Capture references are restricted to actual
+files under the workflow's `captures` directory. No ADB calls, emulator taps
+or workflow writes are made. Replays are single-frame recognition evidence,
+**not** action/timing/retry simulations or physical device acceptance. Unit
+and offscreen Qt tests cover read-only results and missing/unsafe sources.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
