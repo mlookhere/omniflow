@@ -41,9 +41,60 @@ class CollectEvidenceTests(unittest.TestCase):
             self.assertIn('--serial', seen[0][0])
             self.assertNotIn('--allow-snapshot-only', seen[0][0])
             self.assertIn('--instances', seen[1][0])
-            self.assertIn('10', seen[1][0])
+            self.assertEqual(seen[1][0][seen[1][0].index('--instances') + 1], '1')
+            self.assertEqual(seen[2][0][seen[2][0].index('--instances') + 1], '1')
+            self.assertFalse(manifest['ten_instance_operation_verified'])
+            self.assertEqual(manifest['instances_requested'], 1)
             self.assertTrue(all((folders[0] / (name + '.log')).exists()
                                 for name in ('video', 'benchmark', 'verify')))
+
+    def test_one_instance_projection_never_approves_ten(self):
+        def fake_run(command, **kwargs):
+            payload = {'passed': True, 'hardware_acceptance_complete': False}
+            if Path(command[1]).name == 'benchmark_mumu.py':
+                payload.update(tested_instances=1, devices=[{'effective_fps': 1.1}])
+            Path(command[command.index('--output') + 1]).write_text(json.dumps(payload))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            self.assertEqual(collector.main(['--output-root', tmp]), 0)
+            report = json.loads((next(Path(tmp).glob('run-*')) / 'run-manifest.json').read_text())
+            forecast = report['capacity_estimate']
+            self.assertEqual(forecast['estimated_aggregate_screenshot_fps_without_contention'], 11)
+            self.assertIsNone(forecast['host_resource_projection'])
+            self.assertTrue(forecast['linear_assumption_only'])
+            self.assertFalse(report['ten_instance_operation_verified'])
+            self.assertFalse(report['hardware_acceptance_complete'])
+
+    def test_ten_instance_mode_keeps_real_ten_device_validation(self):
+        seen = []
+        def fake_run(command, **kwargs):
+            seen.append(command)
+            Path(command[command.index('--output') + 1]).write_text(
+                json.dumps({'passed': True, 'hardware_acceptance_complete': False}))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            self.assertEqual(collector.main(['--instances', '10', '--output-root', tmp]), 0)
+            report = json.loads((next(Path(tmp).glob('run-*')) / 'run-manifest.json').read_text())
+            self.assertEqual(seen[1][seen[1].index('--instances') + 1], '10')
+            self.assertEqual(seen[2][seen[2].index('--instances') + 1], '10')
+            self.assertTrue(report['ten_instance_operation_verified'])
+            self.assertIsNone(report['capacity_estimate'])
+            self.assertFalse(report['hardware_acceptance_complete'])
+
+    def test_projection_rejects_invalid_one_device_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'report.json'
+            for sample in ({'passed': False, 'tested_instances': 1,
+                            'devices': [{'effective_fps': 1}]},
+                           {'passed': True, 'tested_instances': 1,
+                            'devices': [{'effective_fps': float('nan')}]},
+                           {'passed': True, 'tested_instances': 0,
+                            'devices': [{'effective_fps': 1}]}):
+                with self.subTest(sample=sample):
+                    path.write_text(json.dumps(sample))
+                    self.assertIsNone(collector.estimate_ten_instance_capture(path))
 
     def test_missing_verifier_report_never_looks_green(self):
         with tempfile.TemporaryDirectory() as tmp, \

@@ -6,23 +6,37 @@ sustainable on a particular PC. Keep control issue #1 and PR #2 open.
 
 ## 0. Collect a complete read-only evidence set (Windows)
 
-With all ten MuMu instances running and a changing game screen selected, run
-from the OmniFlow repository in the installed Python virtual environment:
+For a **single-MuMu capacity estimate**, start one emulator on a changing
+game screen, then run:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\collect_hardware_evidence.py --workflow "path\to\workflow"
+.\.venv\Scripts\python.exe tools\collect_hardware_evidence.py --instances 1 --workflow "path\to\workflow"
+```
+
+One instance is now the default. The report contains measured one-device
+capture/OCR/video health and an idealized **10× aggregate screenshot-work
+estimate**. This is NOT measured ten-device throughput, RAM, CPU or GPU usage.
+Whole-host resource samples include Windows and other programs. To estimate
+ten-instance resource use, measure the machine at idle first and multiply
+the **incremental** one-instance usage by ten. Concurrent load may scale worse.
+
+For actual ten-device validation, start all ten emulators and explicitly run:
+
+```powershell
+.\.venv\Scripts\python.exe tools\collect_hardware_evidence.py --instances 10 --workflow "path\to\workflow"
 ```
 
 The optional `--serial 127.0.0.1:16384` selects the video instance;
 omitting `--workflow` still benchmarks capture but leaves real OCR/image
 recognition unverified. The command sequentially runs the existing 120-second
-video diagnostic, 120-second ten-instance capture benchmark, and strict verifier.
+video diagnostic, 120-second capture benchmark for the selected instance count,
+and strict verifier.
 It sends no game touches, never weakens the fixed FPS/recovery thresholds, and
 creates a unique ignored `hardware-evidence/run-*` folder for each attempt.
 The folder contains the three JSON reports, per-step logs, and a manifest
-recording exact exit codes and incomplete/missing artifacts. A zero collector
-exit code means **only** the read-only report gates succeeded; it never
-claims full hardware acceptance. Missing files and timed-out steps fail closed.
+recording exact exit codes and incomplete/missing artifacts. A zero collector exit code means **only** the requested count's read-only
+gates succeeded. A single-device pass cannot validate ten-device operation,
+and neither mode establishes full hardware acceptance. Missing files and timed-out steps fail closed.
 
 Review the reports and attach evidence to [control issue #1](https://github.com/mlookhere/omniflow/issues/1).
 Manual touch/swipe/orientation, Error 22 reproduction where applicable,
