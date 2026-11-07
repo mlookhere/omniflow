@@ -114,6 +114,37 @@ class DashboardPreviewTests(unittest.TestCase):
         self.assertEqual(len(self.session.capture_stages_ms), 120)
         self.assertEqual(self.session.capture_stage_p95_ms(), (1200.0, 38.0))
 
+    def test_live_capture_cadence_includes_gaps_and_requires_observation(self):
+        frame = np.zeros((960, 540, 3), dtype=np.uint8)
+        self.assertIsNone(self.session.capture_cadence(now=120.0))
+        for at in (100.0, 103.0, 109.0, 112.0):
+            self.manager._image(self.session, self.match, frame, captured_at=at)
+        self.assertIsNone(self.session.capture_cadence(now=109.0))
+        fps, gap, observed = self.session.capture_cadence(now=120.0)
+        self.assertAlmostEqual(fps, .2)
+        self.assertAlmostEqual(gap, 8.0)
+        self.assertEqual(observed, 20)
+        self.assertEqual(self.session.capture_cadence(now=240.0),
+                         (0.0, 120.0, 120.0))
+
+    def test_capture_cadence_rejects_non_monotonic_frames_and_is_bounded(self):
+        frame = np.zeros((960, 540, 3), dtype=np.uint8)
+        for at in (100.0, 101.0, 101.0, 99.0, float('nan'), float('inf')):
+            self.manager._image(self.session, self.match, frame, captured_at=at)
+        self.assertEqual(list(self.session.capture_times), [100.0, 101.0])
+        self.assertIsNone(self.session.capture_cadence(now=float('nan')))
+        self.assertEqual(self.session.capture_cadence(now=120.0),
+                         (0.1, 19.0, 20.0))
+        for at in range(102, 4300):
+            self.manager._image(self.session, self.match, frame,
+                                captured_at=float(at))
+        self.assertEqual(len(self.session.capture_times), 4096)
+        self.assertEqual(self.session.first_capture_at, 100.0)
+        fps, gap, observed = self.session.capture_cadence(now=4300.0)
+        self.assertAlmostEqual(fps, 119 / 120)
+        self.assertAlmostEqual(gap, 1.0)
+        self.assertEqual(observed, 120.0)
+
     def test_runner_passes_original_capture_timestamp_to_preview(self):
         device = CapturedScreen(self.template.copy())
         holder = {}

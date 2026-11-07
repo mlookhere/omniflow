@@ -43,6 +43,8 @@ class Session:
     capture_latencies_ms: deque[float] = field(default_factory=lambda: deque(maxlen=120))
     capture_stages_ms: deque[tuple[float, float]] = field(
         default_factory=lambda: deque(maxlen=120))
+    capture_times: deque[float] = field(default_factory=lambda: deque(maxlen=4096))
+    first_capture_at: float | None = None
     logs: deque = field(default_factory=lambda: deque(maxlen=200))
     failures: int = 0
     lease_lost: bool = False
@@ -86,6 +88,29 @@ class Session:
         rank = math.ceil(len(samples) * .95) - 1
         return (sorted(sample[0] for sample in samples)[rank],
                 sorted(sample[1] for sample in samples)[rank])
+
+    def capture_cadence(self, now: float | None = None) -> tuple[float, float, float] | None:
+        """Recent valid-frame FPS, longest gap, and observed seconds.
+
+        This live diagnostic includes the time since the last good frame.
+        It is not a 120-second hardware acceptance measurement.
+        """
+        now = time.monotonic() if now is None else now
+        if not math.isfinite(now):
+            return None
+        with self._image_lock:
+            first = self.first_capture_at
+            if first is None or not 10 <= now - first:
+                return None  # Too little observed time for a useful rate.
+            span = min(120.0, now - first)
+            start = now - span
+            samples = [t for t in self.capture_times if start <= t <= now]
+        last = start
+        gap = 0.0
+        for captured_at in samples:
+            gap = max(gap, captured_at - last)
+            last = captured_at
+        return len(samples) / span, max(gap, now - last), span
 
     def log(self, message: str) -> None:
         self.logs.append(f'{time.strftime("%H:%M:%S")}  {message}')
@@ -291,6 +316,13 @@ class InstanceManager:
             # A slowly decoded or recognized image must never become "new"
             # merely because its thumbnail was published recently.
             session.image_at = time.monotonic() if captured_at is None else captured_at
+            timestamp = session.image_at
+            if (type(timestamp) in (float, int) and math.isfinite(timestamp) and
+                    timestamp > 0 and (not session.capture_times or
+                                       timestamp > session.capture_times[-1])):
+                if session.first_capture_at is None:
+                    session.first_capture_at = timestamp
+                session.capture_times.append(timestamp)
             if capture_latency_ms is not None and math.isfinite(capture_latency_ms):
                 session.capture_latencies_ms.append(max(0.0, capture_latency_ms))
             if isinstance(capture_stages_ms, dict):

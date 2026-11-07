@@ -896,9 +896,13 @@ class OmniWindow(QMainWindow):
             stat=sess.stats.snapshot()
             latency=sess.capture_p95_ms()
             stages=sess.capture_stage_p95_ms()
+            cadence=sess.capture_cadence()
             capture_note=f'   ·   Capture p95 {latency:.0f}ms' if latency is not None else ''
             if stages is not None:
                 capture_note+=f' (ADB {stages[0]:.0f}ms, PNG {stages[1]:.0f}ms)'
+            if cadence is not None:
+                fps, gap, observed=cadence
+                capture_note+=f'   ·   Live {fps:.2f} FPS/{observed:.0f}s, gap {gap:.1f}s'
             self.session_info.setText(f'{sess.current} · {sess.confidence:.0%} confidence   |   '
                     f'{stat.runs} runs   ·   Avg {format_duration(stat.average)}   ·   '
                     f'Fastest {format_duration(stat.fastest)}   ·   {stat.per_hour:.1f}/hr'

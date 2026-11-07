@@ -28,8 +28,14 @@ production, records `adb_timeout_seconds` in JSON, and the read-only
 verifier and one-device capacity estimate both reject absent or loosened
 timeout provenance.
 This change bounds a blocked screenshot, **not** measured screenshot FPS.
-These rolling metrics are **not** sustained 120-second FPS/continuity
-acceptance tests.
+The dashboard additionally shows rolling successful-frame FPS, elapsed
+observation window (up to 120s), and the largest valid-frame gap including
+time since the last capture. The rate appears after at least 10 seconds of
+observation, and stalled/paused workers can show growing gaps. These metrics
+do not initiate screenshots or count stale thumbnail repaints as captures.
+They are **not** strict hardware acceptance: a full unbroken 120-second
+benchmark, explicit failure accounting, ten-device contention and real-game
+input/recovery tests are still required.
 - Whole-host usage (59 samples): CPU avg **27.51%**, RAM avg **28,368.43 MiB** (43.87%), NVIDIA GPU avg **8.05%** (VRAM avg **3,859.81 MiB**). No idle baseline, so these figures **cannot be extrapolated numerically** to ten emulators.
 - Read-only verifier **failed** on capture FPS. No 10× capacity projection was generated (correctly fail-closed). Ten-device contention, real gestures and branch policy remain outstanding.
 
