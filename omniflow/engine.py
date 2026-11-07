@@ -191,14 +191,27 @@ class OmniDetector:
         return max(0.0, 1.0 - rmse / 80.0)
 
     def detect(self, frame: np.ndarray) -> Match:
-        # OmniRunner already normalized this screenshot. Avoid an identical
-        # second OpenCV resize on every emulator tick, while preserving support
-        # for full-resolution frames passed directly to the detector.
+        """Fast production recognition; no trace allocation or extra OCR."""
+        return self._evaluate(frame, explain=False)[0]
+
+    def inspect(self, frame: np.ndarray) -> tuple[Match, list[dict]]:
+        """Explain saved-state selection without executing actions or changing files.
+
+        Uses the exact production matching and priority path. Conditions behind
+        a failed image threshold are deliberately not evaluated or reported as
+        passing; raw OCR output is not included in inspection results.
+        """
+        return self._evaluate(frame, explain=True)
+
+    def _evaluate(self, frame: np.ndarray, *, explain: bool) -> tuple[Match, list[dict]]:
+        # OmniRunner already normalized this screenshot. Preserve one resize
+        # and one OCR cache for all states, also during read-only inspection.
         image = (frame if frame.shape == (SIZE[1], SIZE[0], 3)
                  else normalize(frame))
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         cache: dict = {}
-        candidates = []
+        candidates: list[Match] = []
+        details: list[dict] = []
         for key, action in self.actions.items():
             probes = () if action.get('skip_template') else self.templates.get(key, ())
             if probes:
@@ -212,27 +225,52 @@ class OmniDetector:
             else:
                 confidence, trigger = 1.0, 0
             threshold = float(action.get('threshold', self.threshold))
-            if confidence < threshold:
-                continue
             conditions = action.get('conditions', [])
+            detail = {
+                'key': key,
+                'label': action.get('label', key),
+                'passive': bool(action.get('passive', False)),
+                'template_confidence': float(confidence),
+                'threshold': threshold,
+                'condition_results': None,
+                'status': 'template below threshold',
+            } if explain else None
+            if confidence < threshold:
+                if explain:
+                    details.append(detail)
+                continue
             if not probes and not conditions:
                 raise WorkflowError(f'State {key} needs a template or a condition')
             if conditions:
-                try:
-                    outcomes = [_condition(image, cond, cache) for cond in conditions]
-                except WorkflowError:
-                    raise
+                outcomes = [_condition(image, cond, cache) for cond in conditions]
                 confidence = min(confidence, min(outcomes))
+                if explain:
+                    detail['condition_results'] = [bool(value) for value in outcomes]
                 if min(outcomes) == 0:
+                    if explain:
+                        detail['status'] = 'conditions failed'
+                        details.append(detail)
                     continue
             candidates.append(Match(key, action.get('label', key), confidence,
                                     bool(action.get('passive', False)), trigger))
-        if not candidates:
-            return UNKNOWN
-        # A strong explicit no-tap state wins against overlapping action probes.
-        # Priority is stable and independent of visual list order.
-        return max(candidates, key=lambda m: (m.passive, m.confidence,
-                                               float(self.actions[m.key].get('priority', 0)), m.key))
+            if explain:
+                detail['status'] = 'matched'
+                details.append(detail)
+        # A matching passive WAIT state overrides actionable states, then
+        # confidence, priority and key break ties exactly as in production.
+        winner = max(candidates, key=lambda m: (m.passive, m.confidence,
+                                                 float(self.actions[m.key].get('priority', 0)), m.key)
+                     ) if candidates else UNKNOWN
+        if explain:
+            for detail in details:
+                if detail['status'] != 'matched':
+                    continue
+                if detail['key'] == winner.key:
+                    detail['status'] = 'selected'
+                else:
+                    detail['status'] = ('overridden by WAIT' if winner.passive
+                                        and not detail['passive'] else 'lower priority')
+        return winner, details
 
 
 def _target(point, device_size: tuple[int, int], crop_top: int = 0) -> tuple[int, int]:
