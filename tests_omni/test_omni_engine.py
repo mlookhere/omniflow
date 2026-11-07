@@ -100,6 +100,7 @@ class EngineTests(unittest.TestCase):
     def test_field_text_taps_and_types_with_normalized_coordinates(self):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')
+        runner.device_size=(2160,3840)
         runner._execute({'kind':'field_text','point':[200,400],'text':'Agent 21'},100)
         self.assertEqual(device.taps,[(800,1600)])
         self.assertEqual(device.texts,['Agent 21'])
@@ -115,6 +116,7 @@ class EngineTests(unittest.TestCase):
     def test_field_text_rechecks_lease_after_focus_tap(self):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')
+        runner.device_size=(2160,3840)
         checks=iter([True,False])
         runner.can_act=lambda: next(checks)
         with self.assertRaisesRegex(WorkflowError,'refusing input'):
