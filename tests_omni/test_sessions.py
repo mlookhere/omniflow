@@ -1,5 +1,6 @@
 """Ten workers, per-device ownership, pause, completion and cleanup."""
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -93,6 +94,59 @@ class ManagerTests(unittest.TestCase):
             'Session resumed; reconfirming state before input' in line
             for line in session.logs)))
         self.assertEqual(session.status, 'Running')
+
+    def test_pause_during_in_flight_capture_prevents_touch_and_keeps_worker(self):
+        folder = create_workflow('Tap after screen', self.root)
+        record_step(folder, 'Tap', self.frame, [(150, 150, 300, 220)],
+                    taps=[(250, 300)])
+
+        class DelayedSecondCapture(MockADB):
+            def __init__(self, serial=''):
+                super().__init__(serial)
+                self.frame = target_frame
+                self.second_started = threading.Event()
+                self.release_second = threading.Event()
+                self.capture_count = 0
+                self.taps = []
+
+            def screenshot(self):
+                self.capture_count += 1
+                if self.capture_count == 2:
+                    self.second_started.set()
+                    if not self.release_second.wait(3):
+                        raise OSError('Test capture synchronization timed out')
+                return self.frame.copy()
+
+            def tap(self, *args):
+                self.taps.append(args)
+
+        target_frame = self.frame
+        device = DelayedSecondCapture()
+        self.addCleanup(device.release_second.set)
+        manager = InstanceManager(self.db,
+                                  device_factory=lambda serial: device,
+                                  poll_seconds=0.35)
+        self.addCleanup(manager.stop_all)
+        ok, reason = manager.start('emulator:pause', 'com.example.game',
+                                   'Tap', folder)
+        self.assertTrue(ok, reason)
+        session = manager.snapshot()[0]
+        self.addCleanup(lambda: session.worker.join(3))
+        self.assertTrue(device.second_started.wait(3))
+        manager.pause(session.serial, True)
+        device.release_second.set()
+
+        self.assertTrue(self.wait_for(lambda: session.status == 'Paused'))
+        self.assertFalse(device.taps)
+        self.assertTrue(session.worker.is_alive())
+        self.assertEqual(session.failures, 0)
+
+        manager.pause(session.serial, False)
+        self.assertTrue(self.wait_for(lambda: bool(device.taps), limit=3))
+        self.assertEqual(len(device.taps), 1)
+        self.assertTrue(session.worker.is_alive())
+        self.assertTrue(any('reconfirming state before input' in line
+                            for line in session.logs))
 
     def test_scheduler_busy_device_marks_skipped(self):
         self.assertTrue(self.manager.start('emulator:1','com.example.game','Demo',self.folder)[0])

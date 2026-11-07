@@ -24,6 +24,11 @@ class WorkflowError(ValueError):
     pass
 
 
+class InputPaused(WorkflowError):
+    """An in-flight step attempted an action after pause was requested."""
+
+
+
 class OCREngine:
     """Single shared RapidOCR engine for Studio autofill and workflow matching."""
     _instance = None
@@ -224,7 +229,8 @@ class OmniRunner:
     def __init__(self, device, folder: Path, package: str, *, log=lambda _: None,
                  completed=lambda _: None, image=lambda *_: None,
                  auto_relaunch: bool = True, dry_run: bool = False,
-                 can_act: Callable[[], bool] = lambda: True):
+                 can_act: Callable[[], bool] = lambda: True,
+                 is_paused: Callable[[], bool] = lambda: False):
         self.device = device
         self.detector = OmniDetector(folder)
         self.package = package
@@ -232,6 +238,7 @@ class OmniRunner:
         self.auto_relaunch = auto_relaunch
         self.dry_run = dry_run
         self.can_act = can_act
+        self.is_paused = is_paused
         self.device_size = None
         self._capture_geometry: tuple[int, int] | None = None
         self.current = ''
@@ -272,8 +279,14 @@ class OmniRunner:
     def _require_action_permission(self) -> None:
         if not self.can_act():
             raise WorkflowError('Device ownership lost or automation stopped; refusing input')
+        if self.is_paused():
+            raise InputPaused('Session paused; deferring input until state is reconfirmed')
 
     def _execute(self, action: dict, now: float) -> bool:
+        # Pause also defers wait/count/dry-run actions that could advance the
+        # workflow while a screenshot or OCR call was still in flight.
+        if self.is_paused():
+            self._require_action_permission()
         kind = action.get('kind')
         size = self.device_size
         if kind == 'wait':

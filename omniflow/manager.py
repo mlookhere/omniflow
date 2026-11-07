@@ -19,7 +19,7 @@ from swordx.adb import ADBError
 from swordx.stats import SessionStats
 from swordx.detection import normalize
 from .devices import Device
-from .engine import OmniRunner, Match
+from .engine import OmniRunner, Match, InputPaused
 from .schedule import LEASE_SECONDS, MAX_INSTANCES, ScheduleStore
 
 
@@ -140,7 +140,8 @@ class InstanceManager:
                                 log=session.log, completed=lambda _: session.stats.complete(),
                                 image=lambda match, frame: self._image(session, match, frame),
                                 auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None,
-                                can_act=lambda: not session.stop_event.is_set())
+                                can_act=lambda: not session.stop_event.is_set(),
+                                is_paused=session.pause_event.is_set)
             session.status = 'Running'
             paused_at = None
             while not session.stop_event.is_set():
@@ -168,6 +169,14 @@ class InstanceManager:
                 try:
                     runner.step(now)
                     session.failures = 0
+                except InputPaused:
+                    # An in-flight screenshot/OCR finished after the user
+                    # paused. Keep the worker alive without sending input.
+                    if paused_at is None:
+                        paused_at = time.monotonic()
+                        session.stats.pause(paused_at)
+                    session.status = 'Paused'
+                    continue
                 except (ADBError, OSError) as exc:
                     session.failures += 1
                     session.log(f'ADB/capture issue ({session.failures}): {exc}')
