@@ -876,9 +876,12 @@ class OmniWindow(QMainWindow):
         sess=next((s for s in sessions if s.serial==selected),None)
         if sess:
             stat=sess.stats.snapshot()
+            latency=sess.capture_p95_ms()
+            capture_note=f'   ·   Capture p95 {latency:.0f}ms' if latency is not None else ''
             self.session_info.setText(f'{sess.current} · {sess.confidence:.0%} confidence   |   '
                     f'{stat.runs} runs   ·   Avg {format_duration(stat.average)}   ·   '
-                    f'Fastest {format_duration(stat.fastest)}   ·   {stat.per_hour:.1f}/hr')
+                    f'Fastest {format_duration(stat.fastest)}   ·   {stat.per_hour:.1f}/hr'
+                    f'{capture_note}')
             log='\n'.join(sess.logs)
             if log!=self.last_log_text:
                 self.logs.setPlainText(log)

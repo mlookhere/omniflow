@@ -79,6 +79,20 @@ class DashboardPreviewTests(unittest.TestCase):
                             captured_at=time.monotonic())
         self.assertIsNotNone(self.session.recent_image())
 
+    def test_capture_latency_telemetry_is_bounded_and_ignores_missing_values(self):
+        frame = np.zeros((960, 540, 3), dtype=np.uint8)
+        self.assertIsNone(self.session.capture_p95_ms())
+        for latency in (120.0, 800.0, 300.0, None, float('nan')):
+            self.manager._image(self.session, self.match, frame,
+                                capture_latency_ms=latency)
+        self.assertEqual(list(self.session.capture_latencies_ms), [120, 800, 300])
+        self.assertEqual(self.session.capture_p95_ms(), 800.0)
+        for _ in range(125):
+            self.manager._image(self.session, self.match, frame,
+                                capture_latency_ms=1400.0)
+        self.assertEqual(len(self.session.capture_latencies_ms), 120)
+        self.assertEqual(self.session.capture_p95_ms(), 1400.0)
+
     def test_runner_passes_original_capture_timestamp_to_preview(self):
         device = CapturedScreen(self.template.copy())
         holder = {}

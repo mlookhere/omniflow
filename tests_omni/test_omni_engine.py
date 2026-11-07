@@ -219,6 +219,19 @@ class EngineTests(unittest.TestCase):
             runner.step(104)
         self.assertEqual(len(device.taps), 2)
 
+    def test_runner_exposes_real_capture_latency_without_extra_clock_reads(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        with patch('omniflow.engine.time.monotonic',
+                   side_effect=[100.0, 101.5, 101.6]):
+            runner.step(100)
+        self.assertAlmostEqual(runner.last_capture_latency_ms, 1500, places=3)
+        # A subsequent failed screenshot cannot repeat the previous measurement.
+        with patch.object(device, 'screenshot', side_effect=ADBError('offline')):
+            with self.assertRaises(ADBError):
+                runner.step(102)
+        self.assertIsNone(runner.last_capture_latency_ms)
+
     def test_capture_age_within_limit_keeps_normal_recognition(self):
         device = Device(self.match)
         runner = OmniRunner(device, self.folder, 'com.game.demo')

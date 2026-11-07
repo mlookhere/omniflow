@@ -259,6 +259,7 @@ class OmniRunner:
         # Conservative preview age starts before ADB acquisition, not when
         # recognition eventually publishes the captured pixels.
         self.last_capture_started_at = 0.0
+        self.last_capture_latency_ms: float | None = None
         self._stable_key = ''
         self._streak = 0
         self._acted = False
@@ -421,6 +422,7 @@ class OmniRunner:
         self.wait_remaining = None
         capture_started = time.monotonic()
         self.last_capture_started_at = capture_started
+        self.last_capture_latency_ms = None
         try:
             raw = self.device.screenshot()
             frame = normalize(raw)
@@ -429,6 +431,9 @@ class OmniRunner:
                 raise ADBError(
                     f'Captured frame is stale ({capture_age:.2f}s > '
                     f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing input')
+            # Acquisition + normalization measured by the same monotonic
+            # clock used for input freshness; no extra device or clock call.
+            self.last_capture_latency_ms = max(0.0, capture_age) * 1000
         except (ADBError, OSError):
             self._invalidate_visual_state(now)
             self.last_frame = None

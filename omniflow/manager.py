@@ -5,6 +5,7 @@ there is no need for ten continuously encoded H.264 preview streams.
 """
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections import deque
@@ -39,6 +40,7 @@ class Session:
     confidence: float = 0
     image: np.ndarray | None = None
     image_at: float = 0.0
+    capture_latencies_ms: deque[float] = field(default_factory=lambda: deque(maxlen=120))
     logs: deque = field(default_factory=lambda: deque(maxlen=200))
     failures: int = 0
     lease_lost: bool = False
@@ -61,6 +63,17 @@ class Session:
                     not 0 <= time.monotonic() - self.image_at <= max_age_seconds):
                 return None
             return self.image.copy()
+
+    def capture_p95_ms(self) -> float | None:
+        """Observed screenshot+normalization latency, last 120 valid frames.
+
+        This is runtime diagnosis, not a 120-second FPS acceptance benchmark.
+        """
+        with self._image_lock:
+            if not self.capture_latencies_ms:
+                return None
+            ordered = sorted(self.capture_latencies_ms)
+        return ordered[math.ceil(len(ordered) * .95) - 1]
 
     def log(self, message: str) -> None:
         self.logs.append(f'{time.strftime("%H:%M:%S")}  {message}')
@@ -151,7 +164,8 @@ class InstanceManager:
                                 log=session.log, completed=lambda _: session.stats.complete(),
                                 image=lambda match, frame: self._image(
                                     session, match, frame,
-                                    captured_at=runner.last_capture_started_at),
+                                    captured_at=runner.last_capture_started_at,
+                                    capture_latency_ms=runner.last_capture_latency_ms),
                                 auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None,
                                 can_act=lambda: not session.stop_event.is_set(),
                                 is_paused=session.pause_event.is_set)
@@ -243,7 +257,8 @@ class InstanceManager:
                     self.completed_sessions.append(session)
 
     def _image(self, session: Session, match: Match, frame: np.ndarray,
-               *, captured_at: float | None = None) -> None:
+               *, captured_at: float | None = None,
+               capture_latency_ms: float | None = None) -> None:
         session.current, session.confidence = match.label, match.confidence
         # Reuse the runner's captured screenshot rather than requesting another
         # ADB frame. Preserve its real orientation and aspect ratio, keeping
@@ -257,6 +272,8 @@ class InstanceManager:
             # A slowly decoded or recognized image must never become "new"
             # merely because its thumbnail was published recently.
             session.image_at = time.monotonic() if captured_at is None else captured_at
+            if capture_latency_ms is not None and math.isfinite(capture_latency_ms):
+                session.capture_latencies_ms.append(max(0.0, capture_latency_ms))
 
     def stop(self, serial: str) -> None:
         with self._lock:
