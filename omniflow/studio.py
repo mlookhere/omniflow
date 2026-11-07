@@ -341,9 +341,12 @@ class RuleEditor(QDialog):
         kind = self.kind.currentData()
         out = {'type': kind, 'rect': bounds, 'negate': self.negate.isChecked()}
         if kind == 'ocr':
-            if not self.text.text().strip():
+            from .engine import validate_ocr_expression
+            value = self.text.text().strip()
+            if not value:
                 raise ValueError('Enter text to recognize or use OCR autofill')
-            out.update(text=self.text.text().strip(), regex=self.regex.isChecked())
+            validate_ocr_expression(value, self.regex.isChecked())
+            out.update(text=value, regex=self.regex.isChecked())
         else:
             if kind == 'pixel':
                 if self.point is None:
@@ -382,6 +385,12 @@ class OmniStudio(RecorderDialog):
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
         self.rules_only.toggled.connect(self._field_changed)
         rule_col.addWidget(self.rules_only)
+        draft_tester = QPushButton('Test current conditions on screenshot (no taps)')
+        draft_tester.clicked.connect(self._test_draft_conditions)
+        rule_col.addWidget(draft_tester)
+        self.rule_test_status = QLabel('Unsaved rules can be tested before saving.')
+        self.rule_test_status.setWordWrap(True)
+        rule_col.addWidget(self.rule_test_status)
         tester=QPushButton('Test saved workflow on current screen (no taps)')
         tester.clicked.connect(self._test_detection)
         rule_col.addWidget(tester)
@@ -429,6 +438,8 @@ class OmniStudio(RecorderDialog):
 
     def _refresh_extra(self):
         self.rules_list.clear();self.actions_list.clear()
+        if hasattr(self, 'rule_test_status'):
+            self.rule_test_status.setText('Unsaved rules can be tested before saving.')
         self.canvas.extra_zones = [dict(item) for item in self.extra_conditions]
         self.canvas.update()
         for rule in self.extra_conditions:
@@ -514,6 +525,29 @@ class OmniStudio(RecorderDialog):
         row=self.actions_list.currentRow()
         if self.extra_chain is not None and row>=0:
             self.extra_chain.pop(row);self._refresh_extra();self._field_changed()
+
+    def _test_draft_conditions(self):
+        """Inspect current WHEN rules without saving or sending game input."""
+        if not self.extra_conditions:
+            self.rule_test_status.setText('Add a recognition condition to test.')
+            return
+        image = self._editor_frame()
+        if image is None:
+            return
+        from .engine import WorkflowError, preview_conditions
+        try:
+            outcomes = preview_conditions(image, self.extra_conditions)
+        except (WorkflowError, ValueError, KeyError, cv2.error) as exc:
+            self.rule_test_status.setText(f'Condition test failed: {exc}')
+            return
+        details = [
+            f'{"PASS" if ok else "FAIL"} — {condition_summary(rule)}'
+            for ok, rule in zip(outcomes, self.extra_conditions)
+        ]
+        self.rule_test_status.setText(
+            f'{sum(outcomes)}/{len(outcomes)} conditions match this screenshot. '
+            'Draft only: image templates and other states were not tested; '
+            'nothing was saved or tapped.\n' + '\n'.join(details))
 
     def _test_detection(self):
         from .devices import Device
