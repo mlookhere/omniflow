@@ -393,5 +393,47 @@ class HardwareEvidenceTests(unittest.TestCase):
             self.assertFalse(json.loads(result.read_text())['hardware_acceptance_complete'])
 
 
+    def test_fixed_acceptance_limits_reject_relaxed_cli_criteria(self):
+        relaxed = (
+            {'seconds': 119.0},
+            {'min_video_fps': 19.99},
+            {'min_capture_fps': 0.79},
+            {'max_preview_gap': 3.01},
+            {'max_video_gap': 6.01},
+            {'max_error22_recovery': 6.01},
+        )
+        for override in relaxed:
+            with self.subTest(override=override):
+                with self.assertRaisesRegex(ValueError, 'cannot relax'):
+                    EvidenceCriteria(**override)
+
+    def test_stricter_hardware_limits_are_supported(self):
+        strict = EvidenceCriteria(
+            instances=1, seconds=150, min_video_fps=25,
+            max_preview_gap=2, max_video_gap=4,
+            min_capture_fps=1.0, max_error22_recovery=4)
+        self.assertEqual(strict.seconds, 150)
+        self.assertEqual(strict.min_capture_fps, 1.0)
+        self.assertEqual(strict.instances, 1)
+
+    def test_verifier_cli_refuses_weakened_thresholds(self):
+        with tempfile.TemporaryDirectory() as d:
+            for option, value in (
+                ('--seconds', '119'),
+                ('--min-video-fps', '19'),
+                ('--min-capture-fps', '0.7'),
+                ('--max-preview-gap', '4'),
+                ('--max-video-gap', '7'),
+                ('--max-error22-recovery', '7'),
+            ):
+                with self.subTest(option=option):
+                    with self.assertRaises(SystemExit) as raised:
+                        main(['--video', str(Path(d) / 'video.json'),
+                              '--benchmark', str(Path(d) / 'bench.json'),
+                              '--output', str(Path(d) / 'output.json'),
+                              option, value])
+                    self.assertEqual(raised.exception.code, 2)
+
+
 if __name__ == '__main__':
     unittest.main()
