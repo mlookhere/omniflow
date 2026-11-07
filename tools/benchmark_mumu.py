@@ -163,7 +163,8 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     )
 
 
-def evaluate(results: list[DeviceResult], requested: int, min_fps: float) -> list[str]:
+def evaluate(results: list[DeviceResult], requested: int, min_fps: float,
+             *, minimum_seconds: float = 0.0) -> list[str]:
     """Fail closed if requested emulator coverage or frame reliability is missing."""
     failures = []
     if len(results) != requested:
@@ -171,6 +172,11 @@ def evaluate(results: list[DeviceResult], requested: int, min_fps: float) -> lis
     if len({result.serial for result in results}) != len(results):
         failures.append('Duplicate ADB serials detected')
     for result in results:
+        if (not math.isfinite(result.elapsed_seconds) or
+                result.elapsed_seconds < minimum_seconds):
+            failures.append(
+                f'{result.serial}: measured {result.elapsed_seconds:.3f}s; '
+                f'required at least {minimum_seconds:.3f}s')
         if result.frames == 0:
             failures.append(f'{result.serial}: no valid screenshots')
         if result.errors:
@@ -334,7 +340,8 @@ def main(argv: list[str] | None = None) -> int:
               f'detect_p95={result.detection_p95_ms if result.detection_p95_ms is not None else "—"}ms '
               f'max_gap={result.max_frame_gap_seconds if result.max_frame_gap_seconds is not None else "—"}s '
               f'errors={result.errors} {result.last_error}')
-    failures = evaluate(results, args.instances, args.min_fps)
+    failures = evaluate(results, args.instances, args.min_fps,
+                        minimum_seconds=args.seconds)
     if setup_error:
         failures.append(setup_error)
     report.update(

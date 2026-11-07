@@ -129,6 +129,18 @@ class CaptureAssessmentTests(unittest.TestCase):
                 self.assertFalse(result['comparison_complete'])
                 self.assertFalse(result['raw_candidate_for_further_validation'])
 
+    def test_95_percent_of_longer_requested_profile_is_not_full_duration(self):
+        for source in ('png', 'raw'):
+            with self.subTest(source=source):
+                png = copy.deepcopy(self.png)
+                raw = copy.deepcopy(self.raw)
+                report = png if source == 'png' else raw
+                report['requested_seconds'] = 126.0
+                # 120 seconds would satisfy the former 95% allowance.
+                result = assessment.assess(png, raw, self.fidelity)
+                self.assertFalse(result['comparison_complete'])
+                self.assertIn('full requested', ' '.join(result['failures']))
+
     def test_short_duration_missing_frames_and_forged_fps_rejected(self):
         for field, value in [('elapsed_seconds', 19.0), ('frames', 0),
                              ('effective_fps', 30.0), ('errors', 1)]:

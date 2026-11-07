@@ -380,8 +380,12 @@ keeping their JSON outputs. Then evaluate them together (read-only):
     --output hardware-evidence.json
 ```
 
-The verifier checks each device's **measured** duration (not merely the requested
-command duration), unique devices across localhost aliases, screenshot FPS/errors, longest H.264
+The verifier requires the **full measured duration**, not a 95%-complete
+approximation of the requested 120-second run. The standalone PNG/raw assessor
+and ten-instance capacity projection also reject incomplete capture windows;
+all shorter explicitly requested runs remain usable for diagnostics, not
+120-second acceptance. Verify each device's measured duration, unique devices
+across localhost aliases, screenshot FPS/errors, longest H.264
 stream stall (distinct from screenshot fallback blackouts),
 and consistency with the video's observed H.264 frames. No report may pass just
 because its embedded `passed` flag says so. Missing/invalid input reports write a

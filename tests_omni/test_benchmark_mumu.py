@@ -165,6 +165,16 @@ class BenchmarkTests(unittest.TestCase):
             max_frame_gap_seconds=2.0)
         self.assertEqual(benchmark.evaluate([good], 1, .8), [])
 
+    def test_requested_capture_duration_is_measured_not_assumed(self):
+        incomplete = benchmark.DeviceResult(
+            '127.0.0.1:16384', 116, 0, 116.0, 1.0, 100.0, 200.0, None,
+            max_frame_gap_seconds=2.0)
+        failures = benchmark.evaluate(
+            [incomplete], requested=1, min_fps=.8, minimum_seconds=120)
+        self.assertIn('required at least 120', ' '.join(failures))
+        self.assertEqual(benchmark.evaluate(
+            [incomplete], 1, .8, minimum_seconds=116), [])
+
     def test_png_orientation_change_fails_instead_of_normalizing_it_away(self):
         class RotatingDevice(FakeDevice):
             def screenshot(self):

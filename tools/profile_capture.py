@@ -137,8 +137,8 @@ def profile(serial: str, seconds: float, poll: float, min_fps: float,
             f'Capture gap {max_gap:.3f}s exceeds {MAX_CAPTURE_GAP_SECONDS:.3f}s limit')
     if errors:
         failures.append(f'{errors} screenshot/decode errors: {last_error}')
-    if elapsed < seconds * .95:
-        failures.append(f'Measured {elapsed:.1f}s, expected at least {seconds * .95:.1f}s')
+    if elapsed < seconds:
+        failures.append(f'Measured {elapsed:.1f}s, required at least {seconds:.1f}s')
     if fps < min_fps:
         failures.append(f'Capture {fps:.3f} FPS below {min_fps:.3f} FPS target')
     return {

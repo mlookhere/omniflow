@@ -84,7 +84,7 @@ def estimate_ten_instance_capture(benchmark: Path) -> dict | None:
         if not all(type(value) in (int, float) and math.isfinite(value)
                    for value in (duration, minimum, elapsed, rate, gap, p95)):
             return None
-        if (duration < 120 or minimum < .8 or elapsed < duration * .95 or
+        if (duration < 120 or minimum < .8 or elapsed < duration or
                 rate < minimum or gap < 0 or gap > 6 or gap > elapsed or
                 p95 < 0 or type(frames) is not int or frames <= 0 or
                 type(errors) is not int or errors != 0 or

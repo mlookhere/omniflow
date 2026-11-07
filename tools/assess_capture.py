@@ -50,8 +50,9 @@ def _profile(report: dict, capture_format: str) -> tuple[str, float, float, floa
         raise ValueError(f'{capture_format}: missing or invalid MuMu ADB serial')
     requested = _number(report.get('requested_seconds'), f'{capture_format} requested duration')
     elapsed = _number(report.get('elapsed_seconds'), f'{capture_format} observed duration', positive=True)
-    if requested < MIN_SECONDS or elapsed < MIN_SECONDS or elapsed < requested * .95:
-        raise ValueError(f'{capture_format}: need >=120 seconds and >=95% of requested capture time')
+    if requested < MIN_SECONDS or elapsed < requested:
+        raise ValueError(
+            f'{capture_format}: need >=120 seconds and the full requested capture duration')
     minimum = _number(report.get('min_fps'), f'{capture_format} configured minimum')
     if minimum < MIN_FPS:
         raise ValueError(f'{capture_format}: FPS gate below 0.8 is not accepted')

@@ -258,6 +258,28 @@ class CollectEvidenceTests(unittest.TestCase):
                     path.write_text(json.dumps(report))
                     self.assertIsNone(collector.estimate_ten_instance_capture(path))
 
+    def test_capacity_projection_rejects_95_percent_observed_duration(self):
+        good = {
+            'passed': True, 'hardware_acceptance_complete': False,
+            'capture_format': 'png', 'adb_timeout_seconds': 6.0,
+            'requested_instances': 1, 'tested_instances': 1,
+            'duration_seconds': 120, 'min_fps': .8, 'failures': [],
+            'devices': [{
+                'serial': '127.0.0.1:16384', 'frames': 114,
+                'errors': 0, 'elapsed_seconds': 114.0,
+                'effective_fps': 1.0, 'max_frame_gap_seconds': 2.0,
+                'capture_p95_ms': 500,
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'benchmark.json'
+            path.write_text(json.dumps(good))
+            self.assertIsNone(collector.estimate_ten_instance_capture(path))
+            good['devices'][0].update(
+                frames=120, elapsed_seconds=120.0)
+            path.write_text(json.dumps(good))
+            self.assertIsNotNone(collector.estimate_ten_instance_capture(path))
+
     def test_missing_verifier_report_never_looks_green(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(collector.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')):

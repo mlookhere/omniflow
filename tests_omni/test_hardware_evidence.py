@@ -114,6 +114,26 @@ class HardwareEvidenceTests(unittest.TestCase):
         bench['devices'][3].update(elapsed_seconds=3, frames=3, effective_fps=1)
         self.assertIn('measured only', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
 
+    def test_measured_95_percent_duration_cannot_pass_full_120s_gate(self):
+        video, bench = samples()
+        device = bench['devices'][0]
+        device.update(frames=114, elapsed_seconds=114.0, effective_fps=1.0)
+        failures = evaluate_hardware_evidence(video, bench)['failures']
+        self.assertIn('measured only', ' '.join(failures))
+        self.assertTrue(any('required 120s' in failure for failure in failures))
+
+    def test_resource_coverage_must_span_the_full_requested_duration(self):
+        video, bench = samples()
+        metrics = {name: {'samples': 48, 'average': 30, 'peak': 40}
+                   for name in ('cpu_percent', 'ram_percent', 'ram_used_mib',
+                                'gpu_utilization_percent', 'gpu_memory_used_mib')}
+        bench['host_resources'] = {
+            'duration_seconds': 118, 'interval_seconds': 2,
+            'sample_count': 48, 'metrics': metrics, 'errors': [],
+        }
+        self.assertIn('Host resource coverage is shorter',
+                      ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
     def test_unreconciled_error22_windows_fail_even_with_pass_flag(self):
         video, bench = samples()
         video.update(error22_windows=2, error22_recovered=1, error22_unresolved=0)

@@ -176,8 +176,8 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             failures.append(
                 f'{label}: screenshot gap {max_gap:.3f}s exceeds '
                 f'{MAX_FRAME_GAP_SECONDS:.3f}s')
-        if actual < criteria.seconds * .95:
-            failures.append(f'{label}: measured only {actual:.1f}s of {criteria.seconds:g}s')
+        if actual < criteria.seconds:
+            failures.append(f'{label}: measured only {actual:.1f}s of required {criteria.seconds:g}s')
         if not frames_captured:
             failures.append(f'{label}: no captured frames')
         if errors:
@@ -221,7 +221,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             failures.append('Resource sampling interval is zero')
         if not count.is_integer():
             failures.append('Resource sample count must be a whole number')
-        if duration < criteria.seconds * .95:
+        if duration < criteria.seconds:
             failures.append('Host resource coverage is shorter than benchmark duration')
         # Allow for bounded NVIDIA queries to take extra time, but reject a
         # brief snapshot presented as a sustained resource-monitoring session.
@@ -253,7 +253,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
                 failures.append(f'{label}: impossible average/peak values')
                 continue
             valid[name] = samples >= minimum_samples
-        sufficient_duration = duration >= criteria.seconds * .95
+        sufficient_duration = duration >= criteria.seconds
         resource_coverage = {
             'cpu': bool(valid.get('cpu_percent') and sufficient_duration),
             'ram': bool(valid.get('ram_percent') and valid.get('ram_used_mib') and sufficient_duration),
