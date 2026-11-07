@@ -103,6 +103,12 @@ class ActionEditor(QDialog):
         if kind in ('swipe','drag') and 'start' in self.initial and 'end' in self.initial:
             self.selection = {'start': list(validate_point(self.initial['start'])),
                               'end': list(validate_point(self.initial['end']))}
+        self._point_selection = (list(self.selection)
+                                 if isinstance(self.selection, list) else None)
+        self._swipe_selection = (dict(self.selection)
+                                 if isinstance(self.selection, dict) else None)
+        self._selection_mode = ('point' if kind in ('tap', 'double_tap', 'hold', 'field_text')
+                                else 'swipe' if kind in ('swipe', 'drag') else None)
         layout = QVBoxLayout(self)
         guide = QLabel('1. Choose what OmniFlow should do.  2. Pick its target on the screenshot.  3. Save the action.')
         guide.setWordWrap(True)
@@ -156,10 +162,23 @@ class ActionEditor(QDialog):
                                 (self.keycode, kind == 'key'),
                                 (self.text, kind in ('text', 'field_text'))):
             self.form.setRowVisible(widget, visible)
-        if self.selection is not None:
-            is_path = isinstance(self.selection, dict)
-            if (is_path and not needs_swipe) or (not is_path and not needs_point):
-                self.selection = None
+        # Keep each visual target when temporarily viewing a different action
+        # kind. Only the target for the active kind may authorize Save.
+        if self._selection_mode == 'point' and isinstance(self.selection, list):
+            self._point_selection = list(self.selection)
+        elif self._selection_mode == 'swipe' and isinstance(self.selection, dict):
+            self._swipe_selection = dict(self.selection)
+        if needs_point:
+            self.selection = (list(self._point_selection)
+                              if self._point_selection is not None else None)
+            self._selection_mode = 'point'
+        elif needs_swipe:
+            self.selection = (dict(self._swipe_selection)
+                              if self._swipe_selection is not None else None)
+            self._selection_mode = 'swipe'
+        else:
+            self.selection = None
+            self._selection_mode = None
         self._refresh_summary()
 
     def _refresh_summary(self):
