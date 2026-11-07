@@ -40,8 +40,16 @@ the video preview now uses its latest worker-captured thumbnail and **skips
 separate ADB fallback requests** when the thumbnail is stale or absent;
 paused or inactive sessions still permit standalone fallback screenshots.
 This avoids two competing screenshot loops for one device, without adding
-encoders or supplying a cached frame to automation decisions. It is a
-software contention safeguard, **not** measured capture-FPS improvement. Do not enable ten encoders by default or weaken the 0.8 FPS criterion.
+encoders or supplying a cached frame to automation decisions. The production
+worker now also schedules its default 0.9-second screenshot interval from
+the **start** of the previous capture/recognition step, rather than sleeping
+another 0.9 seconds after it completes. Slow captures therefore begin the
+next poll without redundant delay. No capture requests overlap on a worker,
+and the normal pause, stop, and exponential error-backoff paths are unchanged.
+These are software contention and scheduling fixes, **not** measurements of
+improved real MuMu FPS. Rerun the full 120-second physical benchmark before
+claiming the >=0.8 FPS gate. Do not enable ten encoders by default or weaken
+the 0.8 FPS criterion.
 
 ### Compare uncompressed Android capture (opt-in diagnostic only)
 

@@ -228,7 +228,12 @@ class InstanceManager:
                         break
                     session.stop_event.wait(min(8, session.failures * 1.0))
                     continue
-                session.stop_event.wait(self.poll_seconds)
+                # Start-to-start polling: the screenshot/OCR work already
+                # consumes some or all of the requested cadence. A slow
+                # capture must not incur a second full delay; never overlap
+                # captures or bypass error backoff/pause/stop checks.
+                elapsed = time.monotonic() - now
+                session.stop_event.wait(max(0.0, self.poll_seconds - elapsed))
         except Exception as exc:
             reason = 'error'
             session.log(f'Worker error: {type(exc).__name__}: {exc}')
