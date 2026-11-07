@@ -803,8 +803,8 @@ class EngineTests(unittest.TestCase):
                 corrupt(data)
                 manifest.write_text(json.dumps(data), encoding='utf-8')
                 device = Device(self.match)
-                with patch.object(device, 'screenshot') as capture, \\
-                     patch('omniflow.engine.OCREngine.read') as ocr:
+                with (patch.object(device, 'screenshot') as capture,
+                      patch('omniflow.engine.OCREngine.read') as ocr):
                     with self.assertRaisesRegex(WorkflowError, message):
                         OmniRunner(device, self.folder, 'com.game.demo')
                     capture.assert_not_called()
