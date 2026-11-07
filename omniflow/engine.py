@@ -283,10 +283,9 @@ class OmniRunner:
             raise InputPaused('Session paused; deferring input until state is reconfirmed')
 
     def _execute(self, action: dict, now: float) -> bool:
-        # Pause also defers wait/count/dry-run actions that could advance the
-        # workflow while a screenshot or OCR call was still in flight.
-        if self.is_paused():
-            self._require_action_permission()
+        # Every step must retain session ownership, including waits, dry runs
+        # and run counters that do not send Android commands.
+        self._require_action_permission()
         kind = action.get('kind')
         size = self.device_size
         if kind == 'wait':
@@ -349,6 +348,9 @@ class OmniRunner:
         return True
 
     def _finish_run(self) -> None:
+        # End-of-state transitions can mark completion without a new touch.
+        # Revoked ownership or Pause must never count an unobserved run.
+        self._require_action_permission()
         self.runs += 1
         self.on_completed(self.runs)
 

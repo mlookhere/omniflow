@@ -154,6 +154,51 @@ class ActionLeaseGuards(unittest.TestCase):
             runner._execute({'kind':'double_tap','point':[200,200]}, 100)
         device.tap.assert_called_once()
 
+    def test_revoked_ownership_rejects_wait_count_and_dry_run(self):
+        from omniflow.engine import OmniRunner, WorkflowError
+        from unittest.mock import MagicMock
+        for dry_run in (False, True):
+            for action in ({'kind': 'wait', 'seconds': 0},
+                           {'kind': 'count_run'},
+                           {'kind': 'tap', 'point': [200, 200]}):
+                with self.subTest(dry_run=dry_run, action=action['kind']):
+                    device = MagicMock()
+                    runner = OmniRunner(device, self.folder, 'com.example.game',
+                                        can_act=lambda: False, dry_run=dry_run)
+                    runner.device_size = (540, 960)
+                    with self.assertRaisesRegex(WorkflowError, 'ownership lost'):
+                        runner._execute(action, 100)
+                    self.assertEqual(runner.chain_index, 0)
+                    self.assertEqual(runner.runs, 0)
+                    device.tap.assert_not_called()
+
+    def test_completion_transition_fails_after_losing_ownership(self):
+        from omniflow.engine import OmniRunner, WorkflowError
+        from unittest.mock import MagicMock
+        from swordx.detection import normalize
+        device = MagicMock()
+        device.screenshot.return_value = self.frame.copy()
+        allowed = True
+        completed = []
+        runner = OmniRunner(device, self.folder, 'com.example.game',
+                            can_act=lambda: allowed,
+                            completed=completed.append)
+        runner.device_size = (540, 960)
+        runner.end_pending = True
+        runner.current = 'previous-state'
+        # A second confirmed state transition can finish a run without
+        # executing an Android command. Revoking ownership prevents this.
+        runner._stable_key = 'new-state'
+        runner._streak = 1
+        from omniflow.engine import Match
+        runner.detector.detect = lambda *_: Match('new-state', 'New state', 1.0)
+        allowed = False
+        with self.assertRaisesRegex(WorkflowError, 'ownership lost'):
+            runner.step(100)
+        self.assertEqual(runner.runs, 0)
+        self.assertEqual(completed, [])
+        device.tap.assert_not_called()
+
     def test_auto_relaunch_rejects_input_after_ownership_loss(self):
         from omniflow.engine import OmniRunner, WorkflowError
         from unittest.mock import MagicMock
