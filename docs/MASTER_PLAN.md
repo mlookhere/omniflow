@@ -110,6 +110,13 @@ changing its type retains its original expected BGR, including intentional
 custom tolerances. GUI regressions cover conversion in both directions, visual
 pixel selection, type restoration and correct per-kind status labels.
 
+**Action editor ergonomics:** Tap, double-tap, hold and field-text actions
+share a visually chosen point; swipe/drag uses a distinct visually chosen path.
+Switching to Wait, Back or text-only actions temporarily hides these targets
+instead of deleting them, and switching back restores the prior compatible
+selection. Incompatible targets never authorize a different action kind. An
+offscreen Qt test covers switching among those action types without entering XY.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
