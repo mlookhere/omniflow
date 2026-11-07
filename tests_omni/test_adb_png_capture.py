@@ -16,6 +16,8 @@ class ScreenshotTransportTests(unittest.TestCase):
     def setUp(self):
         self.frame = np.zeros((960, 540, 3), dtype=np.uint8)
         self.frame[700:830, 150:440] = (100, 160, 210)
+        cv2.putText(self.frame, 'MATCH', (185, 770),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (250, 250, 250), 4)
         success, encoded = cv2.imencode('.png', self.frame)
         self.assertTrue(success)
         self.png = encoded.tobytes()
