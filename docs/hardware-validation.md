@@ -15,6 +15,28 @@ Uploaded evidence from a 120-second run on `127.0.0.1:16640`:
 
 **Next measurement:** profile ADB `screencap` transport/decode latency; evaluate a bounded **shared decoded H.264 frame source** as a capture alternative for the selected instance, with freshness/rotation and automatic fallback. Do not enable ten encoders by default or weaken the 0.8 FPS criterion.
 
+### Compare uncompressed Android capture (opt-in diagnostic only)
+
+Android's `screencap` can send raw pixel data instead of compressed PNG.
+OmniFlow's new decoder validates the Android framebuffer header, exact byte
+length, dimensions and pixel format (RGB565/888, RGBA/RGBX/BGRA 8888);
+unsupported formats **fail closed**. AOSP raw captures may use 12-byte or
+16-byte headers depending on Android version.
+
+Run a separate 120-second read-only profile on the same game screen:
+
+```powershell
+.\.venv\Scripts\python.exe tools\profile_capture.py --serial 127.0.0.1:16640 --seconds 120 --poll 0.9 --min-fps 0.8 --capture-format raw --output hardware-evidence\capture-profile-raw.json
+```
+
+Compare with the normal PNG profile. Both include `timings_ms.decode_ms`,
+`adb_exec_ms`, `normalize_ms`, total timings and `payload_bytes_mean`.
+The PNG mode continues to report its legacy `png_decode_ms` and `png_bytes_mean`.
+Raw mode reports `raw_decode_ms`. Large uncompressed transfers can be
+**slower**, so never assume raw is faster or switch the production workflow
+without real, repeated device measurements and image-equivalence checks.
+
+
 ### Profile the slow ADB screenshot pipeline (M6)
 
 The one-MuMu baseline measured only **0.719 screenshot FPS**. Before modifying the

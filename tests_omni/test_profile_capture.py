@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,7 +45,8 @@ class ProfileTests(unittest.TestCase):
         for key in ('adb_exec_ms', 'png_decode_ms', 'normalize_ms', 'total_ms'):
             self.assertGreaterEqual(sample[key], 0)
         self.assertAlmostEqual(sample['total_ms'], sum(sample[k] for k in
-            ('adb_exec_ms', 'png_decode_ms', 'normalize_ms')), places=3)
+            ('adb_exec_ms', 'decode_ms', 'normalize_ms')), places=3)
+        self.assertEqual(sample['decode_ms'], sample['png_decode_ms'])
 
     def test_healthy_profile_reports_each_stage_and_observed_fps(self):
         result = profiler.profile('127.0.0.1:16384', .08, .02, 0,
@@ -54,7 +56,8 @@ class ProfileTests(unittest.TestCase):
         self.assertGreater(result['frames'], 0)
         self.assertGreater(result['effective_fps'], 0)
         self.assertEqual(set(result['timings_ms']),
-                         {'adb_exec_ms', 'png_decode_ms', 'normalize_ms', 'total_ms'})
+                         {'adb_exec_ms', 'decode_ms', 'png_decode_ms',
+                          'normalize_ms', 'total_ms'})
         self.assertTrue(all(s['p95'] is not None for s in result['timings_ms'].values()))
 
     def test_five_consecutive_errors_stop_and_fail_closed(self):
@@ -64,6 +67,33 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(result['frames'], 0)
         self.assertEqual(result['errors'], 5)
         self.assertIn('ADB disconnected', result['last_error'])
+
+    def test_raw_mode_uses_uncompressed_screencap_without_touching_game(self):
+        class RawDevice(FakeDevice):
+            def __init__(self, serial):
+                super().__init__(serial)
+                self.png = struct.pack('<III', 2, 1, 1) + bytes(
+                    (10, 20, 30, 255, 40, 50, 60, 255))
+        device = RawDevice('127.0.0.1:16384')
+        sample = profiler.capture_sample(device, capture_format='raw')
+        self.assertEqual(device.calls, [
+            (('exec-out', 'screencap'), {'timeout': 15})])
+        self.assertEqual(sample['payload_bytes'], 20)
+        self.assertEqual(sample['decode_ms'], sample['raw_decode_ms'])
+        self.assertNotIn('png_decode_ms', sample)
+        report = profiler.profile('127.0.0.1:16384', .08, .02, 0,
+                                  capture_format='raw', device_factory=RawDevice)
+        self.assertTrue(report['passed'], report['failures'])
+        self.assertEqual(report['capture_format'], 'raw')
+        self.assertIsNone(report['png_bytes_mean'])
+        self.assertGreater(report['payload_bytes_mean'], 0)
+        self.assertIn('raw_decode_ms', report['timings_ms'])
+
+    def test_invalid_capture_format_fails_before_any_capture(self):
+        device = FakeDevice('127.0.0.1:16384')
+        with self.assertRaisesRegex(ValueError, 'Unsupported capture format'):
+            profiler.capture_sample(device, capture_format='unknown')
+        self.assertEqual(device.calls, [])
 
     def test_disconnected_device_replaces_stale_success_report(self):
         with tempfile.TemporaryDirectory() as root:
