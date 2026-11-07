@@ -513,7 +513,9 @@ class EngineTests(unittest.TestCase):
         # Entry and focus-tap checks pass; typing loses lease.
         checks=iter([True,True,False])
         runner.can_act=lambda: next(checks)
-        with self.assertRaisesRegex(WorkflowError,'refusing input'):
+        runner.last_capture_started_at=100.0
+        with patch('omniflow.engine.time.monotonic', return_value=100.0), \
+             self.assertRaisesRegex(WorkflowError,'refusing input'):
             runner._execute({'kind':'field_text','point':[200,400],'text':'Ready'},100)
         self.assertEqual(device.taps,[(800,1600)])
         self.assertFalse(device.texts)
