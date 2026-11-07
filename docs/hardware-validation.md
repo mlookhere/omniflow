@@ -101,7 +101,10 @@ includes Android PNG encoding, ADB process startup and transport; these cannot
 be separated further by this tool. Profiling sends no game input, starts no
 H.264 encoders, and uses the exact same strict PNG decoder as production
 screenshots: non-PNG diagnostics, truncated data and OpenCV decode failures
-cannot be counted as valid frames. Missing devices, errors, and FPS below the
+cannot be counted as valid frames. The runtime runner also rejects invalid BGR
+frames returned by alternative device adapters and converts screenshot
+normalization errors to recoverable ADB errors, clearing pending actions until
+two fresh matching screenshots arrive. Missing devices, errors, and FPS below the
 unchanged 0.8 threshold remain failures. **This is diagnosis, not proof of a faster
 capture backend or ten-instance acceptance.**
 

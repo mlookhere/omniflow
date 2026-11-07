@@ -425,7 +425,17 @@ class OmniRunner:
         self.last_capture_latency_ms = None
         try:
             raw = self.device.screenshot()
-            frame = normalize(raw)
+            # Device adapters can return invalid frames without raising ADBError.
+            # Reject them before OCR, geometry updates or any Android input.
+            if (not isinstance(raw, np.ndarray) or raw.ndim != 3 or
+                    raw.shape[2] != 3 or raw.dtype != np.uint8 or not raw.size):
+                raise ADBError('ADB screenshot was empty or unreadable')
+            try:
+                frame = normalize(raw)
+            except (cv2.error, ValueError) as exc:
+                raise ADBError(f'ADB screenshot normalization failed: {exc}') from exc
+            if frame.shape != (SIZE[1], SIZE[0], 3) or frame.dtype != np.uint8:
+                raise ADBError('ADB screenshot normalization returned invalid pixels')
             capture_age = time.monotonic() - capture_started
             if capture_age > MAX_CAPTURE_AGE_SECONDS:
                 raise ADBError(

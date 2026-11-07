@@ -88,6 +88,51 @@ class EngineTests(unittest.TestCase):
             runner.step(100)
             resize.assert_called_once()
 
+    def test_malformed_device_frames_recover_without_leaking_queued_input(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(len(device.taps), 1)
+            for bad in (None, np.zeros((960, 540), np.uint8),
+                        np.zeros((960, 540, 4), np.uint8),
+                        np.zeros((960, 540, 3), np.float32),
+                        np.zeros((0, 0, 3), np.uint8)):
+                with self.subTest(frame=repr(getattr(bad, 'shape', None))), \\
+                     patch.object(device, 'screenshot', return_value=bad):
+                    with self.assertRaisesRegex(ADBError, 'empty or unreadable'):
+                        runner.step(102)
+                self.assertEqual(len(device.taps), 1)
+                self.assertEqual(runner.current, '')
+                self.assertEqual(runner._streak, 0)
+                self.assertIsNone(runner.last_frame)
+                self.assertIsNone(runner.last_capture_latency_ms)
+            runner.step(103)
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        self.assertEqual(len(device.taps), 2)
+
+    def test_opencv_normalization_failure_rearms_capture_instead_of_stopping_worker(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            with patch('omniflow.engine.normalize',
+                       side_effect=cv2.error('resize failed')):
+                with self.assertRaisesRegex(ADBError, 'normalization failed'):
+                    runner.step(102)
+            self.assertEqual(runner.current, '')
+            self.assertEqual(runner._streak, 0)
+            self.assertIsNone(runner.last_capture_latency_ms)
+            runner.step(103)
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        self.assertEqual(len(device.taps), 2)
+
     def test_geometry_change_reconfirms_state_before_new_input(self):
         device = Device(self.match)
         logs = []
