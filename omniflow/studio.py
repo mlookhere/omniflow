@@ -427,6 +427,9 @@ class OmniStudio(RecorderDialog):
         tester=QPushButton('Test saved workflow on current screen (no taps)')
         tester.clicked.connect(self._test_detection)
         rule_col.addWidget(tester)
+        replay = QPushButton('Replay recorded screenshots (no taps)')
+        replay.clicked.connect(self._replay_saved_screenshots)
+        rule_col.addWidget(replay)
         self.tabs.addTab(rules,'WHEN · Recognition')
         chain=QWidget();chain_col=QVBoxLayout(chain)
         instruction = QLabel('THEN do these actions in order. Choose every touch or swipe from a screenshot; no coordinate entry.')
@@ -627,6 +630,43 @@ class OmniStudio(RecorderDialog):
             message.exec()
         except (ADBError,WorkflowError,OSError,ValueError) as exc:
             QMessageBox.warning(self,'Recognition test',str(exc))
+
+    def _replay_saved_screenshots(self):
+        """Audit saved captures offline; never read from or control the emulator."""
+        from .engine import WorkflowError
+        from .replay import replay_saved_captures
+
+        folder = self._folder()
+        if folder is None:
+            QMessageBox.warning(self, 'Screenshot replay', 'Select a saved workflow first.')
+            return
+        try:
+            results = replay_saved_captures(folder)
+        except (WorkflowError, OSError, ValueError, KeyError, cv2.error) as exc:
+            QMessageBox.warning(self, 'Screenshot replay', str(exc))
+            return
+        matched = sum(item['status'] == 'matched' for item in results)
+        tested = sum(item['status'] in ('matched', 'different', 'unknown')
+                     for item in results)
+        unavailable = sum(item['status'] == 'unavailable' for item in results)
+        errors = sum(item['status'] == 'error' for item in results)
+        detail = []
+        for item in results:
+            actual = f" → {item['actual']}" if item['actual_key'] else ''
+            detail.append(
+                f"{item['status'].upper()} · {item['expected']}{actual} "
+                f"({item['reason']})")
+        box = QMessageBox(self)
+        box.setWindowTitle('Recorded screenshot replay')
+        box.setIcon(QMessageBox.Information)
+        box.setText(
+            f'{matched}/{tested} readable screenshots selected their recorded state'
+            if tested else 'No saved screenshots could be replayed')
+        box.setInformativeText(
+            f'{unavailable} unavailable; {errors} recognition errors. '
+            'One-frame replay only: no actions, timing, or emulator input.')
+        box.setDetailedText('\n'.join(detail))
+        box.exec()
 
     def _reset_chain(self):
         self.extra_chain=None;self._refresh_extra();self._field_changed()
