@@ -306,6 +306,43 @@ def resolve_action_chain(action: dict, region_count: int, trigger: int = 0) -> l
     return list(gestures)
 
 
+def validate_action(action: dict) -> str:
+    """Fail closed on invalid action data before live or dry-run execution.
+
+    Validate normalized targets without consulting a device or sending input.
+    Real commands still perform their normal ownership/freshness checks.
+    """
+    if not isinstance(action, dict):
+        raise WorkflowError('Action step must be an object')
+    kind = action.get('kind')
+    try:
+        if kind in ('tap', 'double_tap'):
+            _target(action['point'], SIZE)
+        elif kind in ('hold', 'drag', 'swipe'):
+            _target(action.get('start', action.get('point')), SIZE)
+            _target(action.get('end', action.get('point')), SIZE)
+            duration = int(action.get('duration_ms', 650))
+            if not 50 <= duration <= 10000:
+                raise WorkflowError('Gesture duration must be 50–10000 ms')
+        elif kind == 'key':
+            code = int(action.get('code', 4))
+            if not 0 <= code <= 300:
+                raise WorkflowError('Invalid Android key event')
+        elif kind in ('text', 'field_text'):
+            android_text_argument(str(action.get('text', '')))
+            if kind == 'field_text':
+                _target(action['point'], SIZE)
+        elif kind == 'wait':
+            seconds = float(action.get('seconds', 0))
+            if not 0 <= seconds <= 86400:
+                raise WorkflowError('Wait action outside 0–86400 seconds')
+        elif kind not in ('launch', 'count_run'):
+            raise WorkflowError(f'Unknown action: {kind}')
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WorkflowError(f'Invalid {kind} action: {exc}') from exc
+    return kind
+
+
 class OmniRunner:
     """One emulator, one state machine. Doesn't know about other sessions."""
     def __init__(self, device, folder: Path, package: str, *, log=lambda _: None,
@@ -382,22 +419,19 @@ class OmniRunner:
         # Every step must retain session ownership, including waits, dry runs
         # and run counters that do not send Android commands.
         self._require_action_permission()
-        kind = action.get('kind')
+        kind = validate_action(action)
         if kind == 'wait':
             seconds = float(action.get('seconds', 0))
-            if not 0 <= seconds <= 86400:
-                raise WorkflowError('Wait action outside 0–86400 seconds')
+            if self.dry_run:
+                self.log(f'DRY RUN: step {self.chain_index + 1} on '
+                         f'{self.last_observation.label}: wait {seconds:g}s (no input)')
             self.chain_wait_until = now + seconds
             self.chain_index += 1
             return False
-        if kind in ('text', 'field_text'):
-            try:
-                android_text_argument(str(action.get('text', '')))
-            except ValueError as exc:
-                raise WorkflowError(str(exc)) from exc
-        if self.dry_run and kind != 'wait':
+        if self.dry_run:
+            self.log(f'DRY RUN: step {self.chain_index + 1} on '
+                     f'{self.last_observation.label}: {kind} (no input)')
             self.chain_index += 1
-            self.log(f'DRY RUN: would execute {kind} on {self.last_observation.label}')
             return True
         if kind in ('tap', 'double_tap'):
             x, y = self._map_point(action['point'])
