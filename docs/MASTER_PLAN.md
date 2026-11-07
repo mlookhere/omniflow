@@ -178,6 +178,21 @@ recognition semantics; reordering actions changes their actual execution order.
 Offscreen Qt tests cover independent copies, selection, disabled controls,
 boundary no-ops, undo/redo and saved action-chain ordering.
 
+**Dry-run execution validation and traces (November 7, 2026):** The
+single-device runner now shares one input-free `validate_action` preflight
+between real execution and dry-run simulation, covering supported action kinds,
+normalized tap/focus/swipe targets, gesture duration, Android key codes, wait
+duration and safe ADB text. Invalid or unsupported steps never increment
+dry-run progress or claim a successful action. Each dry-run step logs its
+ordinal, recognized state, action kind and explicit no-input marker; wait
+steps are included, with their configured duration. Text payloads are not
+included in trace logs, and dry-run `count_run` never modifies session run
+totals. The Studio also uses this validator to reject malformed imported
+or copied draft action chains *before saving*. Tests verify malformed inputs,
+zero Android commands, ordering, privacy, and unchanged manifest on a
+failed Save. Timing waits still use the existing nonblocking runner logic;
+this is not physical device verification or an emulator-free full replay.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
