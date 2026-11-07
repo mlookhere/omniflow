@@ -329,6 +329,38 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_saved_studio_inspection_rejects_unsafe_template_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeTemplate', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Recorded screen', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'UnsafeTemplate', base=root)
+            try:
+                studio.canvas.load(image)
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['states'][key][0]['file'] = '../outside.png'
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_detection()
+                    warning.assert_called_once()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('unsafe anchor filename',
+                              warning.call_args.args[2])
+                self.assertEqual(before, {
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
     def test_offline_replay_uses_saved_images_not_emulator(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
