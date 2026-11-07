@@ -155,7 +155,7 @@ def assess(png: dict, raw: dict, fidelity: dict) -> dict:
         result['failures'] = [str(exc)]
         return result
     gain = (raw_fps - png_fps) / png_fps
-    candidate = (raw_fps >= MIN_FPS and
+    candidate = (raw.get('passed') is True and raw_fps >= MIN_FPS and
                  gain >= MIN_RAW_FPS_GAIN and raw_p95 < png_p95)
     result.update(
         comparison_complete=True,

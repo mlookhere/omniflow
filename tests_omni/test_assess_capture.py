@@ -90,6 +90,15 @@ class CaptureAssessmentTests(unittest.TestCase):
         raw['failures'] = []
         self.assertFalse(assessment.assess(self.png, raw, self.fidelity)['passed'])
 
+    def test_raw_must_pass_its_own_higher_configured_fps_gate(self):
+        raw = profile('raw', .9, 900)
+        raw['min_fps'] = 1.0
+        raw['passed'] = False
+        raw['failures'] = ['Capture 0.900 FPS below 1.000 FPS target']
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertTrue(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+
     def test_bad_fidelity_flags_and_loose_tolerance_rejected(self):
         for mutate in (lambda x: x.update(passed=False),
                        lambda x: x.update(pixel_tolerance=255),
