@@ -65,6 +65,60 @@ class VideoGuiTests(unittest.TestCase):
         self.assertFalse(stream.interrupt_if_stale(now+7))
         encoder.interrupt.assert_called_once_with()
 
+    def test_stall_watchdog_uses_cached_frame_for_static_screen(self):
+        stream = VideoThread('127.0.0.1:16384')
+        # Same screen in both RGB video and BGR detector cache.
+        video = np.full((480, 270, 3), (90, 50, 10), dtype=np.uint8)
+        cached = video[:, :, ::-1].copy()
+        stream.snapshot_source = lambda: cached
+        encoder = MagicMock()
+        old = time.monotonic() - 10
+        stream.stream = encoder
+        stream.last_rgb = video
+        stream.last_frame_at = old
+        stream.stream_started_at = old
+        with patch.object(stream.stopped, 'wait', side_effect=[False, True]), \
+             patch('omniflow.ui.ADB') as adb:
+            stream._watchdog()
+        adb.assert_not_called()
+        encoder.interrupt.assert_not_called()
+        self.assertGreater(stream.last_frame_at, old)
+        self.assertFalse(stream.interrupted)
+
+    def test_stall_watchdog_restarts_if_cached_screen_changed(self):
+        stream = VideoThread('127.0.0.1:16384')
+        stream.snapshot_source = lambda: np.full((480, 270, 3), 255, np.uint8)
+        old = time.monotonic() - 10
+        stream.stream = MagicMock()
+        stream.last_rgb = np.zeros((480, 270, 3), np.uint8)
+        stream.last_frame_at = old
+        stream.stream_started_at = old
+        messages = []
+        stream.error.connect(messages.append)
+        with patch.object(stream.stopped, 'wait', side_effect=[False, True]), \
+             patch('omniflow.ui.ADB') as adb:
+            stream._watchdog()
+        adb.assert_not_called()
+        stream.stream.interrupt.assert_called_once_with()
+        self.assertTrue(stream.interrupted)
+        self.assertTrue(any('stalled' in text for text in messages))
+
+    def test_stall_watchdog_uses_adb_if_cached_frame_missing(self):
+        stream = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)
+        old = time.monotonic() - 10
+        stream.stream = MagicMock()
+        stream.last_rgb = np.zeros((480, 270, 3), np.uint8)
+        stream.last_frame_at = old
+        stream.stream_started_at = old
+        with patch.object(stream.stopped, 'wait', side_effect=[False, True]), \
+             patch('omniflow.ui.ADB') as adb:
+            adb.return_value.screenshot.return_value = np.zeros((480, 270, 3),
+                                                                  dtype=np.uint8)
+            stream._watchdog()
+        adb.assert_called_once_with(serial='127.0.0.1:16384')
+        adb.return_value.screenshot.assert_called_once_with(timeout=4)
+        stream.stream.interrupt.assert_not_called()
+
     def test_snapshot_fallback_preserves_device_identity(self):
         stream = VideoThread('127.0.0.1:16384')
         fake = MagicMock()

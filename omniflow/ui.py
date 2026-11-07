@@ -107,6 +107,11 @@ class VideoThread(QThread):
                 self.last_frame_at = now
                 self.frame_times.append(now)
 
+    def _read_selected_snapshot(self):
+        """Reuse an existing fresh detector frame before asking ADB for another."""
+        frame = self.snapshot_source() if self.snapshot_source else None
+        return frame if frame is not None else ADB(serial=self.serial).screenshot(timeout=4)
+
     def _fallback_screenshot(self):
         """Show a bounded, selected-device snapshot if MediaCodec is unavailable.
 
@@ -117,12 +122,9 @@ class VideoThread(QThread):
         if self.stopped.is_set():
             return
         try:
-            # Avoid a second ADB screencap when the selected runner already
-            # captured a recent frame. Keep independent ADB fallback for
-            # stopped/paused sessions and no matching active worker.
-            frame = self.snapshot_source() if self.snapshot_source else None
-            if frame is None:
-                frame = ADB(serial=self.serial).screenshot(timeout=4)
+            # The selected worker may already have a fresh frame. ADB remains
+            # the fallback if the selected session is absent or its image aged.
+            frame = self._read_selected_snapshot()
             if self.stopped.is_set():
                 return
             self._publish(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), 'snapshot')
@@ -154,11 +156,14 @@ class VideoThread(QThread):
                 continue
             if at > 0 and source is not None:
                 try:
-                    snapshot = ADB(serial=self.serial).screenshot(timeout=4)
+                    # One selected worker already taking screenshots can answer
+                    # the static-screen probe without another ADB request.
+                    snapshot = self._read_selected_snapshot()
                 except (ADBError, OSError, ValueError):
                     snapshot = None
                 with self.lock:
-                    if self.stream is not stream or self.interrupted or self.last_frame_at != at:
+                    if (self.stopped.is_set() or self.stream is not stream or
+                            self.interrupted or self.last_frame_at != at):
                         continue  # The decoder already resumed during the probe.
                     if screen_is_unchanged(source, snapshot):
                         self.last_frame_at = time.monotonic()
