@@ -94,9 +94,10 @@ class VisualCaptureTests(unittest.TestCase):
         from omniflow.engine import WorkflowError, preview_conditions
         rule = {'type': 'ocr', 'rect': [80, 100, 220, 170],
                 'text': '[invalid', 'regex': True}
-        with patch('omniflow.engine.OCREngine.read', return_value='START'):
+        with patch('omniflow.engine.OCREngine.read', return_value='START') as ocr:
             with self.assertRaisesRegex(WorkflowError, 'Invalid OCR regular expression'):
                 preview_conditions(self.frame, [rule])
+            ocr.assert_not_called()
         with self.assertRaisesRegex(WorkflowError, 'Invalid OCR regular expression'):
             from omniflow.engine import validate_ocr_expression
             validate_ocr_expression('(', True)
