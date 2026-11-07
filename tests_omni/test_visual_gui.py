@@ -14,7 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QLabel, QSpinBox
+    from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QSpinBox
     from omniflow.studio import ActionEditor, RuleEditor, ZoneCaptureDialog, OmniStudio
     from swordx.workflows import create_workflow, record_step
     QT = True
@@ -149,6 +149,104 @@ class VisualStudioGuiTests(unittest.TestCase):
                 self.assertEqual((folder / 'manifest.json').read_bytes(), manifest)
             finally:
                 studio.close()
+
+    def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
+        from swordx import workflows
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('SingleSave', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            key = record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                              taps=[(150, 250)])
+            captures_before = {p.name: p.read_bytes() for p in
+                               (folder / 'captures').iterdir()}
+            anchors_before = {p.name: p.read_bytes() for p in
+                              (folder / 'anchors').iterdir()}
+            studio = OmniStudio('', 'SingleSave', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                self.assertFalse(studio._visual_dirty)
+                studio.extra_conditions = [
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [75, 75, 75], 'tolerance': 200}]
+                studio.extra_chain = [{'kind': 'tap', 'point': [150, 250]}]
+                studio._refresh_extra()
+                studio._field_changed()
+                with patch('swordx.workflows._write_manifest',
+                           wraps=workflows._write_manifest) as save:
+                    studio._save()
+                    save.assert_called_once()
+                data = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(data['actions'][key]['conditions'],
+                                 studio.extra_conditions)
+                self.assertEqual(data['actions'][key]['action_chain'],
+                                 studio.extra_chain)
+                self.assertEqual({p.name: p.read_bytes() for p in
+                                  (folder / 'captures').iterdir()}, captures_before)
+                self.assertEqual({p.name: p.read_bytes() for p in
+                                  (folder / 'anchors').iterdir()}, anchors_before)
+                self.assertFalse(studio._dirty)
+            finally:
+                studio.close()
+
+    def test_cancel_new_state_preserves_unsaved_rules_and_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('CancelEdit', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            key = record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                              taps=[(150, 250)])
+            original = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'CancelEdit', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.extra_conditions = [
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300], 'text': 'READY'}]
+                studio.extra_chain = [{'kind': 'tap', 'point': [120, 240]}]
+                studio._refresh_extra()
+                studio._field_changed()
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.No) as prompt:
+                    studio._new_state()
+                    prompt.assert_called_once()
+                self.assertEqual(studio.editing_key, key)
+                self.assertTrue(studio._dirty)
+                self.assertEqual(studio.extra_conditions[0]['text'], 'READY')
+                self.assertEqual(studio.extra_chain[0]['point'], [120, 240])
+                self.assertEqual((folder / 'manifest.json').read_bytes(), original)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_disabling_condition_only_without_template_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ConditionOnly', root)
+            key = record_step(
+                folder, 'Ready', self.frame, [],
+                conditions=[{'type': 'color', 'rect': [100, 200, 230, 300],
+                             'bgr': [75, 75, 75]}], condition_only=True,
+                action_chain=[{'kind': 'tap', 'point': [120, 240]}])
+            original = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'ConditionOnly', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                self.assertTrue(studio.rules_only.isChecked())
+                studio.rules_only.setChecked(False)
+                with patch('omniflow.studio.QMessageBox.warning') as warn:
+                    studio._save()
+                    self.assertIn('Draw a detection region', warn.call_args.args[2])
+                self.assertEqual((folder / 'manifest.json').read_bytes(), original)
+                self.assertTrue(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
 
     def test_ocr_and_color_rules_have_no_coordinate_entry(self):
         dialog = RuleEditor(frame=self.frame)
