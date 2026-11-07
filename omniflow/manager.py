@@ -38,6 +38,7 @@ class Session:
     current: str = 'Waiting for image'
     confidence: float = 0
     image: np.ndarray | None = None
+    image_at: float = 0.0
     logs: deque = field(default_factory=lambda: deque(maxlen=200))
     failures: int = 0
     lease_lost: bool = False
@@ -50,6 +51,16 @@ class Session:
     def latest(self) -> np.ndarray | None:
         with self._image_lock:
             return None if self.image is None else self.image.copy()
+
+    def recent_image(self, max_age_seconds: float = 2.0) -> np.ndarray | None:
+        """Return a copy of an existing recent snapshot, never query Android."""
+        if max_age_seconds <= 0:
+            raise ValueError('Snapshot max age must be positive')
+        with self._image_lock:
+            if (self.image is None or self.image_at <= 0 or
+                    not 0 <= time.monotonic() - self.image_at <= max_age_seconds):
+                return None
+            return self.image.copy()
 
     def log(self, message: str) -> None:
         self.logs.append(f'{time.strftime("%H:%M:%S")}  {message}')
@@ -240,6 +251,7 @@ class InstanceManager:
         thumbnail = cv2.resize(frame, target, interpolation=cv2.INTER_AREA)
         with session._image_lock:
             session.image = thumbnail
+            session.image_at = time.monotonic()
 
     def stop(self, serial: str) -> None:
         with self._lock:

@@ -155,6 +155,26 @@ class ManagerTests(unittest.TestCase):
         self.assertTrue(any('reconfirming state before input' in line
                             for line in session.logs))
 
+    def test_recent_session_image_is_copied_and_expires(self):
+        from omniflow.manager import Session
+        from pathlib import Path
+        import numpy as np
+        session = Session('127.0.0.1:16384', 'com.example.game',
+                          'test', Path(self.folder), 'owner')
+        frame = np.zeros((3, 4, 3), dtype=np.uint8)
+        with session._image_lock:
+            session.image = frame
+            session.image_at = time.monotonic()
+        copy = session.recent_image()
+        self.assertIsNotNone(copy)
+        copy[0, 0] = 255
+        self.assertFalse(np.any(session.image[0, 0]))
+        with session._image_lock:
+            session.image_at = time.monotonic() - 5
+        self.assertIsNone(session.recent_image())
+        with self.assertRaises(ValueError):
+            session.recent_image(0)
+
     def test_scheduler_busy_device_marks_skipped(self):
         self.assertTrue(self.manager.start('emulator:1','com.example.game','Demo',self.folder)[0])
         start=time.time()

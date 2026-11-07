@@ -63,9 +63,11 @@ class VideoThread(QThread):
     """
     error = Signal(str)
 
-    def __init__(self, serial: str, parent=None):
+    def __init__(self, serial: str, parent=None, *, snapshot_source=None):
         super().__init__(parent)
         self.serial = serial
+        # Optional read-only cache from the same selected automation session.
+        self.snapshot_source = snapshot_source
         self.stopped = threading.Event()
         self.lock = threading.Lock()
         self.latest = None
@@ -115,7 +117,14 @@ class VideoThread(QThread):
         if self.stopped.is_set():
             return
         try:
-            frame = ADB(serial=self.serial).screenshot(timeout=4)
+            # Avoid a second ADB screencap when the selected runner already
+            # captured a recent frame. Keep independent ADB fallback for
+            # stopped/paused sessions and no matching active worker.
+            frame = self.snapshot_source() if self.snapshot_source else None
+            if frame is None:
+                frame = ADB(serial=self.serial).screenshot(timeout=4)
+            if self.stopped.is_set():
+                return
             self._publish(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), 'snapshot')
         except (ADBError, OSError, ValueError) as exc:
             # Keep retrying video, but do not flood the log every 1.5 seconds
@@ -698,6 +707,10 @@ class OmniWindow(QMainWindow):
             current.deleteLater()
         self._start_requested_video()
 
+    def _cached_session_frame(self, serial: str):
+        session = next((s for s in self.manager.snapshot() if s.serial == serial), None)
+        return session.recent_image() if session is not None else None
+
     def _start_requested_video(self):
         self.video_serial = ''
         self.last_video_serial = ''
@@ -706,7 +719,8 @@ class OmniWindow(QMainWindow):
             self.video_status.setText('Detector preview')
             return
         self.video_serial = serial
-        thread = VideoThread(serial, self)
+        thread = VideoThread(
+            serial, self, snapshot_source=lambda: self._cached_session_frame(serial))
         self.video = thread
         thread.error.connect(self._video_error)
         thread.finished.connect(self._video_finished)

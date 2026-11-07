@@ -46,6 +46,37 @@ class SnapshotGuiTests(unittest.TestCase):
         self.assertTrue(worker.stopped.is_set())
         self.assertTrue(any('error 22' in message for message in messages))
 
+    def test_fresh_worker_snapshot_replaces_redundant_adb_fallback(self):
+        import numpy as np
+        frame = np.full((480, 270, 3), (15, 25, 35), dtype=np.uint8)
+        worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: frame)
+        with patch('omniflow.ui.ADB') as adb, \
+             patch.object(worker, '_publish') as publish:
+            worker._fallback_screenshot()
+        adb.assert_not_called()
+        self.assertEqual(publish.call_args.args[1], 'snapshot')
+        self.assertEqual(publish.call_args.args[0][0, 0].tolist(), [35, 25, 15])
+
+    def test_cache_miss_still_uses_selected_device_adb_snapshot(self):
+        import numpy as np
+        worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)
+        with patch('omniflow.ui.ADB') as adb, \
+             patch.object(worker, '_publish') as publish:
+            adb.return_value.screenshot.return_value = np.zeros((960, 540, 3),
+                                                                  dtype=np.uint8)
+            worker._fallback_screenshot()
+        adb.assert_called_once_with(serial='127.0.0.1:16384')
+        adb.return_value.screenshot.assert_called_once_with(timeout=4)
+        self.assertEqual(publish.call_args.args[1], 'snapshot')
+
+    def test_stopped_preview_does_not_read_cache_or_adb(self):
+        worker = VideoThread('127.0.0.1:16384',
+                             snapshot_source=lambda: self.fail('cache read after Stop'))
+        worker.stop()
+        with patch('omniflow.ui.ADB') as adb:
+            worker._fallback_screenshot()
+        adb.assert_not_called()
+
     def test_repeated_identical_snapshot_failures_are_rate_limited(self):
         worker = VideoThread('127.0.0.1:16384')
         messages = []
