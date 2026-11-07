@@ -62,6 +62,20 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(results[0]['actual_key'], wait_key)
         self.assertEqual(results[0]['reason'], 'overridden by WAIT')
         self.assertEqual(results[1]['status'], 'matched')
+        self.assertEqual(results[1]['overlaps'], [
+            {'key': action_key, 'label': 'Tap', 'passive': False}])
+        self.assertEqual(results[0]['overlaps'], [
+            {'key': action_key, 'label': 'Tap', 'passive': False}])
+
+    def test_image_threshold_failure_includes_actual_score(self):
+        self.record('Unrecognized')
+        with patch('omniflow.engine.OmniDetector._match_template',
+                   return_value=0.13):
+            result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['status'], 'unknown')
+        self.assertIn('image 13%', result['reason'])
+        self.assertIn('minimum 82%', result['reason'])
+        self.assertEqual(result['overlaps'], [])
 
     def test_no_capture_does_not_count_as_success(self):
         key = self.record()
