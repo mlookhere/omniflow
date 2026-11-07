@@ -148,6 +148,56 @@ class EngineTests(unittest.TestCase):
             runner.step(103)
         self.assertEqual(len(device.taps), 2)
 
+    def test_slow_recognition_rejects_frame_before_input(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found), \
+             patch('omniflow.engine.time.monotonic',
+                   side_effect=[20.0, 20.4, 27.0]):
+            with self.assertRaisesRegex(ADBError, 'stale after recognition'):
+                runner.step(100)
+        self.assertEqual(device.taps, [])
+        self.assertIsNone(runner.last_frame)
+        self.assertEqual(runner.last_observation.key, '')
+        self.assertEqual(runner._streak, 0)
+
+    def test_stalled_preview_callback_cannot_authorize_tap(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            image=lambda *_: None)
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found), \
+             patch('omniflow.engine.time.monotonic',
+                   side_effect=[20.0, 20.1, 26.2]):
+            with self.assertRaisesRegex(ADBError, 'stale after recognition'):
+                runner.step(100)
+        self.assertEqual(device.taps, [])
+
+    def test_resume_after_pause_restarts_pending_chain_and_confirmation(self):
+        self.change(self.key, action_chain=[
+            {'kind': 'tap', 'point': [290, 770]},
+            {'kind': 'key', 'code': 4}], end=True)
+        device = Device(self.match)
+        completed = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            completed=completed.append)
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(runner.chain_index, 1)
+            runner.resume_after_pause(200)
+            self.assertEqual(runner.current, '')
+            self.assertEqual(runner.chain_index, 0)
+            self.assertFalse(runner.end_pending)
+            runner.step(201)
+            self.assertEqual(device.keys, [])
+            runner.step(202)
+        self.assertEqual(len(device.taps), 2)
+        self.assertEqual(device.keys, [])
+        self.assertEqual(completed, [])
+
     def test_stalled_capture_cannot_trigger_stale_input(self):
         device = Device(self.match)
         runner = OmniRunner(device, self.folder, 'com.game.demo')
@@ -173,7 +223,7 @@ class EngineTests(unittest.TestCase):
         device = Device(self.match)
         runner = OmniRunner(device, self.folder, 'com.game.demo')
         with patch('omniflow.engine.time.monotonic',
-                   side_effect=[20.0, 21.8, 30.0, 31.2]):
+                   side_effect=[20.0, 21.8, 22.0, 30.0, 31.2, 31.3]):
             runner.step(100)
             runner.step(101)
         self.assertEqual(len(device.taps), 1)

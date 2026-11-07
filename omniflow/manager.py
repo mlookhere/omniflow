@@ -159,10 +159,9 @@ class InstanceManager:
                     session.stop_event.wait(0.15)
                     continue
                 if paused_at is not None:
-                    delta = now - paused_at
-                    runner.entered_at += delta
-                    runner.action_at += delta
-                    runner.chain_wait_until += delta
+                    # The game may advance during a pause. Never replay the
+                    # old action index, countdown or recognition streak.
+                    runner.resume_after_pause(now)
                     session.stats.resume(now)
                     paused_at = None
                     session.status = 'Running'

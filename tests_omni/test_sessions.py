@@ -81,6 +81,19 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(session.stats.finished_at is not None,True)
         self.assertTrue(self.db.acquire('emulator:1','fresh'))
 
+    def test_resume_reconfirms_state_in_live_worker(self):
+        self.assertTrue(self.manager.start('emulator:1', 'com.example.game',
+                                           'Demo', self.folder)[0])
+        session = self.manager.snapshot()[0]
+        self.assertTrue(self.wait_for(lambda: session.status == 'Running'))
+        self.manager.pause('emulator:1', True)
+        self.assertTrue(self.wait_for(lambda: session.status == 'Paused'))
+        self.manager.pause('emulator:1', False)
+        self.assertTrue(self.wait_for(lambda: any(
+            'Session resumed; reconfirming state before input' in line
+            for line in session.logs)))
+        self.assertEqual(session.status, 'Running')
+
     def test_scheduler_busy_device_marks_skipped(self):
         self.assertTrue(self.manager.start('emulator:1','com.example.game','Demo',self.folder)[0])
         start=time.time()

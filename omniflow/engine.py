@@ -379,6 +379,14 @@ class OmniRunner:
         self._acted = False
         self.unknown_count = 0
 
+    def resume_after_pause(self, now: float) -> None:
+        """Discard visual evidence and incomplete actions from before a pause."""
+        self._invalidate_visual_state(now)
+        self.last_frame = None
+        self.last_observation = UNKNOWN
+        self.wait_remaining = None
+        self.log('Session resumed; reconfirming state before input')
+
     def step(self, now: float | None = None) -> Match:
         now = time.monotonic() if now is None else now
         self.wait_remaining = None
@@ -414,6 +422,16 @@ class OmniRunner:
         # workflows. The dashboard must display the *original* screen aspect
         # ratio instead of the stretched recognition image.
         self.on_image(observation, raw)
+        # OCR and callbacks can block after ADB returns. Freshness must hold
+        # when the screenshot authorizes input, not only after PNG decoding.
+        age = time.monotonic() - capture_started
+        if age > MAX_CAPTURE_AGE_SECONDS:
+            self._invalidate_visual_state(now)
+            self.last_frame = None
+            self.last_observation = UNKNOWN
+            raise ADBError(
+                f'Captured frame is stale after recognition ({age:.2f}s > '
+                f'{MAX_CAPTURE_AGE_SECONDS:.0f}s); refusing input')
         if observation.key != self._stable_key:
             self._stable_key, self._streak = observation.key, 1
         else:
