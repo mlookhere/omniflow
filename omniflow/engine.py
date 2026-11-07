@@ -230,6 +230,7 @@ class OmniDetector:
                 'key': key,
                 'label': action.get('label', key),
                 'passive': bool(action.get('passive', False)),
+                'has_template': bool(probes),
                 'template_confidence': float(confidence),
                 'threshold': threshold,
                 'condition_results': None,
@@ -269,7 +270,7 @@ class OmniDetector:
                     detail['status'] = 'selected'
                 else:
                     detail['status'] = ('overridden by WAIT' if winner.passive
-                                        and not detail['passive'] else 'lower priority')
+                                        and not detail['passive'] else 'lower-ranked match')
         return winner, details
 
 
