@@ -52,6 +52,8 @@ class DeviceResult:
     detection_p95_ms: float | None
     last_error: str = ''
     max_frame_gap_seconds: float | None = None
+    started_at_unix: float | None = None
+    ended_at_unix: float | None = None
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -95,6 +97,9 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     if problem:
         return DeviceResult(serial, 0, 1, 0.0, 0.0, None, None, None, problem)
 
+    # UTC Unix time is comparable with the separate H.264 diagnostic; the
+    # monotonic clock still owns duration, deadlines and throughput.
+    started_at_unix = time.time()
     started = clock()
     deadline = started + seconds
     capture_times: list[float] = []
@@ -148,6 +153,7 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         if remaining > 0:
             wait(remaining)
     finished = clock()
+    ended_at_unix = time.time()
     elapsed = max(0.0, finished - started)
     max_frame_gap = max(max_frame_gap, finished - last_valid_at)
     frames = len(capture_times)
@@ -160,6 +166,8 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         detection_p95_ms=round(percentile(detect_times, 0.95) * 1000, 2) if detect_times else None,
         last_error=last_error,
         max_frame_gap_seconds=round(max_frame_gap, 3),
+        started_at_unix=started_at_unix,
+        ended_at_unix=ended_at_unix,
     )
 
 

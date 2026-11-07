@@ -25,6 +25,8 @@ class DiagnosticPreflightTests(unittest.TestCase):
             self.assertEqual(report['elapsed_seconds'], 0.0)
             self.assertEqual(report['displayed_video_frames'], 0)
             self.assertEqual(report['fallback_snapshots'], 0)
+            self.assertNotIn('started_at_unix', report)
+            self.assertNotIn('ended_at_unix', report)
             self.assertIn('No MuMu', ' '.join(report['failures']))
             self.assertFalse(list(output.parent.glob('*.tmp')))
 

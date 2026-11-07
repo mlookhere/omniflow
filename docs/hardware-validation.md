@@ -369,8 +369,33 @@ video or screenshot capture was attempted.
 
 ## 5. Combine real video and ten-instance evidence without false passes
 
-Run the video and ten-emulator diagnostics above **on the actual Windows/MuMu PC**,
-keeping their JSON outputs. Then evaluate them together (read-only):
+Run the video and ten-emulator diagnostics **concurrently on the actual
+Windows/MuMu PC**, retaining both JSON outputs. Each report now records actual
+Unix start/end timestamps, and every emulator must overlap the selected-device
+video diagnostic by the full 120-second acceptance window. Two successful
+sequential 120-second runs cannot establish concurrent capacity. To allow for
+startup and shutdown skew, start the video diagnostic in one terminal for
+150 seconds and the ten-emulator PNG benchmark in a second terminal for
+135 seconds, starting the second within the first 15 seconds:
+
+```powershell
+# Terminal 1: video starts first
+.\.venv\Scripts\python.exe tools\diagnose_capture.py --seconds 150 `
+    --serial 127.0.0.1:16384 --min-video-fps 20 `
+    --max-preview-gap 3 --output video-health.json
+```
+
+```powershell
+# Terminal 2: immediately after Terminal 1, all ten capture together
+.\.venv\Scripts\python.exe tools\benchmark_mumu.py --instances 10 `
+    --seconds 135 --min-fps 0.8 --capture-format png `
+    --output capture-ten.json
+```
+
+The commands use read-only capture. Allow both to finish and verify their
+reported time windows before evaluating them together. On a static screen,
+a 20 FPS video threshold may not be meaningful; do not substitute static
+video frames for a genuine changing game workload. Then run the verifier:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\verify_hardware_evidence.py `

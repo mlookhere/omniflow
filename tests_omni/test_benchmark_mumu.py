@@ -64,6 +64,9 @@ class BenchmarkTests(unittest.TestCase):
                                        device_factory=MuMuDevice)
         self.assertGreater(result.frames, 0)
         self.assertEqual(result.errors, 0)
+        self.assertIsInstance(result.started_at_unix, float)
+        self.assertIsInstance(result.ended_at_unix, float)
+        self.assertGreater(result.ended_at_unix, result.started_at_unix)
         self.assertGreaterEqual(command.call_count, result.frames)
         for call in command.call_args_list:
             self.assertEqual(call.args, ('exec-out', 'screencap', '-p'))

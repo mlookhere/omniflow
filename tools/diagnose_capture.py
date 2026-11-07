@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     from omniflow.ui import VideoThread
     app = QCoreApplication.instance() or QCoreApplication([])
     video = VideoThread(serial)
+    started_at_unix = time.time()
     started = time.monotonic()
     health = CaptureHealth(started)
     # Qt invokes this callback on the diagnostic main thread during event polling.
@@ -89,11 +90,14 @@ def main(argv: list[str] | None = None) -> int:
         print('Interrupted by user.', file=sys.stderr)
     finally:
         finished = time.monotonic()
+        ended_at_unix = time.time()
         video.stop()
         stopped = video.wait(6000)
         app.processEvents()
     # Shutdown can require seconds; don't count orderly cleanup as a blackout.
-    report = {'device': serial, **health.summary(finished)}
+    report = {'device': serial, **health.summary(finished),
+              'started_at_unix': started_at_unix,
+              'ended_at_unix': ended_at_unix}
     failures = evaluate_capture(report, allow_snapshot_only=args.allow_snapshot_only,
                                 min_video_fps=args.min_video_fps,
                                 max_preview_gap=args.max_preview_gap)

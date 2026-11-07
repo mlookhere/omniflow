@@ -19,6 +19,8 @@ def samples(*, devices=10, workflow='MyWorkflow'):
         'error22_events': 2, 'error22_windows': 1,
         'error22_recovered': 1, 'error22_unresolved': 0,
         'max_error22_recovery_seconds': 2.8,
+        'started_at_unix': 1_800_000_000.0,
+        'ended_at_unix': 1_800_000_120.02,
     }
     benchmark = {
         'passed': True, 'requested_instances': devices,
@@ -31,6 +33,8 @@ def samples(*, devices=10, workflow='MyWorkflow'):
             'effective_fps': 1.0, 'capture_p95_ms': 180,
             'max_frame_gap_seconds': 1.8,
             'detection_p95_ms': 40 if workflow else None,
+            'started_at_unix': 1_800_000_000.0,
+            'ended_at_unix': 1_800_000_120.0,
         } for i in range(devices)],
     }
     return video, benchmark
@@ -42,9 +46,46 @@ class HardwareEvidenceTests(unittest.TestCase):
         result = evaluate_hardware_evidence(video, bench)
         self.assertTrue(result['passed'], result['failures'])
         self.assertTrue(result['error22_recovery_observed'])
+        self.assertEqual(result['concurrent_capture_seconds'], 120.0)
         self.assertTrue(result['workflow_recognition_measured'])
         self.assertFalse(result['hardware_acceptance_complete'])
         self.assertTrue(any('GPU' in x for x in result['outstanding']))
+
+    def test_video_and_capture_reports_must_actually_overlap(self):
+        video, bench = samples()
+        video['started_at_unix'] += 130
+        video['ended_at_unix'] += 130
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['concurrent_capture_seconds'], 0)
+        self.assertIn('overlap', ' '.join(result['failures']))
+
+    def test_ten_devices_must_share_full_requested_window(self):
+        video, bench = samples()
+        bench['devices'][9]['started_at_unix'] += 1
+        bench['devices'][9]['ended_at_unix'] += 1
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['concurrent_capture_seconds'], 119)
+        self.assertIn('overlap', ' '.join(result['failures']))
+
+    def test_missing_inconsistent_or_forged_capture_timestamps_fail_closed(self):
+        for location in ('video', 'device'):
+            for case in ('missing', 'reversed', 'nonfinite', 'inconsistent'):
+                with self.subTest(location=location, case=case):
+                    video, bench = samples()
+                    target = video if location == 'video' else bench['devices'][0]
+                    if case == 'missing':
+                        target.pop('started_at_unix')
+                    elif case == 'reversed':
+                        target['ended_at_unix'] = target['started_at_unix'] - 1
+                    elif case == 'nonfinite':
+                        target['started_at_unix'] = float('nan')
+                    else:
+                        target['ended_at_unix'] += 2
+                    result = evaluate_hardware_evidence(video, bench)
+                    self.assertFalse(result['passed'])
+                    self.assertIn('timestamp', ' '.join(result['failures']))
 
     def test_single_device_failure_uses_actual_requested_count(self):
         video, bench = samples(devices=1)

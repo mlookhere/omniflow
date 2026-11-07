@@ -54,6 +54,26 @@ def _count(source: Mapping, key: str, label: str, failures: list[str]) -> float:
     return value
 
 
+def _window(source: Mapping, label: str, measured_seconds: float,
+            failures: list[str]) -> tuple[float, float] | None:
+    """Validate comparable wall-clock provenance of the measured run.
+
+    Monotonic elapsed_seconds remains authoritative for duration/FPS. Unix
+    timestamps are solely for proving that independently launched diagnostics
+    actually operated during the same interval on the claimed host.
+    """
+    start = source.get('started_at_unix')
+    end = source.get('ended_at_unix')
+    if (type(start) not in (float, int) or type(end) not in (float, int) or
+            not math.isfinite(start) or not math.isfinite(end) or
+            start <= 0 or end <= start):
+        failures.append(f'{label}: missing or invalid measurement timestamps')
+        return None
+    if abs(end - start - measured_seconds) > .25:
+        failures.append(f'{label}: measurement timestamps disagree with elapsed_seconds')
+    return float(start), float(end)
+
+
 def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
                                criteria: EvidenceCriteria = EvidenceCriteria()) -> dict:
     """Verify read-only evidence; never claim untested GPU/gesture behavior.
@@ -66,7 +86,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     outstanding = [
         'Manual live-game tap/swipe and rotation accuracy not measured',
         'Long-term host resource stability and per-emulator allocation not verified',
-        'Same-host hardware identity and measurement timestamps not verified',
+        'Same-host hardware identity not verified by timestamps alone',
     ]
     if video.get('passed') is not True:
         failures.append('Video diagnostic did not report success')
@@ -83,6 +103,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             f'{MAX_CAPTURE_AGE_SECONDS:g}s production limit')
 
     elapsed = _number(video, 'elapsed_seconds', 'video', failures)
+    video_window = _window(video, 'video', elapsed, failures)
     fps = _number(video, 'displayed_video_fps', 'video', failures)
     frames = _count(video, 'displayed_video_frames', 'video', failures)
     _count(video, 'fallback_snapshots', 'video', failures)
@@ -151,6 +172,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
     if len(devices) != criteria.instances:
         failures.append(f'Benchmark has {len(devices)} device results, expected {criteria.instances}')
     serials: set[str] = set()
+    device_windows: list[tuple[float, float]] = []
     for i, device in enumerate(devices):
         label = f'device[{i}]'
         if not isinstance(device, dict):
@@ -167,6 +189,9 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             failures.append(f'{label}: duplicate emulator {serial}')
         serials.add(serial)
         actual = _number(device, 'elapsed_seconds', label, failures)
+        window = _window(device, label, actual, failures)
+        if window is not None:
+            device_windows.append(window)
         frames_captured = _count(device, 'frames', label, failures)
         errors = _count(device, 'errors', label, failures)
         capture_fps = _number(device, 'effective_fps', label, failures)
@@ -186,6 +211,21 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             failures.append(f'{label}: screenshot FPS {capture_fps:.2f} below {criteria.min_capture_fps:.2f}')
         if actual and abs(frames_captured / actual - capture_fps) > 0.06:
             failures.append(f'{label}: frame count and FPS disagree')
+
+    # Ten individually successful recordings are not proof of concurrent
+    # capture. Require a *shared* 120-second wall-clock window including the
+    # selected-device video diagnostic and every screenshot worker.
+    concurrent_seconds = None
+    if video_window is not None and len(device_windows) == criteria.instances:
+        start = max(video_window[0], *(a for a, _ in device_windows))
+        end = min(video_window[1], *(b for _, b in device_windows))
+        concurrent_seconds = max(0.0, end - start)
+        if concurrent_seconds < criteria.seconds:
+            failures.append(
+                f'Concurrent video and screenshot measurement overlap '
+                f'{concurrent_seconds:.2f}s below required {criteria.seconds:g}s')
+    elif video_window is None or len(device_windows) != criteria.instances:
+        failures.append('Concurrent capture overlap cannot be established')
 
     video_serial = video.get('device')
     if not isinstance(video_serial, str) or not video_serial:
@@ -274,6 +314,8 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         'passed': not failures,
         'failures': list(dict.fromkeys(failures)),
         'error22_recovery_observed': recovery_observed,
+        'concurrent_capture_seconds': (round(concurrent_seconds, 3)
+                                       if concurrent_seconds is not None else None),
         'workflow_recognition_measured': workflow_measured,
         'host_resource_coverage': resource_coverage,
         'hardware_acceptance_complete': False,
