@@ -48,6 +48,104 @@ class CollectEvidenceTests(unittest.TestCase):
             self.assertTrue(all((folders[0] / (name + '.log')).exists()
                                 for name in ('video', 'benchmark', 'verify')))
 
+    def test_explicit_serial_reaches_video_and_benchmark(self):
+        seen = []
+        def fake_run(command, **kwargs):
+            seen.append(command)
+            Path(command[command.index('--output') + 1]).write_text(json.dumps({
+                'passed': True, 'hardware_acceptance_complete': False}))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            self.assertEqual(collector.main(['--serial', '127.0.0.1:16416',
+                                             '--output-root', tmp]), 0)
+        for command in seen[:2]:
+            self.assertEqual(command[command.index('--serial') + 1], '127.0.0.1:16416')
+
+    def test_capture_comparison_collects_static_diagnostics_without_hardware_approval(self):
+        seen = []
+        def fake_run(command, **kwargs):
+            name = Path(command[1]).name
+            seen.append(name)
+            result = {'passed': True, 'hardware_acceptance_complete': False}
+            if name == 'assess_capture.py':
+                result.update(comparison_complete=True,
+                              raw_candidate_for_further_validation=True)
+            Path(command[command.index('--output') + 1]).write_text(json.dumps(result))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            status = collector.main(['--capture-comparison',
+                                     '--serial', '127.0.0.1:16416',
+                                     '--output-root', tmp])
+            directory = next(Path(tmp).glob('run-*'))
+            manifest = json.loads((directory / 'run-manifest.json').read_text())
+            self.assertEqual(status, 0)
+            self.assertEqual(seen, ['profile_capture.py', 'profile_capture.py',
+                                    'compare_capture.py', 'assess_capture.py'])
+            self.assertEqual(list(manifest['steps']), ['profile_png', 'profile_raw',
+                                                       'fidelity', 'assess'])
+            self.assertTrue(manifest['capture_comparison_complete'])
+            self.assertTrue(manifest['raw_candidate_for_further_validation'])
+            self.assertFalse(manifest['passed_read_only_checks'])
+            self.assertFalse(manifest['hardware_acceptance_complete'])
+            self.assertFalse(manifest['ten_instance_operation_verified'])
+            self.assertTrue(all((directory / f'{name}.log').is_file() for name in
+                                ('profile_png', 'profile_raw', 'fidelity', 'assess')))
+
+    def test_png_below_fps_gate_remains_valid_diagnostic_but_not_hardware_acceptance(self):
+        def fake_run(command, **kwargs):
+            name = Path(command[1]).name
+            result = {'passed': True, 'hardware_acceptance_complete': False}
+            code = 0
+            if name == 'profile_capture.py' and 'png' in command:
+                code = 1
+                result = {'passed': False, 'failures': ['Capture 0.719 FPS below 0.800 FPS target']}
+            if name == 'assess_capture.py':
+                result.update(comparison_complete=True,
+                              raw_candidate_for_further_validation=False)
+            Path(command[command.index('--output') + 1]).write_text(json.dumps(result))
+            return subprocess.CompletedProcess(command, code, '', '')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            self.assertEqual(collector.main(['--capture-comparison',
+                                             '--serial', '127.0.0.1:16416',
+                                             '--output-root', tmp]), 0)
+            manifest = json.loads((next(Path(tmp).glob('run-*')) /
+                                   'run-manifest.json').read_text())
+            self.assertFalse(manifest['steps']['profile_png']['passed'])
+            self.assertTrue(manifest['capture_comparison_complete'])
+            self.assertFalse(manifest['raw_candidate_for_further_validation'])
+            self.assertFalse(manifest['passed_read_only_checks'])
+
+    def test_missing_comparison_report_never_approves_diagnostic(self):
+        def fake_run(command, **kwargs):
+            if Path(command[1]).name != 'compare_capture.py':
+                payload = {'passed': True, 'hardware_acceptance_complete': False}
+                if Path(command[1]).name == 'assess_capture.py':
+                    payload['comparison_complete'] = True
+                Path(command[command.index('--output') + 1]).write_text(
+                    json.dumps(payload))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(collector.subprocess, 'run', side_effect=fake_run):
+            self.assertEqual(collector.main(['--capture-comparison',
+                                             '--serial', '127.0.0.1:16416',
+                                             '--output-root', tmp]), 1)
+            manifest = json.loads((next(Path(tmp).glob('run-*')) /
+                                   'run-manifest.json').read_text())
+            self.assertFalse(manifest['capture_comparison_complete'])
+            self.assertFalse(manifest['passed_read_only_checks'])
+
+    def test_comparison_requires_one_named_device(self):
+        with patch.object(collector.subprocess, 'run') as run:
+            for args in (['--capture-comparison'],
+                         ['--capture-comparison', '--serial', '127.0.0.1:16384',
+                          '--instances', '10']):
+                with self.subTest(args=args), self.assertRaises(SystemExit):
+                    collector.main(args)
+            run.assert_not_called()
+
     def test_one_instance_projection_never_approves_ten(self):
         def fake_run(command, **kwargs):
             payload = {'passed': True, 'hardware_acceptance_complete': False}

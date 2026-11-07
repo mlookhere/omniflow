@@ -97,6 +97,32 @@ H.264 encoders, and rejects invalid frames, missing devices, errors, and FPS
 below the unchanged 0.8 threshold. **This is diagnosis, not proof of a faster
 capture backend or ten-instance acceptance.**
 
+### One-command M6 PNG/raw comparison (stationary screen only)
+
+Start the **same named MuMu instance** on a stationary game menu. This is a
+separate diagnostic mode from the changing-screen video/FPS acceptance run:
+
+```powershell
+.\\.venv\\Scripts\\python.exe tools\\collect_hardware_evidence.py --capture-comparison --serial 127.0.0.1:16640
+```
+
+This runs two independent **120-second** profiles (PNG and raw), three
+PNG → raw → PNG static-screen comparisons, then the strict
+`assess_capture.py` check. It saves four JSON reports, four logs and a
+manifest in one unique `hardware-evidence/run-*` folder. No screenshots
+or game input are retained, no H.264 encoder is started, and production
+capture stays PNG. A PNG profile below 0.8 FPS is retained as failure
+evidence but does not prevent the assessor from evaluating a faster raw
+candidate. A complete comparison and a zero exit code **only** mean
+diagnostic evidence passed the consistency assessment; the manifest keeps
+`passed_read_only_checks: false` and `hardware_acceptance_complete: false`.
+The comparison is not a live gameplay performance or production approval.
+
+For the separate changing-screen acceptance collector, `--serial` now
+pins **both video and benchmark** to the same MuMu transport, including
+equivalent localhost aliases. If that instance is absent, the benchmark
+fails instead of silently selecting a different emulator.
+
 ## 0. Collect a complete read-only evidence set (Windows)
 
 For a **single-MuMu capacity estimate**, start one emulator on a changing
