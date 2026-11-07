@@ -679,7 +679,7 @@ class EngineTests(unittest.TestCase):
         self.change(self.key, conditions=[
             {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'READY'}])
         detector = OmniDetector(self.folder)
-        with patch.object(detector, '_match_template', return_value=0.0), \\
+        with patch.object(detector, '_match_template', return_value=0.0), \
              patch('omniflow.engine.OCREngine.read') as ocr:
             winner, states = detector.inspect(self.match)
             ocr.assert_not_called()
