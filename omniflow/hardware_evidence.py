@@ -14,17 +14,23 @@ from swordx.adb import ADB
 from .devices import MAX_CAPTURE_AGE_SECONDS, canonical_mumu_serial
 from .capture_health import evaluate_capture
 MAX_FRAME_GAP_SECONDS = 6.0  # Same fixed gate as the read-only benchmark.
+MIN_EVIDENCE_SECONDS = 120.0
+MIN_VIDEO_FPS = 20.0
+MAX_PREVIEW_GAP_SECONDS = 3.0
+MAX_VIDEO_GAP_SECONDS = 6.0
+MIN_CAPTURE_FPS = 0.8
+MAX_ERROR22_RECOVERY_SECONDS = 6.0
 
 
 @dataclass(frozen=True)
 class EvidenceCriteria:
     instances: int = 10
-    seconds: float = 120.0
-    min_video_fps: float = 20.0
-    max_preview_gap: float = 3.0
-    max_video_gap: float = 6.0
-    min_capture_fps: float = 0.8
-    max_error22_recovery: float = 6.0
+    seconds: float = MIN_EVIDENCE_SECONDS
+    min_video_fps: float = MIN_VIDEO_FPS
+    max_preview_gap: float = MAX_PREVIEW_GAP_SECONDS
+    max_video_gap: float = MAX_VIDEO_GAP_SECONDS
+    min_capture_fps: float = MIN_CAPTURE_FPS
+    max_error22_recovery: float = MAX_ERROR22_RECOVERY_SECONDS
 
     def __post_init__(self) -> None:
         if not 1 <= self.instances <= 10:
@@ -36,6 +42,22 @@ class EvidenceCriteria:
                 raise ValueError(f'{name} must be finite')
             if (name == 'seconds' and value <= 0) or (name != 'seconds' and value < 0):
                 raise ValueError(f'{name} must be positive' if name == 'seconds' else f'{name} must be nonnegative')
+        # Configurable diagnostics may tighten these gates, never silently
+        # downgrade the standard 120-second physical acceptance criteria.
+        for name, minimum in (
+            ('seconds', MIN_EVIDENCE_SECONDS),
+            ('min_video_fps', MIN_VIDEO_FPS),
+            ('min_capture_fps', MIN_CAPTURE_FPS),
+        ):
+            if getattr(self, name) < minimum:
+                raise ValueError(f'{name} cannot relax the hardware acceptance minimum of {minimum:g}')
+        for name, maximum in (
+            ('max_preview_gap', MAX_PREVIEW_GAP_SECONDS),
+            ('max_video_gap', MAX_VIDEO_GAP_SECONDS),
+            ('max_error22_recovery', MAX_ERROR22_RECOVERY_SECONDS),
+        ):
+            if getattr(self, name) > maximum:
+                raise ValueError(f'{name} cannot relax the hardware acceptance maximum of {maximum:g}')
 
 
 def _number(source: Mapping, key: str, label: str, failures: list[str]) -> float:
