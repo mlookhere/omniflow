@@ -129,6 +129,28 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(report['devices'], [])
             self.assertTrue(any('Found 1 of 10' in issue for issue in report['failures']))
 
+    def test_reports_all_discovered_devices_when_only_one_is_benchmarked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'single.json'
+            sample = benchmark.DeviceResult('127.0.0.1:16384', 5, 0, 3.0,
+                                            1.67, 300.0, 400.0, None)
+            with patch.object(benchmark, 'discover_mumu',
+                              return_value=['127.0.0.1:16384',
+                                            '127.0.0.1:16416',
+                                            '127.0.0.1:16416']), \
+                 patch.object(benchmark, 'measure', return_value=sample), \
+                 patch.object(benchmark, 'HostResourceMonitor') as monitor:
+                monitor.return_value.stop.return_value = {'metrics': {}}
+                status = benchmark.main(['--instances', '1', '--seconds', '3',
+                                         '--output', str(output)])
+            report = json.loads(output.read_text())
+            self.assertEqual(status, 0)
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['requested_instances'], 1)
+            self.assertEqual(report['discovered_instances'], 2)
+            self.assertEqual(report['tested_instances'], 1)
+            self.assertEqual(report['devices'][0]['serial'], '127.0.0.1:16384')
+
     def test_main_records_discovery_exception_as_failure_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / 'failures' / 'benchmark.json'

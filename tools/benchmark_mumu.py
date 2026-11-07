@@ -218,8 +218,9 @@ def main(argv: list[str] | None = None) -> int:
         discovered = discover_mumu()
     except Exception as exc:
         return fail_before_measurement(f'MuMu discovery failed: {exc}')
-    serials = list(dict.fromkeys(discovered))[:args.instances]
-    report['discovered_instances'] = len(serials)
+    unique_serials = list(dict.fromkeys(discovered))
+    report['discovered_instances'] = len(unique_serials)
+    serials = unique_serials[:args.instances]
     if len(serials) != args.instances:
         return fail_before_measurement(
             f'Found {len(serials)} of {args.instances} required MuMu devices; start all instances first.')
