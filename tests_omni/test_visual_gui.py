@@ -55,6 +55,29 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.result_action()['end'], [150, 160])
         dialog.close()
 
+    def test_action_kind_switch_preserves_only_compatible_visual_targets(self):
+        dialog = ActionEditor(frame=self.frame)
+        self.addCleanup(dialog.close)
+        dialog.selection = [210, 330]
+        dialog.kind.setCurrentIndex(dialog.kind.findData('wait'))
+        self.assertIsNone(dialog.selection)
+        self.assertEqual(dialog.result_action()['kind'], 'wait')
+        dialog.kind.setCurrentIndex(dialog.kind.findData('swipe'))
+        self.assertIsNone(dialog.selection)  # Tap must not become a swipe.
+        dialog.selection = {'start': [200, 400], 'end': [150, 160]}
+        dialog.kind.setCurrentIndex(dialog.kind.findData('tap'))
+        self.assertEqual(dialog.result_action()['point'], [210, 330])
+        dialog.kind.setCurrentIndex(dialog.kind.findData('swipe'))
+        self.assertEqual(dialog.result_action()['end'], [150, 160])
+        dialog.kind.setCurrentIndex(dialog.kind.findData('back'))
+        self.assertIsNone(dialog.selection)
+        self.assertEqual(dialog.result_action(), {'kind': 'key', 'code': 4})
+        dialog.kind.setCurrentIndex(dialog.kind.findData('hold'))
+        self.assertEqual(dialog.result_action()['point'], [210, 330])
+        dialog.kind.setCurrentIndex(dialog.kind.findData('field_text'))
+        dialog.text.setText('Ready')
+        self.assertEqual(dialog.result_action()['point'], [210, 330])
+
     def test_text_field_action_has_visual_target_and_validates_text(self):
         dialog = ActionEditor(frame=self.frame)
         dialog.kind.setCurrentIndex(dialog.kind.findData('field_text'))
