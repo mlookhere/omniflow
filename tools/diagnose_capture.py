@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--max-preview-gap', type=float, default=0, help='Optional maximum tolerated blackout in seconds')
     parser.add_argument('--allow-snapshot-only', action='store_true',
                         help='Treat fallback-only preview as usable, not as a successful video stream')
+    parser.add_argument('--capture-worker-active', action='store_true',
+                        help='Concurrent PNG benchmark owns ADB screenshot polling; disable competing preview fallback')
     parser.add_argument('--output', type=Path, help='Write atomic JSON evidence report')
     args = parser.parse_args(argv)
     if not 10 <= args.seconds <= 300:
@@ -45,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         now = time.monotonic()
         report = {'device': args.serial or None,
                   **CaptureHealth(now).summary(now),
+                  'preview_adb_fallback_suppressed': args.capture_worker_active,
                   'passed': False, 'failures': [message]}
         if args.output:
             write_json(args.output, report)
@@ -64,7 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtCore import QCoreApplication
     from omniflow.ui import VideoThread
     app = QCoreApplication.instance() or QCoreApplication([])
-    video = VideoThread(serial)
+    # Match production selected-session preview during a concurrent test:
+    # the PNG benchmark worker owns ADB screenshot polling.
+    video = VideoThread(
+        serial, capture_active=(lambda: True) if args.capture_worker_active else None)
     started_at_unix = time.time()
     started = time.monotonic()
     health = CaptureHealth(started)
@@ -97,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     # Shutdown can require seconds; don't count orderly cleanup as a blackout.
     report = {'device': serial, **health.summary(finished),
               'started_at_unix': started_at_unix,
-              'ended_at_unix': ended_at_unix}
+              'ended_at_unix': ended_at_unix,
+              'preview_adb_fallback_suppressed': args.capture_worker_active}
     failures = evaluate_capture(report, allow_snapshot_only=args.allow_snapshot_only,
                                 min_video_fps=args.min_video_fps,
                                 max_preview_gap=args.max_preview_gap)

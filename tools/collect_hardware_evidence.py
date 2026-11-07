@@ -162,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             # of overlapping measured evidence.
             ('video', [python, str(ROOT / 'tools/diagnose_capture.py'), '--seconds', '150',
                        '--min-video-fps', '20', '--max-preview-gap', '3',
+                       '--capture-worker-active',
                        '--output', str(video)], 210),
             ('benchmark', [python, str(ROOT / 'tools/benchmark_mumu.py'),
                            '--instances', str(args.instances), '--seconds', '135',

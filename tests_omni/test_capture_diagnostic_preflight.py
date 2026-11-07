@@ -30,6 +30,18 @@ class DiagnosticPreflightTests(unittest.TestCase):
             self.assertIn('No MuMu', ' '.join(report['failures']))
             self.assertFalse(list(output.parent.glob('*.tmp')))
 
+    def test_concurrent_worker_flag_is_recorded_even_on_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / 'concurrent.json'
+            with patch('omniflow.devices.discover_mumu', return_value=[]):
+                code = diagnose_capture.main([
+                    '--capture-worker-active', '--output', str(output)])
+            self.assertEqual(code, 2)
+            report = json.loads(output.read_text())
+            self.assertFalse(report['passed'])
+            self.assertTrue(report['preview_adb_fallback_suppressed'])
+            self.assertEqual(report['displayed_video_frames'], 0)
+
     def test_discovery_error_writes_failing_report(self):
         with tempfile.TemporaryDirectory() as root:
             output = Path(root) / 'results' / 'video.json'

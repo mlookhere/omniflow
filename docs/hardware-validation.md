@@ -230,8 +230,15 @@ recognition unverified. The collector now launches the **150-second H.264 diagno
 PNG benchmark simultaneously**, then runs the strict 120-second-overlap
 verifier after both finish. This corrects a formerly impossible sequential
 collection path. The two diagnostic subprocesses run on the same Windows
-machine using the same repository Python interpreter; independent logs and
-per-step failures remain in the manifest.
+machine using the same repository Python interpreter. The H.264 diagnostic
+uses `--capture-worker-active` in this simultaneous mode: its preview
+**does not issue competing fallback ADB screenshots** while the PNG benchmark
+owns the selected emulator's screenshot polling, mirroring the production
+selected-session priority. H.264 frame delivery and recovery are still
+measured; failed video cannot masquerade as a successful fallback. Standalone
+`diagnose_capture.py` without this flag retains its regular ADB fallback.
+The flag and behavior are recorded in the video report, and independent logs
+and per-step failures remain in the manifest.
 It sends no game touches, never weakens the fixed FPS/recovery thresholds, and
 creates a unique ignored `hardware-evidence/run-*` folder for each attempt.
 The folder contains the three JSON reports, per-step logs, and a manifest

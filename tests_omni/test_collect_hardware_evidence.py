@@ -46,6 +46,8 @@ class CollectEvidenceTests(unittest.TestCase):
             verify = sources['verify_hardware_evidence.py']
             self.assertIn('--serial', video)
             self.assertNotIn('--allow-snapshot-only', video)
+            self.assertIn('--capture-worker-active', video)
+            self.assertNotIn('--capture-worker-active', capture)
             self.assertEqual(video[video.index('--seconds') + 1], '150')
             self.assertEqual(capture[capture.index('--seconds') + 1], '135')
             self.assertEqual(verify[verify.index('--seconds') + 1], '120')
