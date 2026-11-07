@@ -300,6 +300,35 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_saved_inspection_rejects_unsafe_matcher_configuration_without_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeMatcher', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Recorded screen', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'UnsafeMatcher', base=root)
+            try:
+                studio.canvas.load(image)
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['actions'][key]['threshold'] = float('nan')
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = manifest.read_bytes()
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device.screenshot') as screenshot,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_detection()
+                    screenshot.assert_not_called()
+                    write.assert_not_called()
+                    warning.assert_called_once()
+                self.assertIn(
+                    'finite number', warning.call_args.args[2])
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_offline_replay_uses_saved_images_not_emulator(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
