@@ -90,6 +90,17 @@ cannot claim that a whole workflow or edited unsaved template would be selected.
 Neither test sends Android input or writes workflow data. Next work should
 improve trace clarity and inline visual editing rather than multi-device scaling.
 
+**Core Studio save integrity (November 7, 2026):** A settings-only save now
+persists the state metadata, unsaved WHEN conditions, optional action sequence
+and template/condition-only mode together in **one atomic manifest replacement**.
+New and recaptured visual states already use the recorder's single atomic
+`record_step` path. Legacy recorder-only settings edits preserve extra fields
+unchanged. Canceling a New State transition does not reload the disk snapshot
+over unsaved Studio rules/actions, and disabling condition-only mode is rejected
+until a real image detection region has been recorded. Tests cover successful
+single-write saves, retained screenshot/template bytes, failed-save guards and
+cancelled navigation. CI and real-device acceptance remain separate gates.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
