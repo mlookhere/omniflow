@@ -26,8 +26,9 @@ MAX_CAPTURE_GAP_SECONDS = 6.0  # Matches the existing runner input-freshness lim
 
 
 def capture_frame(device: Device, *, capture_format: str = 'png',
+                  native_pixels: bool = False,
                   clock: Callable[[], float] = time.monotonic) -> tuple[np.ndarray, dict]:
-    """Return a normalized screenshot and its capture timing metadata."""
+    """Capture pixels with stage timings; preserve full source only for fidelity checks."""
     if capture_format not in ('png', 'raw'):
         raise ValueError(f'Unsupported capture format: {capture_format}')
     started = clock()
@@ -39,10 +40,14 @@ def capture_frame(device: Device, *, capture_format: str = 'png',
     decoded = clock()
     if frame is None:
         raise ValueError('ADB returned an empty or unreadable screenshot')
-    image = normalize(frame)
+    # Production performance profiling still measures normalization. Fidelity
+    # comparisons must inspect every original pixel; downscaling can erase
+    # fine texture or opposite checkerboards and give a false equivalence.
+    image = frame if native_pixels else normalize(frame)
     finished = clock()
-    if image.shape != (960, 540, 3):
-        raise ValueError(f'Unexpected normalized dimensions: {image.shape}')
+    expected_shape = frame.shape if native_pixels else (960, 540, 3)
+    if image.shape != expected_shape:
+        raise ValueError(f'Unexpected capture dimensions: {image.shape}')
     sample = {
         'adb_exec_ms': (transferred - started) * 1000,
         'decode_ms': (decoded - transferred) * 1000,

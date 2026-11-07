@@ -41,12 +41,18 @@ def compare(serial: str, triplets: int = 3, pixel_tolerance: int = 8,
     results, failures = [], []
     for index in range(triplets):
         try:
-            before, meta_before = capture_frame(device, capture_format='png')
-            raw, meta_raw = capture_frame(device, capture_format='raw')
-            after, meta_after = capture_frame(device, capture_format='png')
+            before, meta_before = capture_frame(device, capture_format='png',
+                                                native_pixels=True)
+            raw, meta_raw = capture_frame(device, capture_format='raw',
+                                          native_pixels=True)
+            after, meta_after = capture_frame(device, capture_format='png',
+                                              native_pixels=True)
             if (meta_before['source_shape'] != meta_raw['source_shape'] or
                     meta_raw['source_shape'] != meta_after['source_shape']):
                 raise ValueError('Source screenshot geometry changed')
+            source_shape = tuple(meta_before['source_shape'])
+            if any(image.shape != source_shape for image in (before, raw, after)):
+                raise ValueError('Fidelity samples are not in native source geometry')
             motion = changed_fraction(before, after, pixel_tolerance)
             delta_before = changed_fraction(before, raw, pixel_tolerance)
             delta_after = changed_fraction(after, raw, pixel_tolerance)

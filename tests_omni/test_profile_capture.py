@@ -49,6 +49,23 @@ class ProfileTests(unittest.TestCase):
             ('adb_exec_ms', 'decode_ms', 'normalize_ms')), places=3)
         self.assertEqual(sample['decode_ms'], sample['png_decode_ms'])
 
+    def test_native_fidelity_capture_retains_full_resolution_without_resize(self):
+        source = np.zeros((1920, 1080, 3), dtype=np.uint8)
+        source[0:2, 0:2] = (120, 200, 50)
+        good, packet = cv2.imencode('.png', source)
+        self.assertTrue(good)
+        device = FakeDevice('127.0.0.1:16384')
+        device.png = packet.tobytes()
+        with patch.object(profiler, 'normalize', wraps=profiler.normalize) as resize:
+            native, sample = profiler.capture_frame(device, native_pixels=True)
+            resize.assert_not_called()
+        np.testing.assert_array_equal(native, source)
+        self.assertEqual(sample['source_shape'], [1920, 1080, 3])
+        with patch.object(profiler, 'normalize', wraps=profiler.normalize) as resize:
+            standard, _ = profiler.capture_frame(device)
+            resize.assert_called_once()
+        self.assertEqual(standard.shape, (960, 540, 3))
+
     def test_healthy_profile_reports_each_stage_and_observed_fps(self):
         result = profiler.profile('127.0.0.1:16384', .08, .02, 0,
                                   device_factory=FakeDevice)

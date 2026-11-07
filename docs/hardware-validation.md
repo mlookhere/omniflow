@@ -75,8 +75,10 @@ producing a misleading format verdict.
 ```
 
 No screenshots are saved; the read-only JSON records original dimensions,
-payload sizes and changed-pixel fractions. Defaults allow an 8-level BGR
-per-channel difference on at most 0.5% of pixels. Rotation, unavailable
+payload sizes and changed-pixel fractions. Fidelity is checked at the native
+screenshot resolution, **before any 540x960 normalization**, so fine pixel
+differences cannot disappear during downsampling. Defaults allow an 8-level BGR
+per-channel difference on at most 0.5% of original source pixels. Rotation, unavailable
 capture, unstable controls and raw mismatches all fail. A passing result
 proves only the checked stationary-screen image similarity, **not** live
 gameplay equivalence, capture FPS, input correctness or hardware acceptance.

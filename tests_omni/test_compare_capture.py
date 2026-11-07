@@ -36,9 +36,41 @@ class ComparisonTests(unittest.TestCase):
                                   device_factory=Device)
         self.assertEqual([c.kwargs['capture_format'] for c in capture.call_args_list],
                          ['png', 'raw', 'png'] * 2)
+        self.assertTrue(all(c.kwargs['native_pixels'] is True
+                            for c in capture.call_args_list))
         self.assertTrue(result['quality_equivalence_verified'])
         self.assertFalse(result['hardware_acceptance_complete'])
         self.assertEqual(result['results'][0]['raw_bytes'], 240)
+
+    def test_native_resolution_detects_texture_erased_by_downsampling(self):
+        import cv2
+        # 2x2 high-frequency opposites average to the same gray when
+        # downscaled. Every original pixel still disagrees, so raw must fail.
+        y, x = np.indices((1920, 1080))
+        pattern = ((x + y) % 2 * 255).astype(np.uint8)
+        png = np.repeat(pattern[:, :, None], 3, axis=2)
+        raw = 255 - png
+        down_png = cv2.resize(png, (540, 960), interpolation=cv2.INTER_AREA)
+        down_raw = cv2.resize(raw, (540, 960), interpolation=cv2.INTER_AREA)
+        self.assertEqual(tool.changed_fraction(down_png, down_raw, 8), 0)
+        native_samples = [(im, {'source_shape': [1920, 1080, 3],
+                                'payload_bytes': 4096})
+                          for im in (png, raw, png)]
+        with patch.object(tool, 'capture_frame', side_effect=native_samples):
+            result = tool.compare('127.0.0.1:16384', triplets=1,
+                                  device_factory=Device)
+        self.assertFalse(result['quality_equivalence_verified'])
+        self.assertTrue(result['results'][0]['stable_png_controls'])
+        self.assertGreater(result['results'][0]['raw_delta_before_fraction'], .99)
+
+    def test_non_native_fidelity_frame_never_passes(self):
+        fake = frame(self.image, 'png')
+        samples = [fake, (self.image[::2], fake[1]), fake]
+        with patch.object(tool, 'capture_frame', side_effect=samples):
+            result = tool.compare('127.0.0.1:16384', triplets=1,
+                                  device_factory=Device)
+        self.assertFalse(result['passed'])
+        self.assertIn('native source geometry', ' '.join(result['failures']))
 
     def test_moving_png_controls_fail_closed(self):
         changed = self.image.copy()
