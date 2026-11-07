@@ -122,10 +122,10 @@ class VideoThread(QThread):
         if frame is not None:
             return frame
         with self._snapshot_lock:
-            age = time.monotonic() - self._adb_snapshot_at
+            started = time.monotonic()
+            age = started - self._adb_snapshot_at
             if self._adb_snapshot is not None and 0 <= age <= 2.0:
                 return self._adb_snapshot.copy()
-            started = time.monotonic()
             frame = ADB(serial=self.serial).screenshot(timeout=4)
             self._adb_snapshot = frame.copy()
             self._adb_snapshot_at = started

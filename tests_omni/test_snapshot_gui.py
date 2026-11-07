@@ -90,7 +90,7 @@ class SnapshotGuiTests(unittest.TestCase):
         worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)
         with patch('omniflow.ui.ADB') as adb, \
              patch('omniflow.ui.time.monotonic',
-                   side_effect=[100.0, 100.0, 101.0, 102.2, 102.2]):
+                   side_effect=[100.0, 101.0, 102.2]):
             adb.return_value.screenshot.side_effect = [
                 np.full((8, 8, 3), 10, np.uint8),
                 np.full((8, 8, 3), 20, np.uint8),
@@ -129,7 +129,8 @@ class SnapshotGuiTests(unittest.TestCase):
         worker.error.connect(messages.append)
         from swordx.adb import ADBError
         with patch('omniflow.ui.ADB') as adb, \
-             patch('omniflow.ui.time.monotonic', side_effect=[10.0, 12.0, 26.0]):
+             patch('omniflow.ui.time.monotonic',
+                   side_effect=[10.0, 10.0, 12.0, 12.0, 26.0, 26.0]):
             adb.return_value.screenshot.side_effect = ADBError('device offline')
             for _ in range(3):
                 worker._fallback_screenshot()
