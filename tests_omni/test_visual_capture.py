@@ -64,6 +64,43 @@ class VisualCaptureTests(unittest.TestCase):
                             condition_only=True, conditions=[{'type':'ocr','rect':[80,100,220,170],'text':'GO'}])
             self.assertEqual(len(json.loads((folder/'manifest.json').read_text())['states']), 0)
 
+    def test_unsaved_conditions_preview_is_read_only_and_shares_ocr_results(self):
+        from omniflow.engine import preview_conditions, WorkflowError
+        region = [80, 100, 220, 170]
+        rules = [
+            {'type': 'ocr', 'rect': region, 'text': 'START'},
+            {'type': 'ocr', 'rect': region, 'text': 'STOP', 'negate': True},
+            {'type': 'color', 'rect': [300, 300, 320, 320],
+             'bgr': [5, 50, 180], 'tolerance': 0},
+            {'type': 'pixel', 'rect': [80, 100, 220, 170],
+             'point': [120, 110], 'bgr': [200, 100, 10], 'tolerance': 0},
+        ]
+        with patch('omniflow.engine.OCREngine.read', return_value='START GAME') as ocr:
+            outcomes = preview_conditions(self.frame, rules)
+        self.assertEqual(outcomes, [True, True, True, True])
+        ocr.assert_called_once()
+        self.assertFalse(preview_conditions(self.frame, [
+            {'type': 'pixel', 'rect': region,
+             'point': [120, 110], 'bgr': [1, 2, 3], 'tolerance': 0}])[0])
+        for invalid in (None, np.zeros((0, 0, 3), np.uint8),
+                        np.zeros((960, 540), np.uint8)):
+            with self.subTest(invalid=repr(getattr(invalid, 'shape', None))):
+                with self.assertRaises(WorkflowError):
+                    preview_conditions(invalid, rules)
+        with self.assertRaisesRegex(WorkflowError, 'at least one'):
+            preview_conditions(self.frame, [])
+
+    def test_bad_ocr_regex_is_actionable_workflow_error(self):
+        from omniflow.engine import WorkflowError, preview_conditions
+        rule = {'type': 'ocr', 'rect': [80, 100, 220, 170],
+                'text': '[invalid', 'regex': True}
+        with patch('omniflow.engine.OCREngine.read', return_value='START'):
+            with self.assertRaisesRegex(WorkflowError, 'Invalid OCR regular expression'):
+                preview_conditions(self.frame, [rule])
+        with self.assertRaisesRegex(WorkflowError, 'Invalid OCR regular expression'):
+            from omniflow.engine import validate_ocr_expression
+            validate_ocr_expression('(', True)
+
     def test_preexisting_capture_with_region_and_tap_unchanged(self):
         with tempfile.TemporaryDirectory() as root:
             folder = create_workflow('Traditional', Path(root))
