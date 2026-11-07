@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
+from inspect import getattr_static
 from typing import Callable
 from pathlib import Path
 from threading import RLock
@@ -435,9 +436,11 @@ class OmniRunner:
         try:
             # Built-in MuMu devices expose per-stage PNG timings. Custom
             # adapters keep the unchanged screenshot() compatibility path.
-            screenshot_timed = getattr(self.device, 'screenshot_timed', None)
-            if callable(screenshot_timed):
-                raw, self.last_capture_stages_ms = screenshot_timed()
+            # Only use a method actually defined on the adapter. Dynamic
+            # mocks/proxies can synthesize callable attributes on lookup.
+            defined = getattr_static(self.device, 'screenshot_timed', None)
+            if callable(defined):
+                raw, self.last_capture_stages_ms = self.device.screenshot_timed()
             else:
                 raw = self.device.screenshot()
             # Device adapters can return invalid frames without raising ADBError.
