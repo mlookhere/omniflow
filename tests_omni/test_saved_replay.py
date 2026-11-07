@@ -10,7 +10,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from omniflow.engine import WorkflowError
+from omniflow.engine import WorkflowError, resolve_action_chain
 from omniflow.replay import replay_saved_captures
 from swordx.workflows import create_workflow, record_step
 
@@ -48,6 +48,7 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(results[0]['expected_key'], key)
         self.assertEqual(results[0]['actual_key'], key)
         self.assertEqual(results[0]['status'], 'matched')
+        self.assertEqual(results[0]['action_plan'], ['Tap location selected on screen'])
         self.assertEqual(
             before, {file.relative_to(self.folder): file.read_bytes()
                      for file in self.folder.rglob('*') if file.is_file()})
@@ -62,10 +63,63 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(results[0]['actual_key'], wait_key)
         self.assertEqual(results[0]['reason'], 'overridden by WAIT')
         self.assertEqual(results[1]['status'], 'matched')
+        self.assertEqual(results[0]['action_plan'], ['WAIT — no input will be sent'])
+        self.assertEqual(results[1]['action_plan'], ['WAIT — no input will be sent'])
         self.assertEqual(results[1]['overlaps'], [
             {'key': action_key, 'label': 'Tap', 'passive': False}])
         self.assertEqual(results[0]['overlaps'], [
             {'key': action_key, 'label': 'Tap', 'passive': False}])
+
+    def test_replay_previews_chain_order_and_hides_text_contents(self):
+        secret = 'secret123'
+        record_step(
+            self.folder, 'Enter code', self.frame, [],
+            condition_only=True,
+            conditions=[{'type': 'color', 'rect': [90, 130, 240, 255],
+                         'bgr': [15, 225, 20], 'tolerance': 150}],
+            pre_tap_delay_seconds=3,
+            action_chain=[
+                {'kind': 'tap', 'point': [150, 210]},
+                {'kind': 'wait', 'seconds': 2},
+                {'kind': 'field_text', 'point': [150, 210], 'text': secret},
+                {'kind': 'count_run'},
+            ])
+        # Use a known passing condition to inspect the saved chain.
+        data = json.loads(self.manifest().read_text())
+        action = next(iter(data['actions'].values()))
+        action['conditions'] = [
+            {'type': 'pixel', 'rect': [95, 125, 150, 175],
+             'point': [110, 140], 'bgr': [15, 225, 20], 'tolerance': 255}]
+        self.manifest().write_text(json.dumps(data), encoding='utf-8')
+        result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['status'], 'matched')
+        self.assertEqual(result['action_plan'], [
+            'Initial delay 3s after stable recognition',
+            'Tap location selected on screen',
+            'Wait 2 seconds',
+            'Tap selected field and type text (contents hidden)',
+            'Mark session run complete'])
+        self.assertNotIn(secret, repr(result))
+
+    def test_legacy_paired_anchors_resolve_one_alternative(self):
+        action = {'gestures': [
+            {'kind': 'tap', 'point': [100, 200]},
+            {'kind': 'tap', 'point': [250, 300]}]}
+        self.assertEqual(
+            resolve_action_chain(action, 2, trigger=1),
+            [action['gestures'][1]])
+        self.assertEqual(
+            resolve_action_chain(action, 1, trigger=1),
+            action['gestures'])
+        self.assertEqual(
+            resolve_action_chain({'passive': True, **action}, 2, trigger=1), [])
+        explicit = {'action_chain': [
+            {'kind': 'wait', 'seconds': 1},
+            {'kind': 'tap', 'point': [250, 300]}],
+            **action}
+        self.assertEqual(
+            resolve_action_chain(explicit, 2, trigger=1),
+            explicit['action_chain'])
 
     def test_image_threshold_failure_includes_actual_score(self):
         self.record('Unrecognized')
