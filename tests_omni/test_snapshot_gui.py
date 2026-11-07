@@ -1,7 +1,9 @@
 """H.264 failure uses selected-device screenshots without freezing the Qt worker."""
 import os
 import sys
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -56,6 +58,50 @@ class SnapshotGuiTests(unittest.TestCase):
         adb.assert_not_called()
         self.assertEqual(publish.call_args.args[1], 'snapshot')
         self.assertEqual(publish.call_args.args[0][0, 0].tolist(), [35, 25, 15])
+
+    def test_watchdog_and_retry_share_one_inflight_adb_screenshot(self):
+        import numpy as np
+        worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)
+        captured = threading.Event()
+        release = threading.Event()
+        image = np.full((960, 540, 3), 73, np.uint8)
+
+        def slow_screenshot(*, timeout):
+            self.assertEqual(timeout, 4)
+            captured.set()
+            if not release.wait(3):
+                raise AssertionError('The screenshot was never released')
+            return image
+
+        with patch('omniflow.ui.ADB') as adb, ThreadPoolExecutor(max_workers=2) as pool:
+            adb.return_value.screenshot.side_effect = slow_screenshot
+            first = pool.submit(worker._read_selected_snapshot)
+            self.assertTrue(captured.wait(2))
+            second = pool.submit(worker._read_selected_snapshot)
+            release.set()
+            first_frame, second_frame = first.result(timeout=5), second.result(timeout=5)
+        adb.assert_called_once_with(serial='127.0.0.1:16384')
+        adb.return_value.screenshot.assert_called_once_with(timeout=4)
+        np.testing.assert_array_equal(first_frame, second_frame)
+        self.assertIsNot(first_frame, second_frame)
+
+    def test_snapshot_cache_uses_acquisition_time_and_expires(self):
+        import numpy as np
+        worker = VideoThread('127.0.0.1:16384', snapshot_source=lambda: None)
+        with patch('omniflow.ui.ADB') as adb, \\
+             patch('omniflow.ui.time.monotonic',
+                   side_effect=[100.0, 100.0, 101.0, 102.2, 102.2]):
+            adb.return_value.screenshot.side_effect = [
+                np.full((8, 8, 3), 10, np.uint8),
+                np.full((8, 8, 3), 20, np.uint8),
+            ]
+            first = worker._read_selected_snapshot()
+            first[:] = 99
+            reused = worker._read_selected_snapshot()
+            updated = worker._read_selected_snapshot()
+        self.assertEqual(reused[0, 0, 0], 10)
+        self.assertEqual(updated[0, 0, 0], 20)
+        self.assertEqual(adb.return_value.screenshot.call_count, 2)
 
     def test_cache_miss_still_uses_selected_device_adb_snapshot(self):
         import numpy as np

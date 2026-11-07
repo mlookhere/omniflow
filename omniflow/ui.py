@@ -81,6 +81,11 @@ class VideoThread(QThread):
         self.frame_times = deque(maxlen=90)
         self._last_snapshot_error = ''
         self._last_snapshot_error_at = 0.0
+        # Watchdog and retry fallback share one selected-device ADB read.
+        # Cache age begins before screencap, never at image publication.
+        self._snapshot_lock = threading.Lock()
+        self._adb_snapshot = None
+        self._adb_snapshot_at = 0.0
 
     def stop(self):
         self.stopped.set()
@@ -108,9 +113,23 @@ class VideoThread(QThread):
                 self.frame_times.append(now)
 
     def _read_selected_snapshot(self):
-        """Reuse an existing fresh detector frame before asking ADB for another."""
+        """Reuse fresh worker pixels or one recent ADB fallback across threads.
+
+        Only the selected preview uses these frames; OCR and touch decisions
+        continue to require the runner's own new screenshot and confirmation.
+        """
         frame = self.snapshot_source() if self.snapshot_source else None
-        return frame if frame is not None else ADB(serial=self.serial).screenshot(timeout=4)
+        if frame is not None:
+            return frame
+        with self._snapshot_lock:
+            age = time.monotonic() - self._adb_snapshot_at
+            if self._adb_snapshot is not None and 0 <= age <= 2.0:
+                return self._adb_snapshot.copy()
+            started = time.monotonic()
+            frame = ADB(serial=self.serial).screenshot(timeout=4)
+            self._adb_snapshot = frame.copy()
+            self._adb_snapshot_at = started
+            return frame
 
     def _fallback_screenshot(self):
         """Show a bounded, selected-device snapshot if MediaCodec is unavailable.
