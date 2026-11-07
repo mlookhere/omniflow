@@ -235,6 +235,20 @@ ambiguous booleans, missing probes and mismatched state/action keys, plus
 offscreen Qt validation of visible saved-inspection warnings. No runtime
 confidence ordering or threshold policy is otherwise changed.
 
+**Saved anchor integrity (November 7, 2026):** The Studio and runtime now
+validate each image-anchor reference before loading legacy or mixed-mode
+templates: filenames must be standalone names (no parent traversal, absolute
+paths, Windows separators or drive/stream syntax), the resolved path must
+remain inside the workflow's anchors directory (including symlinks), and
+the recorded region must contain valid normalized integer bounds. After
+loading, the actual grayscale anchor dimensions must match that region
+exactly. A malformed template fails startup or saved-state inspection with
+a state/template-specific explanation instead of being read from outside the
+workflow or mismatching another image area. Python and offscreen Windows Qt
+regressions cover path/geometry corruption, symlink escapes, image-size
+mismatch and no device input or manifest writes. Normal legacy anchors and
+explicit condition-only states are unchanged.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
