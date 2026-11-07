@@ -26,7 +26,7 @@ from swordx.preview import (AndroidVideoStream, StreamRetry, TARGET_FPS,
 from swordx.storage import export_backup, import_backup
 from swordx.config import ProfileStore
 from . import __version__
-from .devices import Device, discover_mumu
+from .devices import Device, canonical_mumu_serial, discover_mumu
 from .manager import InstanceManager
 from .schedule import Job, ScheduleStore
 from .storage import root_dir, migrate_legacy, local_workflows, preferences, save_preferences
@@ -695,7 +695,8 @@ class OmniWindow(QMainWindow):
     def _selected(self):
         self.last_log_text = ''
         serial = self._selected_serial()
-        if self.video_switch.isChecked() and serial != self.video_serial:
+        if (self.video_switch.isChecked() and
+                canonical_mumu_serial(serial) != canonical_mumu_serial(self.video_serial)):
             self._toggle_video(True)
 
     def _toggle_video(self, enabled):
@@ -703,7 +704,9 @@ class OmniWindow(QMainWindow):
         current = self.video
         if current is not None:
             if current.isRunning():
-                if current.serial == self.requested_video_serial and not current.stopped.is_set():
+                if (canonical_mumu_serial(current.serial) ==
+                        canonical_mumu_serial(self.requested_video_serial) and
+                        not current.stopped.is_set()):
                     return
                 current.stop()
                 self.video_status.setText('Switching video…')
@@ -713,7 +716,11 @@ class OmniWindow(QMainWindow):
         self._start_requested_video()
 
     def _cached_session_frame(self, serial: str):
-        session = next((s for s in self.manager.snapshot() if s.serial == serial), None)
+        # The ADB transport can be listed as localhost:<port> or
+        # 127.0.0.1:<port>. Only reuse frames from the same actual device.
+        device = canonical_mumu_serial(serial)
+        session = next((s for s in self.manager.snapshot()
+                        if canonical_mumu_serial(s.serial) == device), None)
         return session.recent_image() if session is not None else None
 
     def _start_requested_video(self):
@@ -764,7 +771,8 @@ class OmniWindow(QMainWindow):
         if not serial:
             return
         now = time.monotonic()
-        if self.video and self.video_serial == serial:
+        if (self.video and
+                canonical_mumu_serial(self.video_serial) == canonical_mumu_serial(serial)):
             image, kind = self.video.take()
             if image is not None:
                 self.preview.setPixmap(QPixmap.fromImage(image))
@@ -775,7 +783,8 @@ class OmniWindow(QMainWindow):
                     self._last_fps_second = int(now)
                     self.video_status.setText(f'Live H.264 · {self.video.fps(now)} FPS')
                 return
-            if self.video.is_fresh(now) and self.last_video_serial == serial:
+            if (self.video.is_fresh(now) and
+                    canonical_mumu_serial(self.last_video_serial) == canonical_mumu_serial(serial)):
                 # No new video frame yet: keep the last one displayed. Never
                 # flash a slower OCR screenshot between decoded video frames.
                 if int(now) != getattr(self, '_last_fps_second', -1):
@@ -792,7 +801,8 @@ class OmniWindow(QMainWindow):
         if now - self.last_detector_display_at < 0.25:
             return
         self.last_detector_display_at = now
-        session = next((s for s in self.manager.snapshot() if s.serial == serial), None)
+        session = next((s for s in self.manager.snapshot()
+                        if canonical_mumu_serial(s.serial) == canonical_mumu_serial(serial)), None)
         if session:
             frame = session.latest()
             if frame is not None:
@@ -839,7 +849,8 @@ class OmniWindow(QMainWindow):
             else:
                 self.session_info.setText('No sessions have run yet.')
         selected=self._selected_serial()
-        if self.video_switch.isChecked() and selected != self.video_serial:
+        if (self.video_switch.isChecked() and
+                canonical_mumu_serial(selected) != canonical_mumu_serial(self.video_serial)):
             self._toggle_video(bool(selected))
         elif not selected and self.video:
             self._toggle_video(False)

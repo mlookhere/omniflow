@@ -152,6 +152,45 @@ class VideoGuiTests(unittest.TestCase):
         self.assertIsNone(stream.stream)
         self.assertTrue(stream.stopped.is_set())
 
+    def test_cache_uses_same_mumu_device_across_localhost_alias(self):
+        from types import SimpleNamespace
+        local = MagicMock()
+        local.serial = 'localhost:16384'
+        local.recent_image.return_value = np.full((4, 4, 3), 35, dtype=np.uint8)
+        other = MagicMock()
+        other.serial = '127.0.0.1:16416'
+        other.recent_image.return_value = np.full((4, 4, 3), 99, dtype=np.uint8)
+        window = SimpleNamespace(manager=MagicMock())
+        window.manager.snapshot.return_value = [other, local]
+        actual = OmniWindow._cached_session_frame(window, '127.0.0.1:16384')
+        self.assertEqual(actual[0, 0, 0], 35)
+        local.recent_image.assert_called_once_with()
+        other.recent_image.assert_not_called()
+        self.assertIsNone(OmniWindow._cached_session_frame(window, 'localhost:16512'))
+
+    def test_preview_alias_change_does_not_restart_same_encoder(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch('omniflow.ui.root_dir', return_value=Path(tmp)), \
+             patch('omniflow.ui.DeviceScan.start'):
+            window = OmniWindow()
+            self.addCleanup(window.close)
+            running = MagicMock()
+            running.serial = 'localhost:16384'
+            running.isRunning.return_value = True
+            running.stopped = threading.Event()
+            window.video = running
+            with patch.object(window, '_selected_serial', return_value='127.0.0.1:16384'):
+                window._toggle_video(True)
+                window.video_serial = 'localhost:16384'
+                running.take.return_value = (None, '')
+                running.is_fresh.return_value = True
+                window.last_video_serial = 'localhost:16384'
+                window._frame()
+            running.stop.assert_not_called()
+            running.wait.assert_not_called()
+            running.take.assert_called_once_with()
+            window.video = None  # Keep mock away from closeEvent.
+
     def test_switch_does_not_block_gui_waiting_for_encoder(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patch('omniflow.ui.root_dir', return_value=Path(tmp)), \
