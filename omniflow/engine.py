@@ -162,7 +162,11 @@ class OmniDetector:
         return max(0.0, 1.0 - rmse / 80.0)
 
     def detect(self, frame: np.ndarray) -> Match:
-        image = normalize(frame)
+        # OmniRunner already normalized this screenshot. Avoid an identical
+        # second OpenCV resize on every emulator tick, while preserving support
+        # for full-resolution frames passed directly to the detector.
+        image = (frame if frame.shape == (SIZE[1], SIZE[0], 3)
+                 else normalize(frame))
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         cache: dict = {}
         candidates = []

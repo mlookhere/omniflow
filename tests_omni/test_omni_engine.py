@@ -61,6 +61,32 @@ class EngineTests(unittest.TestCase):
         screen[100:120, 100:120] = 120
         self.assertLess(OmniDetector._match_template(screen, anchor), .82)
 
+    def test_already_normalized_frame_skips_duplicate_resize(self):
+        from swordx.detection import normalize
+        detector = OmniDetector(self.folder)
+        # The pre-normalized input is exactly what OmniRunner passes.
+        with patch('omniflow.engine.normalize', wraps=normalize) as resize:
+            expected = detector.detect(self.match)
+            resize.assert_not_called()
+        self.assertEqual(expected.key, self.key)
+
+        # Direct callers still normalize full-resolution captures once.
+        enlarged = cv2.resize(self.match, (1080, 1920),
+                              interpolation=cv2.INTER_NEAREST)
+        with patch('omniflow.engine.normalize', wraps=normalize) as resize:
+            actual = detector.detect(enlarged)
+            resize.assert_called_once()
+        self.assertEqual(actual.key, expected.key)
+        self.assertAlmostEqual(actual.confidence, expected.confidence, places=3)
+
+    def test_runner_normalizes_only_once_per_capture(self):
+        from swordx.detection import normalize
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        with patch('omniflow.engine.normalize', wraps=normalize) as resize:
+            runner.step(100)
+            resize.assert_called_once()
+
     def test_negative_wait_overrides_queued_action_and_rearms_on_return(self):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')
