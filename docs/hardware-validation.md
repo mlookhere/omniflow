@@ -196,7 +196,12 @@ only after choosing a realistic performance goal for that PC.
 
 This benchmark fails (exit code 1) on fewer than the requested devices, no
 frames, any capture/recognition errors, or an explicit FPS threshold miss.
-The JSON includes per-device effective FPS and p95 capture/recognition latency.
+The JSON includes per-device effective FPS, p95 capture/recognition latency and
+the longest interval without a valid captured/recognized frame (including
+startup and shutdown gaps). Every instance must have an explicitly measured
+maximum gap no greater than **6 seconds**. A high average FPS cannot hide
+a lengthy capture blackout, and missing gap data is not accepted by the
+read-only hardware verifier.
 If discovery fails or fewer than ten devices are connected, `--output` still
 records an atomic `passed: false` report with the discovered and actually
 measured instance counts; it never preserves an older successful report.

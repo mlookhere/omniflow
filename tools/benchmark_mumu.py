@@ -35,6 +35,9 @@ from omniflow.resources import HostResourceMonitor
 from swordx.detection import normalize
 
 
+MAX_FRAME_GAP_SECONDS = 6.0  # Do not accept silent screenshot stalls.
+
+
 @dataclass(frozen=True)
 class DeviceResult:
     serial: str
@@ -46,6 +49,7 @@ class DeviceResult:
     capture_p95_ms: float | None
     detection_p95_ms: float | None
     last_error: str = ''
+    max_frame_gap_seconds: float | None = None
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -90,6 +94,8 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     deadline = started + seconds
     capture_times: list[float] = []
     detect_times: list[float] = []
+    last_valid_at = started
+    max_frame_gap = 0.0
     errors = 0
     consecutive_errors = 0
     last_error = ''
@@ -105,6 +111,11 @@ def measure(serial: str, seconds: float, poll_seconds: float,
             if detector is not None:
                 detector.detect(frame)
                 detect_times.append(clock() - acquired)
+            # A frame is useful only after optional recognition succeeds.
+            # Include OCR stalls, not just the ADB read time, in continuity.
+            valid_at = clock()
+            max_frame_gap = max(max_frame_gap, valid_at - last_valid_at)
+            last_valid_at = valid_at
             capture_times.append(acquired - sample_started)
             consecutive_errors = 0
         except Exception as exc:
@@ -117,7 +128,9 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         remaining = min(deadline, next_poll) - clock()
         if remaining > 0:
             wait(remaining)
-    elapsed = max(0.0, clock() - started)
+    finished = clock()
+    elapsed = max(0.0, finished - started)
+    max_frame_gap = max(max_frame_gap, finished - last_valid_at)
     frames = len(capture_times)
     return DeviceResult(
         serial=serial, frames=frames, errors=errors,
@@ -127,6 +140,7 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         capture_p95_ms=round(percentile(capture_times, 0.95) * 1000, 2) if frames else None,
         detection_p95_ms=round(percentile(detect_times, 0.95) * 1000, 2) if detect_times else None,
         last_error=last_error,
+        max_frame_gap_seconds=round(max_frame_gap, 3),
     )
 
 
@@ -144,6 +158,14 @@ def evaluate(results: list[DeviceResult], requested: int, min_fps: float) -> lis
             failures.append(f'{result.serial}: {result.errors} capture/detector error(s)')
         if min_fps and result.effective_fps < min_fps:
             failures.append(f'{result.serial}: {result.effective_fps:.2f} FPS below {min_fps:.2f} minimum')
+        gap = result.max_frame_gap_seconds
+        if (type(gap) not in (int, float) or
+                not math.isfinite(gap) or gap < 0):
+            failures.append(f'{result.serial}: maximum valid-frame gap missing or invalid')
+        elif gap > MAX_FRAME_GAP_SECONDS:
+            failures.append(
+                f'{result.serial}: screenshot gap {gap:.3f}s exceeds '
+                f'{MAX_FRAME_GAP_SECONDS:.3f}s')
     return failures
 
 
@@ -283,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
               f'fps={result.effective_fps:>5.2f} '
               f'capture_p95={result.capture_p95_ms if result.capture_p95_ms is not None else "—"}ms '
               f'detect_p95={result.detection_p95_ms if result.detection_p95_ms is not None else "—"}ms '
+              f'max_gap={result.max_frame_gap_seconds if result.max_frame_gap_seconds is not None else "—"}s '
               f'errors={result.errors} {result.last_error}')
     failures = evaluate(results, args.instances, args.min_fps)
     if setup_error:

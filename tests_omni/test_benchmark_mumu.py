@@ -98,13 +98,54 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIn('offline', results[1].last_error)
 
     def test_failure_detection_for_missing_device_errors_and_minimum_fps(self):
-        success = benchmark.DeviceResult('one', 10, 0, 10.0, 1.0, 10.0, 20.0, None)
-        failed = benchmark.DeviceResult('two', 2, 1, 10.0, 0.2, 300.0, 500.0, None)
+        success = benchmark.DeviceResult('one', 10, 0, 10.0, 1.0, 10.0, 20.0, None,
+                                         max_frame_gap_seconds=1.0)
+        failed = benchmark.DeviceResult('two', 2, 1, 10.0, 0.2, 300.0, 500.0, None,
+                                        max_frame_gap_seconds=1.0)
         checks = benchmark.evaluate([success, failed], requested=3, min_fps=0.8)
         self.assertEqual(len(checks), 3)
         self.assertTrue(any('Expected 3' in check for check in checks))
         self.assertTrue(any('capture/detector error' in check for check in checks))
         self.assertTrue(any('below' in check for check in checks))
+
+    def test_slow_but_successful_screenshot_reports_rejected_gap(self):
+        class Clock:
+            def __init__(self):
+                self.now = 0.0
+
+            def __call__(self):
+                return self.now
+
+            def wait(self, seconds):
+                self.now += seconds
+
+        clock = Clock()
+
+        class SlowSecondFrame(FakeDevice):
+            def screenshot(self):
+                self.calls += 1
+                clock.now += 7.0 if self.calls == 2 else .1
+                return np.zeros((960, 540, 3), dtype=np.uint8)
+
+        result = benchmark.measure('mumu:test', 9.0, .9,
+                                   device_factory=SlowSecondFrame,
+                                   clock=clock, wait=clock.wait)
+        self.assertGreater(result.max_frame_gap_seconds, 6.0)
+        self.assertEqual(result.errors, 0)
+        self.assertIn('screenshot gap', ' '.join(
+            benchmark.evaluate([result], requested=1, min_fps=0.0)))
+
+    def test_missing_gap_and_high_fps_do_not_pass(self):
+        for gap in (None, float('nan'), -1.0, 7.0):
+            with self.subTest(gap=gap):
+                result = benchmark.DeviceResult(
+                    '127.0.0.1:16384', 120, 0, 120.0, 1.0, 100.0, 200.0, None,
+                    max_frame_gap_seconds=gap)
+                self.assertTrue(benchmark.evaluate([result], 1, .8))
+        good = benchmark.DeviceResult(
+            '127.0.0.1:16384', 120, 0, 120.0, 1.0, 100.0, 200.0, None,
+            max_frame_gap_seconds=2.0)
+        self.assertEqual(benchmark.evaluate([good], 1, .8), [])
 
     def test_json_report_atomic_and_parseable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +174,8 @@ class BenchmarkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / 'single.json'
             sample = benchmark.DeviceResult('127.0.0.1:16384', 5, 0, 3.0,
-                                            1.67, 300.0, 400.0, None)
+                                            1.67, 300.0, 400.0, None,
+                                            max_frame_gap_seconds=1.0)
             with patch.object(benchmark, 'discover_mumu',
                               return_value=['127.0.0.1:16384',
                                             '127.0.0.1:16416',
@@ -157,7 +199,8 @@ class BenchmarkTests(unittest.TestCase):
             observed = []
             def measure(serial, seconds, poll, barrier, **kwargs):
                 observed.append(serial)
-                return benchmark.DeviceResult(serial, 5, 0, 3.0, 1.67, 300.0, 400.0, None)
+                return benchmark.DeviceResult(serial, 5, 0, 3.0, 1.67, 300.0, 400.0, None,
+                                              max_frame_gap_seconds=1.0)
             with patch.object(benchmark, 'discover_mumu',
                               return_value=['127.0.0.1:16384', 'localhost:16416',
                                             '127.0.0.1:16416']), \

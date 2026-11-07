@@ -28,6 +28,7 @@ def samples(*, devices=10, workflow='MyWorkflow'):
             'serial': f'127.0.0.1:{16384 + i * 32}',
             'frames': 120, 'errors': 0, 'elapsed_seconds': 120.0,
             'effective_fps': 1.0, 'capture_p95_ms': 180,
+            'max_frame_gap_seconds': 1.8,
             'detection_p95_ms': 40 if workflow else None,
         } for i in range(devices)],
     }
@@ -63,6 +64,21 @@ class HardwareEvidenceTests(unittest.TestCase):
         video, bench = samples()
         bench['devices'][1]['serial'] = 'localhost:16384'
         self.assertIn('duplicate', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
+    def test_capture_blackout_fails_despite_good_average_fps(self):
+        video, bench = samples()
+        bench['devices'][2]['max_frame_gap_seconds'] = 9.0
+        bench['passed'] = True  # A forged top-level pass cannot bypass evidence checks.
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertIn('screenshot gap', ' '.join(result['failures']))
+
+    def test_missing_capture_gap_is_not_interpreted_as_zero(self):
+        video, bench = samples()
+        del bench['devices'][3]['max_frame_gap_seconds']
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertIn('max_frame_gap_seconds', ' '.join(result['failures']))
 
     def test_early_shutdown_cannot_pass_a_requested_long_benchmark(self):
         video, bench = samples()

@@ -13,6 +13,7 @@ from swordx.adb import ADB
 
 from .devices import canonical_mumu_serial
 from .capture_health import evaluate_capture
+MAX_FRAME_GAP_SECONDS = 6.0  # Same fixed gate as the read-only benchmark.
 
 
 @dataclass(frozen=True)
@@ -161,6 +162,11 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         errors = _count(device, 'errors', label, failures)
         capture_fps = _number(device, 'effective_fps', label, failures)
         _number(device, 'capture_p95_ms', label, failures)
+        max_gap = _number(device, 'max_frame_gap_seconds', label, failures)
+        if max_gap > MAX_FRAME_GAP_SECONDS:
+            failures.append(
+                f'{label}: screenshot gap {max_gap:.3f}s exceeds '
+                f'{MAX_FRAME_GAP_SECONDS:.3f}s')
         if actual < criteria.seconds * .95:
             failures.append(f'{label}: measured only {actual:.1f}s of {criteria.seconds:g}s')
         if not frames_captured:
@@ -270,6 +276,7 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
             'maximum_preview_gap_seconds': criteria.max_preview_gap,
             'maximum_video_gap_seconds': criteria.max_video_gap,
             'minimum_capture_fps': criteria.min_capture_fps,
+            'maximum_capture_gap_seconds': MAX_FRAME_GAP_SECONDS,
             'maximum_error22_recovery_seconds': criteria.max_error22_recovery,
         },
     }
