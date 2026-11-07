@@ -79,6 +79,34 @@ class CaptureAssessmentTests(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertIn('different devices', ' '.join(result['failures']))
 
+    def test_only_real_mumu_serials_and_whole_frame_counts_are_admissible(self):
+        for source in ('png', 'raw', 'fidelity'):
+            for serial in ('USB-12345', '127.0.0.1:5555', '', None):
+                with self.subTest(source=source, serial=serial):
+                    reports = [copy.deepcopy(self.png), copy.deepcopy(self.raw),
+                               copy.deepcopy(self.fidelity)]
+                    reports[('png', 'raw', 'fidelity').index(source)]['serial'] = serial
+                    result = assessment.assess(*reports)
+                    self.assertFalse(result['comparison_complete'])
+                    self.assertFalse(result['raw_candidate_for_further_validation'])
+        for source in ('png', 'raw'):
+            with self.subTest(fractional_frames=source):
+                reports = [copy.deepcopy(self.png), copy.deepcopy(self.raw),
+                           copy.deepcopy(self.fidelity)]
+                reports[('png', 'raw').index(source)]['frames'] += 0.5
+                result = assessment.assess(*reports)
+                self.assertFalse(result['comparison_complete'])
+
+    def test_report_must_cover_requested_duration_even_if_120s_elapsed(self):
+        for source in ('png', 'raw'):
+            with self.subTest(source=source):
+                reports = [copy.deepcopy(self.png), copy.deepcopy(self.raw),
+                           copy.deepcopy(self.fidelity)]
+                reports[('png', 'raw').index(source)]['requested_seconds'] = 180.0
+                result = assessment.assess(*reports)
+                self.assertFalse(result['comparison_complete'])
+                self.assertFalse(result['raw_candidate_for_further_validation'])
+
     def test_short_duration_missing_frames_and_forged_fps_rejected(self):
         for field, value in [('elapsed_seconds', 19.0), ('frames', 0),
                              ('effective_fps', 30.0), ('errors', 1)]:

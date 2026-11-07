@@ -49,8 +49,9 @@ have produced JSON reports, combine them in **one read-only decision**:
 This assessment rechecks **actual** frame counts/duration/FPS, stage timings,
 source geometry across all three reports, a strict **6-second maximum gap between
 valid screenshots**, source format, matching MuMu serials (including localhost aliases), at least
-three stable fidelity triplets, zero transport errors and unchanged **120-second
-and 0.8-FPS criteria**. A PNG FPS failure can be valid baseline data; the raw
+three stable fidelity triplets, zero transport errors, integer frame totals,
+a recognized MuMu ADB serial and capture lasting at least 95% of its own
+requested duration, with unchanged **120-second and 0.8-FPS criteria**. A PNG FPS failure can be valid baseline data; the raw
 candidate must meet 0.8 FPS, improve measured FPS by at least 10%, and have
 lower capture p95 latency. When raw is slower the assessment can still be
 complete, but it explicitly returns `raw_candidate_for_further_validation: false`.

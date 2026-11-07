@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from omniflow.devices import canonical_mumu_serial
+from swordx.adb import ADB
 from tools.benchmark_mumu import write_json
 
 
@@ -38,16 +39,18 @@ def _profile(report: dict, capture_format: str) -> tuple[str, float, float, floa
     if report.get('read_only') is not True or report.get('capture_format') != capture_format:
         raise ValueError(f'{capture_format}: incorrect source or missing read-only provenance')
     serial = report.get('serial')
-    if not isinstance(serial, str) or not serial.strip():
-        raise ValueError(f'{capture_format}: missing ADB serial')
+    if not isinstance(serial, str) or not ADB.is_mumu_serial(serial):
+        raise ValueError(f'{capture_format}: missing or invalid MuMu ADB serial')
     requested = _number(report.get('requested_seconds'), f'{capture_format} requested duration')
     elapsed = _number(report.get('elapsed_seconds'), f'{capture_format} observed duration', positive=True)
-    if requested < MIN_SECONDS or elapsed < MIN_SECONDS:
-        raise ValueError(f'{capture_format}: need >=120 seconds of observed capture')
+    if requested < MIN_SECONDS or elapsed < MIN_SECONDS or elapsed < requested * .95:
+        raise ValueError(f'{capture_format}: need >=120 seconds and >=95% of requested capture time')
     minimum = _number(report.get('min_fps'), f'{capture_format} configured minimum')
     if minimum < MIN_FPS:
         raise ValueError(f'{capture_format}: FPS gate below 0.8 is not accepted')
     frames = _number(report.get('frames'), f'{capture_format} frames', positive=True)
+    if not frames.is_integer():
+        raise ValueError(f'{capture_format}: captured frame count must be a whole number')
     errors = report.get('errors')
     if type(errors) is not int or errors != 0:
         raise ValueError(f'{capture_format}: capture/decode errors present or unknown')
@@ -155,8 +158,8 @@ def _fidelity(report: dict) -> str:
     if any(shape != shapes[0] for shape in shapes):
         raise ValueError('fidelity: orientation/geometry changed between triplets')
     serial = report.get('serial')
-    if not isinstance(serial, str) or not serial.strip():
-        raise ValueError('fidelity: missing device serial')
+    if not isinstance(serial, str) or not ADB.is_mumu_serial(serial):
+        raise ValueError('fidelity: missing or invalid MuMu device serial')
     return canonical_mumu_serial(serial), tuple(shapes[0])
 
 
