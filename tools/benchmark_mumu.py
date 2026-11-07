@@ -32,6 +32,7 @@ import cv2
 from omniflow.devices import Device, canonical_mumu_serial, discover_mumu
 from swordx.adb import ADB
 from omniflow.resources import HostResourceMonitor
+from omniflow.raw_capture import decode_raw_screencap
 from swordx.detection import normalize
 
 
@@ -63,6 +64,7 @@ def percentile(values: list[float], fraction: float) -> float | None:
 def measure(serial: str, seconds: float, poll_seconds: float,
             barrier: threading.Barrier | None = None, *, device_factory=Device,
             detector_factory: Callable | None = None,
+            capture_format: str = 'png',
             clock: Callable[[], float] = time.monotonic,
             wait: Callable[[float], None] = time.sleep) -> DeviceResult:
     """Capture on one explicitly selected device; never issue Android input.
@@ -71,6 +73,8 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     from sequentially sampled emulators. Connection failure is reported as an
     error, but still reaches the barrier so healthy workers cannot deadlock.
     """
+    if capture_format not in ('png', 'raw'):
+        raise ValueError('Capture format must be png or raw')
     device = None
     detector = None
     problem = ''
@@ -104,7 +108,12 @@ def measure(serial: str, seconds: float, poll_seconds: float,
         next_poll = max(next_poll, clock())
         sample_started = clock()
         try:
-            frame = normalize(device.screenshot())
+            if capture_format == 'raw':
+                payload = device._run('exec-out', 'screencap', timeout=15)
+                frame = decode_raw_screencap(payload)
+            else:
+                frame = device.screenshot()
+            frame = normalize(frame)
             if frame.shape != (960, 540, 3):
                 raise ValueError(f'Unexpected normalized frame dimensions: {frame.shape}')
             acquired = clock()
@@ -190,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--instances', type=int, default=10, help='Exact number of required devices (1–10)')
     parser.add_argument('--serial', default='', help='MuMu device to include first; fail if absent')
+    parser.add_argument('--capture-format', choices=('png', 'raw'), default='png',
+                        help='Read-only screenshot transport; raw is diagnostic-only')
     parser.add_argument('--seconds', type=int, default=30, help='Read-only test duration (3–300)')
     parser.add_argument('--poll', type=float, default=0.9, help='Per-device capture period in seconds (>= 0.35)')
     parser.add_argument('--workflow', type=Path, help='Optional workflow folder for actual recognition load')
@@ -218,6 +229,8 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         'requested_instances': args.instances,
         'requested_serial': args.serial or None,
+        'capture_format': args.capture_format,
+        'hardware_acceptance_complete': False,
         'tested_instances': 0,
         'discovered_instances': 0,
         'duration_seconds': args.seconds,
@@ -266,7 +279,8 @@ def main(argv: list[str] | None = None) -> int:
         return fail_before_measurement(
             f'Found {len(serials)} of {args.instances} required MuMu devices; start all instances first.')
     print(f'Benchmarking {len(serials)} emulator(s) for {args.seconds}s; '
-          f'poll={args.poll}s; workflow={args.workflow or "none"}; read-only.', flush=True)
+          f'poll={args.poll}s; format={args.capture_format}; '
+          f'workflow={args.workflow or "none"}; read-only.', flush=True)
     barrier = threading.Barrier(len(serials)) if len(serials) > 1 else None
     try:
         monitor = HostResourceMonitor()
@@ -281,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with ThreadPoolExecutor(max_workers=len(serials)) as pool:
             futures = [pool.submit(measure, serial, args.seconds, args.poll, barrier,
-                                   detector_factory=detector_factory) for serial in serials]
+                                   detector_factory=detector_factory,
+                                   capture_format=args.capture_format) for serial in serials]
             for serial, future in zip(serials, futures):
                 try:
                     results.append(future.result())
@@ -324,8 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         print('Benchmark NOT PASSED: ' + '; '.join(failures), file=sys.stderr)
         return 1
     print('Capture benchmark passed its requested coverage/error criteria. '
-          'Host CPU/RAM and optional NVIDIA GPU measurements are in the JSON; '
-          'this does not test H.264 FPS or gesture accuracy.')
+          'Raw mode is diagnostic-only and is not admissible for the normal '
+          'hardware acceptance verifier. This does not test H.264 or gestures.')
     return 0
 
 

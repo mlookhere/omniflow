@@ -23,7 +23,7 @@ def samples(*, devices=10, workflow='MyWorkflow'):
     benchmark = {
         'passed': True, 'requested_instances': devices,
         'tested_instances': devices, 'duration_seconds': 120,
-        'workflow': workflow,
+        'capture_format': 'png', 'workflow': workflow,
         'devices': [{
             'serial': f'127.0.0.1:{16384 + i * 32}',
             'frames': 120, 'errors': 0, 'elapsed_seconds': 120.0,
@@ -64,6 +64,22 @@ class HardwareEvidenceTests(unittest.TestCase):
         video, bench = samples()
         bench['devices'][1]['serial'] = 'localhost:16384'
         self.assertIn('duplicate', ' '.join(evaluate_hardware_evidence(video, bench)['failures']))
+
+    def test_raw_capture_benchmark_cannot_be_promoted_to_hardware_acceptance(self):
+        video, bench = samples()
+        bench['capture_format'] = 'raw'
+        bench['passed'] = True
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertFalse(result['hardware_acceptance_complete'])
+        self.assertIn('production PNG', ' '.join(result['failures']))
+
+    def test_missing_capture_format_provenance_fails_closed(self):
+        video, bench = samples()
+        bench.pop('capture_format')
+        result = evaluate_hardware_evidence(video, bench)
+        self.assertFalse(result['passed'])
+        self.assertIn('production PNG', ' '.join(result['failures']))
 
     def test_capture_blackout_fails_despite_good_average_fps(self):
         video, bench = samples()

@@ -215,6 +215,26 @@ via the optional `nvidia-smi` command. If NVIDIA telemetry is unavailable,
 unmeasured GPU usage as 0%. These metrics cover the entire Windows host, not
 individual MuMu processes or GPU video-encode engine usage.
 
+### Experimental concurrent raw-capture benchmark (read-only)
+
+After collecting same-device PNG/raw performance and stationary image
+equivalence, optionally run raw capture with multiple MuMu instances to
+measure real ADB transfer contention:
+
+```powershell
+.\\.venv\\Scripts\\python.exe tools\\benchmark_mumu.py --instances 10 --seconds 120 --poll 0.9 --min-fps 0.8 --capture-format raw --output hardware-evidence\\capture-ten-raw.json
+```
+
+The default remains `--capture-format png`. Raw mode invokes uncompressed
+`adb exec-out screencap` and strictly decodes each framebuffer; unsupported
+layouts and transport failures are counted as capture errors. Per-device FPS,
+latency, continuity, and host-resource gates remain unchanged. A passing raw
+benchmark is **diagnostic performance evidence only**, not a substitute for
+live-game image equivalence or a production switch. The independent
+`verify_hardware_evidence.py` requires PNG provenance and rejects a raw
+benchmark (or one missing its capture-format field), even if it reports
+`passed: true`.
+
 ## 3. Observe resources and recovery
 
 While all ten devices are active, review `host_resources` in `capture-ten.json`.

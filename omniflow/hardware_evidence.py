@@ -72,6 +72,10 @@ def evaluate_hardware_evidence(video: Mapping, benchmark: Mapping,
         failures.append('Video diagnostic did not report success')
     if benchmark.get('passed') is not True:
         failures.append(f'{criteria.instances}-instance capture benchmark did not report success')
+    # Production automation still uses PNG. A successful raw benchmark is
+    # performance evidence only, not proof of dynamic-game visual equivalence.
+    if benchmark.get('capture_format') != 'png':
+        failures.append('Hardware acceptance requires the production PNG capture format')
 
     elapsed = _number(video, 'elapsed_seconds', 'video', failures)
     fps = _number(video, 'displayed_video_fps', 'video', failures)

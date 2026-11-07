@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import tempfile
 import threading
 import unittest
@@ -146,6 +147,70 @@ class BenchmarkTests(unittest.TestCase):
             '127.0.0.1:16384', 120, 0, 120.0, 1.0, 100.0, 200.0, None,
             max_frame_gap_seconds=2.0)
         self.assertEqual(benchmark.evaluate([good], 1, .8), [])
+
+    def test_raw_format_decodes_read_only_capture_without_png_path(self):
+        class RawDevice(FakeDevice):
+            def screenshot(self):
+                raise AssertionError('PNG screenshot must not run in raw mode')
+
+            def _run(self, *args, **kwargs):
+                self.calls += 1
+                if args != ('exec-out', 'screencap') or kwargs != {'timeout': 15}:
+                    raise AssertionError('Unexpected raw capture command')
+                pixels = bytes((12, 24, 36, 255)) * (540 * 960)
+                return struct.pack('<III', 540, 960, 1) + pixels
+
+        result = benchmark.measure('mumu:test', .05, .01,
+                                   device_factory=RawDevice, capture_format='raw')
+        self.assertGreater(result.frames, 0)
+        self.assertEqual(result.errors, 0)
+        self.assertIsNotNone(result.max_frame_gap_seconds)
+
+    def test_corrupted_raw_capture_is_a_failure_not_valid_frame(self):
+        class InvalidRawDevice(FakeDevice):
+            def screenshot(self):
+                raise AssertionError('PNG cannot substitute for failed raw capture')
+
+            def _run(self, *args, **kwargs):
+                self.calls += 1
+                return b'bad framebuffer'
+
+        result = benchmark.measure('mumu:test', .05, .01,
+                                   device_factory=InvalidRawDevice, capture_format='raw')
+        self.assertEqual(result.frames, 0)
+        self.assertGreater(result.errors, 0)
+        self.assertIn('Raw screencap', result.last_error)
+
+    def test_raw_benchmark_is_labeled_and_not_hardware_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'raw.json'
+            observed = []
+            def measured(serial, seconds, poll, barrier, **kwargs):
+                observed.append(kwargs['capture_format'])
+                return benchmark.DeviceResult(
+                    serial, 4, 0, 3.0, 1.33, 500.0, 600.0, None,
+                    max_frame_gap_seconds=2.0)
+            with patch.object(benchmark, 'discover_mumu',
+                              return_value=['127.0.0.1:16384']), \
+                 patch.object(benchmark, 'measure', side_effect=measured), \
+                 patch.object(benchmark, 'HostResourceMonitor') as monitor:
+                monitor.return_value.stop.return_value = {'metrics': {}}
+                status = benchmark.main(['--instances', '1', '--seconds', '3',
+                                         '--capture-format', 'raw',
+                                         '--min-fps', '.8', '--output', str(output)])
+            report = json.loads(output.read_text())
+            self.assertEqual(status, 0)
+            self.assertEqual(observed, ['raw'])
+            self.assertEqual(report['capture_format'], 'raw')
+            self.assertFalse(report['hardware_acceptance_complete'])
+            self.assertTrue(report['passed'])
+
+    def test_invalid_measure_capture_format_raises_before_any_device_call(self):
+        with patch.object(benchmark, 'Device') as factory:
+            with self.assertRaisesRegex(ValueError, 'Capture format'):
+                benchmark.measure('mumu:test', .1, .05, capture_format='jpeg',
+                                  device_factory=factory)
+            factory.assert_not_called()
 
     def test_json_report_atomic_and_parseable(self):
         with tempfile.TemporaryDirectory() as tmp:
