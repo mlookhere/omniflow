@@ -564,10 +564,31 @@ class OmniStudio(RecorderDialog):
             else:
                 QMessageBox.warning(self,'Test detection','Connect an emulator or load a recorded screen')
                 return
-            result=OmniDetector(folder).detect(screenshot)
-            kind='WAIT · no action' if result.passive else 'ACTION' if result.key else 'UNKNOWN'
-            QMessageBox.information(self,'Recognition test',
-                       f'{kind}\nState: {result.label}\nConfidence: {result.confidence:.1%}\n\nNo touches were sent.')
+            detector = OmniDetector(folder)
+            result, states = detector.inspect(screenshot)
+            kind = 'WAIT · no action' if result.passive else 'ACTION' if result.key else 'UNKNOWN'
+            lines = []
+            for state in states:
+                image = (f"Image {state['template_confidence']:.0%} "
+                         f"(minimum {state['threshold']:.0%})"
+                         if state['has_template'] else 'Condition-only')
+                lines.append(f"{state['label']}: {state['status']} — {image}")
+                rules = detector.actions[state['key']].get('conditions', [])
+                outcomes = state['condition_results']
+                if outcomes is None and rules and state['status'] == 'template below threshold':
+                    lines.append('  Conditions not evaluated: image threshold failed')
+                elif outcomes is not None:
+                    for passed, rule in zip(outcomes, rules):
+                        lines.append(
+                            f"  {'PASS' if passed else 'FAIL'} — {condition_summary(rule)}")
+            message = QMessageBox(self)
+            message.setWindowTitle('Recognition test')
+            message.setIcon(QMessageBox.Information)
+            message.setText(f'{kind}\nState: {result.label}\nConfidence: {result.confidence:.1%}')
+            message.setInformativeText(
+                'Saved workflow inspected on one screenshot. No actions were executed.')
+            message.setDetailedText('\n'.join(lines))
+            message.exec()
         except (ADBError,WorkflowError,OSError,ValueError) as exc:
             QMessageBox.warning(self,'Recognition test',str(exc))
 
