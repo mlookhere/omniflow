@@ -40,7 +40,7 @@ def capture_sample(device: Device, *, capture_format: str = 'png',
     finished = clock()
     if image.shape != (960, 540, 3):
         raise ValueError(f'Unexpected normalized dimensions: {image.shape}')
-    return {
+    sample = {
         'adb_exec_ms': (transferred - started) * 1000,
         'decode_ms': (decoded - transferred) * 1000,
         f'{capture_format}_decode_ms': (decoded - transferred) * 1000,
@@ -48,6 +48,9 @@ def capture_sample(device: Device, *, capture_format: str = 'png',
         'total_ms': (finished - started) * 1000,
         'payload_bytes': len(payload),
     }
+    if capture_format == 'png':
+        sample['png_bytes'] = len(payload)  # Preserve existing profiler sample schema.
+    return sample
 
 
 def profile(serial: str, seconds: float, poll: float, min_fps: float,
