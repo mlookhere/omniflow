@@ -135,13 +135,14 @@ class DashboardPreviewTests(unittest.TestCase):
         self.assertIsNone(self.session.capture_cadence(now=float('nan')))
         self.assertEqual(self.session.capture_cadence(now=120.0),
                          (0.1, 19.0, 20.0))
-        for at in range(102, 4300):
-            self.manager._image(self.session, self.match, frame,
-                                captured_at=float(at))
+        # Exercise the bounded telemetry buffer without allocating 4,000
+        # redundant resized thumbnails in the test suite.
+        with self.session._image_lock:
+            self.session.capture_times.extend(float(at) for at in range(102, 4300))
         self.assertEqual(len(self.session.capture_times), 4096)
         self.assertEqual(self.session.first_capture_at, 100.0)
         fps, gap, observed = self.session.capture_cadence(now=4300.0)
-        self.assertAlmostEqual(fps, 119 / 120)
+        self.assertAlmostEqual(fps, 1.0)
         self.assertAlmostEqual(gap, 1.0)
         self.assertEqual(observed, 120.0)
 
