@@ -144,6 +144,25 @@ class VisualCaptureTests(unittest.TestCase):
                             'skip_template': True})
             self.assertEqual(path.read_bytes(), original)
 
+    def test_template_mode_needs_a_real_saved_image_region(self):
+        from swordx.workflows import update_step_settings
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('NoTemplate', Path(root))
+            conditions = [{'type': 'ocr', 'rect': [80, 100, 220, 170],
+                           'text': 'READY'}]
+            chain = [{'kind': 'tap', 'point': [140, 155]}]
+            key = record_step(folder, 'Ready', self.frame, [],
+                              condition_only=True, conditions=conditions,
+                              action_chain=chain)
+            path = folder / 'manifest.json'
+            before = path.read_bytes()
+            with self.assertRaisesRegex(ValueError, 'requires a saved template'):
+                update_step_settings(
+                    folder, key, 'Wrong mode', end=False, retry=False,
+                    studio={'action_chain': chain, 'conditions': conditions,
+                            'skip_template': False})
+            self.assertEqual(path.read_bytes(), before)
+
     def test_readable_editor_summaries_do_not_expose_coordinates(self):
         self.assertIn('Swipe',action_summary({'kind':'swipe','start':[20,20],
                                                'end':[120,180],'duration_ms':450}))
