@@ -154,7 +154,8 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
                          retry: bool, retry_mode: str = 'interval',
                          retry_interval_seconds: int = 25,
                          pre_tap_delay_seconds: int = 0,
-                         passive: bool = False, max_extra_taps: int = 0) -> None:
+                         passive: bool = False, max_extra_taps: int = 0,
+                         studio: dict | None = None) -> None:
     """Save all editor settings atomically; preserve screenshots and region data.
 
     Works with every historical action format, including legacy AND templates
@@ -171,10 +172,29 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
     if key not in content['states'] or key not in content['actions']:
         raise ValueError('Saved state no longer exists; reload the workflow')
     action = content['actions'][key]
+    chain = studio['action_chain'] if studio is not None else action.get('action_chain')
+    if studio is not None and studio['skip_template'] and not studio['conditions']:
+        raise ValueError('Condition-only states require a recognition condition')
     if not passive and action.get('passive') and not (action.get('gestures') or
-                                                    action.get('taps') or action.get('tap') or action.get('action_chain')):
+                                                    action.get('taps') or action.get('tap') or chain):
         raise ValueError('Add a tap or drag to convert this Wait state into an action')
     action.update(label=label, end=bool(end), retry=bool(retry), passive=bool(passive))
+    if studio is not None:
+        # Save Studio's conditions and action chain in this *same* manifest
+        # replacement. Legacy recorder callers omit studio and retain the
+        # original fields unchanged.
+        if chain is None:
+            action.pop('action_chain', None)
+        else:
+            action['action_chain'] = [dict(item) for item in chain]
+        if studio['conditions']:
+            action['conditions'] = [dict(item) for item in studio['conditions']]
+        else:
+            action.pop('conditions', None)
+        if studio['skip_template']:
+            action['skip_template'] = True
+        else:
+            action.pop('skip_template', None)
     if max_extra_taps:
         action['max_extra_taps'] = max_extra_taps
     else:
