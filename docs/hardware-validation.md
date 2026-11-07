@@ -103,7 +103,7 @@ Start the **same named MuMu instance** on a stationary game menu. This is a
 separate diagnostic mode from the changing-screen video/FPS acceptance run:
 
 ```powershell
-.\\.venv\\Scripts\\python.exe tools\\collect_hardware_evidence.py --capture-comparison --serial 127.0.0.1:16640
+.\.venv\Scripts\python.exe tools\collect_hardware_evidence.py --capture-comparison --serial 127.0.0.1:16640
 ```
 
 This runs two independent **120-second** profiles (PNG and raw), three
