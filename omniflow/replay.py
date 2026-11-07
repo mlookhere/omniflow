@@ -33,6 +33,7 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             'actual': '',
             'status': 'unavailable',
             'reason': '',
+            'overlaps': [],
         }
         results.append(item)
         name = action.get('capture')
@@ -68,6 +69,15 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             continue
         item['actual_key'] = winner.key
         item['actual'] = winner.label
+        # A selected state can still be ambiguous. Expose other candidates
+        # that passed recognition, even when the expected state won.
+        item['overlaps'] = [
+            {'key': candidate['key'], 'label': candidate['label'],
+             'passive': candidate['passive']}
+            for candidate in details
+            if candidate['key'] != winner.key and candidate['status'] in
+            ('lower-ranked match', 'overridden by WAIT')
+        ]
         if winner.key == key:
             item['status'] = 'matched'
             item['reason'] = 'Recorded state selected'
@@ -76,6 +86,10 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             expected = next((d for d in details if d['key'] == key), None)
             item['reason'] = (expected['status'] if expected is not None
                               else 'Recorded state not present in matcher')
+            if expected is not None and expected['status'] == 'template below threshold':
+                item['reason'] += (
+                    f" (image {expected['template_confidence']:.0%}, "
+                    f"minimum {expected['threshold']:.0%})")
             if expected is not None and expected['condition_results'] is not None:
                 failures = [
                     condition_summary(rule)
