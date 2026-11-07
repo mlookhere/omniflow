@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from omniflow.engine import WorkflowError, resolve_action_chain
-from omniflow.replay import replay_saved_captures
+from omniflow.replay import describe_action_plan, replay_saved_captures
 from swordx.workflows import create_workflow, record_step
 
 
@@ -130,6 +130,45 @@ class SavedReplayTests(unittest.TestCase):
         self.assertIn('image 13%', result['reason'])
         self.assertIn('minimum 82%', result['reason'])
         self.assertEqual(result['overlaps'], [])
+
+    def test_unsaved_action_plan_is_validated_and_redacted(self):
+        action = {'pre_tap_delay_seconds': 3}
+        chain = [
+            {'kind': 'tap', 'point': [150, 210]},
+            {'kind': 'wait', 'seconds': 2},
+            {'kind': 'text', 'text': 'private-42'},
+            {'kind': 'count_run'},
+        ]
+        steps = describe_action_plan(action, chain)
+        self.assertEqual(steps, [
+            'Initial delay 3s after stable recognition',
+            'Tap location selected on screen',
+            'Wait 2 seconds',
+            'Type text (contents hidden)',
+            'Mark session run complete',
+        ])
+        self.assertNotIn('private-42', repr(steps))
+        with self.assertRaisesRegex(WorkflowError, 'outside 540'):
+            describe_action_plan(action, [
+                {'kind': 'tap', 'point': [999, 210]}])
+        self.assertEqual(
+            describe_action_plan({'passive': True}, chain),
+            ['WAIT — no input will be sent'])
+
+    def test_replay_rejects_saved_invalid_action_plan_instead_of_claiming_success(self):
+        key = self.record('Unsafe')
+        manifest = self.manifest()
+        data = json.loads(manifest.read_text())
+        data['actions'][key]['action_chain'] = [
+            {'kind': 'tap', 'point': [700, 210]}]
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        before = manifest.read_bytes()
+        result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['status'], 'error')
+        self.assertIn('Replay inspection failed', result['reason'])
+        self.assertIn('outside 540', result['reason'])
+        self.assertFalse(result['action_plan'])
+        self.assertEqual(manifest.read_bytes(), before)
 
     def test_no_capture_does_not_count_as_success(self):
         key = self.record()
