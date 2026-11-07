@@ -639,6 +639,56 @@ class EngineTests(unittest.TestCase):
         r.step(401)
         self.assertEqual(len(device.taps),1)
 
+    def test_inspect_explains_wait_priority_and_caches_shared_ocr(self):
+        region = [155, 712, 434, 810]
+        self.change(self.key, skip_template=True, conditions=[
+            {'type': 'ocr', 'rect': region, 'text': 'READY'}])
+        self.change(self.wait, skip_template=True, conditions=[
+            {'type': 'ocr', 'rect': region, 'text': 'CANCEL', 'negate': True}])
+        detector = OmniDetector(self.folder)
+        manifest_before = (self.folder / 'manifest.json').read_bytes()
+        with patch('omniflow.engine.OCREngine.read', return_value='READY') as ocr:
+            winner, states = detector.inspect(self.match)
+            ocr.assert_called_once()  # Both rules reuse the same OCR zone.
+            self.assertEqual(detector.detect(self.match), winner)
+            self.assertEqual(ocr.call_count, 2)  # One more call for detect(), no extra probes.
+        self.assertEqual(winner.key, self.wait)  # Passive WAIT prevents the tap.
+        self.assertEqual(states[0]['key'], self.key)
+        self.assertEqual(states[0]['status'], 'overridden by WAIT')
+        self.assertEqual(states[0]['condition_results'], [True])
+        self.assertFalse(states[0]['has_template'])
+        self.assertEqual(states[1]['status'], 'selected')
+        self.assertEqual(states[1]['condition_results'], [True])
+        self.assertTrue(states[1]['passive'])
+        self.assertEqual((self.folder / 'manifest.json').read_bytes(), manifest_before)
+
+    def test_inspect_shows_rejected_conditions_without_false_positive(self):
+        self.change(self.key, skip_template=True, conditions=[
+            {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'MATCH'}])
+        self.change(self.wait, skip_template=True, conditions=[
+            {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'CANCEL'}])
+        detector = OmniDetector(self.folder)
+        with patch('omniflow.engine.OCREngine.read', return_value='MATCH'):
+            winner, states = detector.inspect(self.match)
+        self.assertEqual(winner.key, self.key)
+        self.assertEqual(states[0]['status'], 'selected')
+        self.assertEqual(states[1]['status'], 'conditions failed')
+        self.assertEqual(states[1]['condition_results'], [False])
+
+    def test_inspect_does_not_evaluate_ocr_when_template_fails(self):
+        self.change(self.key, conditions=[
+            {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'READY'}])
+        detector = OmniDetector(self.folder)
+        with patch.object(detector, '_match_template', return_value=0.0), \\
+             patch('omniflow.engine.OCREngine.read') as ocr:
+            winner, states = detector.inspect(self.match)
+            ocr.assert_not_called()
+            self.assertEqual(detector.detect(self.match), winner)
+        self.assertFalse(winner.key)
+        self.assertTrue(all(s['status'] == 'template below threshold' for s in states))
+        self.assertIsNone(states[0]['condition_results'])
+        self.assertTrue(states[0]['has_template'])
+
     def test_condition_only_ocr_state_and_negation(self):
         self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[155,712,434,810], 'text':'PLAY'}])
         with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
