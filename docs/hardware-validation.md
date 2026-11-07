@@ -37,6 +37,30 @@ Raw mode reports `raw_decode_ms`. Large uncompressed transfers can be
 without real, repeated device measurements and image-equivalence checks.
 
 
+### Assess PNG versus raw without automatically changing capture
+
+After both 120-second profiles and the stationary PNG/raw fidelity check
+have produced JSON reports, combine them in **one read-only decision**:
+
+```powershell
+.\.venv\Scripts\python.exe tools\assess_capture.py --png hardware-evidence\capture-profile.json --raw hardware-evidence\capture-profile-raw.json --fidelity hardware-evidence\capture-equivalence.json --output hardware-evidence\capture-assessment.json
+```
+
+This assessment rechecks **actual** frame counts/duration/FPS, stage timings,
+source format, matching MuMu serials (including localhost aliases), at least
+three stable fidelity triplets, zero transport errors and unchanged **120-second
+and 0.8-FPS criteria**. A PNG FPS failure can be valid baseline data; the raw
+candidate must meet 0.8 FPS, improve measured FPS by at least 10%, and have
+lower capture p95 latency. When raw is slower the assessment can still be
+complete, but it explicitly returns `raw_candidate_for_further_validation: false`.
+Missing, inconsistent, shortened or loosened evidence fails closed and
+overwrites any old success artifact. A completed comparison **only means
+the diagnostic evidence is internally consistent**, not that raw capture
+works in production. Evidence files are not authenticated same-session PC
+attestations. Never enable raw capture without further live game, orientation,
+input and resource validation. No run approves ten emulator operation.
+
+
 ### Verify PNG/raw image fidelity on a stationary screen
 
 Before considering raw capture for production, capture **PNG → raw → PNG**
