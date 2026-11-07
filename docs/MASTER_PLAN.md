@@ -52,11 +52,39 @@ explicit per-game verification, not an unlimited-success claim.
 | 11. Workflow portability | Versioned schema, non-destructive migration, import/export, screen resolution/aspect scaling, template/rule versioning | Import a legacy workflow plus new workflows; compare outputs across two resolutions and orientations with zero data loss | **Partial** |
 | 12. Production readiness | Install/update packaging, searchable docs, permissions, audit logs, security/privacy constraints and release governance | New Windows PC installs and passes diagnostics; complete hardware acceptance checklist; exact-head CI required/enforced on protected `dev`; PR merged only after gates | **Blocked by hardware and branch protection** |
 
-### Near-term priority queue
+### Active development priority — core engine and visual Studio (November 7, 2026)
+
+The user explicitly redirected implementation work away from multi-device scaling. Continue
+the existing control issue, work branch and draft PR; prioritize the capabilities that
+make a **single workflow reliable and easy to author**. Previously recorded ten-device
+and physical-release acceptance requirements remain documented, **not waived**.
+
+1. **P0 Studio feedback loop:** test the current unsaved WHEN conditions on a selected
+   screenshot without saving, sending input or running a workflow; surface individual
+   PASS/FAIL results. Validate OCR regular expressions at authoring time and report
+   malformed imported patterns as workflow errors. Automated offscreen coverage must
+   verify there are no manifest or emulator side effects.
+2. **P0 recognition correctness:** strengthen condition/priority inspection, show what
+   matched or failed and avoid silent false-positive taps. Support predictable state
+   confirmation and read-only replay from saved screenshots.
+3. **P1 authoring usability:** clear state/action labels, intuitive edit/reorder/copy,
+   a single Save operation, visible errors, undo/reset safety and no typed XY fields.
+4. **P1 workflow reliability:** bounded transitions/retries, passive/negative conditions,
+   safe field text, fail-closed unsupported input, and actionable dry-run traces.
+5. **P2 advanced composition:** reusable condition groups, branching, variables and
+   subflows, introduced only after their behavior is testable from the Studio.
+
+**Deprioritized:** multi-emulator scheduling, ten-device benchmarking, hardware
+resource extrapolation and raw screenshot transport comparisons. Preserve their
+existing tests and documented minimums. Do not claim hardware acceptance, change
+required CI gates or merge into an unprotected `dev` branch on the strength of
+Studio-only tests.
+
+### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
-2. **P0 screenshot bottleneck:** run the isolated stationary-screen `tools/collect_hardware_evidence.py --capture-comparison --serial <MuMu>` workflow to collect 120s PNG/raw capture profiles, compare image fidelity and assess performance on the same emulator. The normal collector now pins its video and benchmark to a requested serial. Optimize the measured ADB bottleneck; consider video-frame reuse only with freshness checks and without extra encoders.
-3. **P1 text-action completeness:** verified field focus, keyboard/IME adapter and safe handling of unsupported characters (never silently mangle text).
+2. **P0 screenshot bottleneck:** run the isolated stationary-screen `tools/collect_hardware_evidence.py --capture-comparison --serial <MuMu>` workflow to collect 120s PNG/raw capture profiles, compare image fidelity and assess performance on the same emulator.
+3. **P1 text-action completeness:** verified field focus, keyboard/IME adapter and safe handling of unsupported characters.
 4. **P1 operator visibility:** dependency checks in GUI, per-action dry-run traces, target screenshot snapshots, failure reason and retry status.
 5. **P2 composition:** reusable workflows/subflows, variable extraction from OCR, conditional branching and loops with stop policies.
 6. **P2 packaging & scalability:** concurrency benchmarks and acceptance on real Windows hardware; enforce branch protection before merging.
