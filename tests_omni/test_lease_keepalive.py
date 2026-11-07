@@ -146,7 +146,8 @@ class ActionLeaseGuards(unittest.TestCase):
         from unittest.mock import MagicMock
         device = MagicMock()
         device.screenshot.return_value = self.frame.copy()
-        allowed = iter((True, False))
+        # Entry check, first touch check, then revoke before second touch.
+        allowed = iter((True, True, False))
         runner = OmniRunner(device, self.folder, 'com.example.game',
                             can_act=lambda: next(allowed))
         runner.device_size = (540,960)

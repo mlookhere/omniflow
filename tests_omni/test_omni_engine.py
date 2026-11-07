@@ -348,7 +348,8 @@ class EngineTests(unittest.TestCase):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')
         runner.device_size=(2160,3840)
-        checks=iter([True,False])
+        # Entry and focus-tap checks pass; typing loses lease.
+        checks=iter([True,True,False])
         runner.can_act=lambda: next(checks)
         with self.assertRaisesRegex(WorkflowError,'refusing input'):
             runner._execute({'kind':'field_text','point':[200,400],'text':'Ready'},100)
