@@ -594,6 +594,48 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_studio_rejects_invalid_draft_recognition_rules_without_saving(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('InvalidWhen', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'InvalidWhen', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                invalid = [
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                     'text': '[', 'regex': True},
+                    {'type': 'pixel', 'rect': [100, 200, 230, 300],
+                     'point': [540, 250], 'bgr': [50, 50, 50]},
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [50, 50, 50], 'tolerance': -1,
+                     'negate': True},
+                ]
+                for bad_rule in invalid:
+                    with self.subTest(rule=bad_rule):
+                        studio.extra_conditions = [bad_rule]
+                        studio._field_changed()
+                        with patch('omniflow.studio.QMessageBox.warning') as warn, \\
+                             patch('swordx.workflows._write_manifest') as write:
+                            studio._save()
+                            warn.assert_called_once()
+                            write.assert_not_called()
+                        self.assertEqual(warn.call_args.args[1], 'Rules')
+                        self.assertIn('Condition 1:', warn.call_args.args[2])
+                        self.assertEqual(
+                            {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()}, before)
+                        self.assertTrue(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_studio_rejects_invalid_draft_actions_without_saving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
