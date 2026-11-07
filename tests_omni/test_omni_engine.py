@@ -7,6 +7,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
+from swordx.adb import ADBError
 from swordx.workflows import create_workflow,record_step
 from omniflow.engine import OmniDetector, OmniRunner,WorkflowError, Match
 
@@ -146,6 +147,70 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(runner.device_size, (1080, 1920))
             runner.step(103)
         self.assertEqual(len(device.taps), 2)
+
+    def test_capture_failure_drops_pending_action_and_requires_fresh_frames(self):
+        self.change(self.key, action_chain=[
+            {'kind': 'tap', 'point': [290, 770]},
+            {'kind': 'key', 'code': 4}], end=True)
+        device = Device(self.match)
+        completed = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            completed=completed.append)
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            runner.step(101)
+            self.assertEqual(runner.chain_index, 1)
+            self.assertEqual(len(device.taps), 1)
+            with patch.object(device, 'screenshot', side_effect=ADBError('offline')):
+                with self.assertRaisesRegex(ADBError, 'offline'):
+                    runner.step(102)
+            self.assertEqual(runner.chain_index, 0)
+            self.assertEqual(runner.current, '')
+            self.assertIsNone(runner.last_frame)
+            self.assertEqual(runner.last_observation.key, '')
+            self.assertFalse(runner.end_pending)
+            runner.step(103)
+            self.assertEqual(device.keys, [])
+            self.assertEqual(len(device.taps), 1)
+            runner.step(104)
+        # The resumed workflow starts from the first action, not the old key.
+        self.assertEqual(device.keys, [])
+        self.assertEqual(len(device.taps), 2)
+        self.assertEqual(completed, [])
+
+    def test_failed_adb_input_reconfirms_before_retrying(self):
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        found = Match(self.key, 'Match', 1.0)
+        with patch.object(runner.detector, 'detect', return_value=found):
+            runner.step(100)
+            with patch.object(device, 'tap', side_effect=ADBError('transport lost')):
+                with self.assertRaisesRegex(ADBError, 'transport lost'):
+                    runner.step(101)
+            self.assertEqual(runner.current, '')
+            self.assertEqual(runner.chain_index, 0)
+            runner.step(102)
+            self.assertEqual(device.taps, [])
+            runner.step(103)
+        self.assertEqual(len(device.taps), 1)
+
+    def test_capture_error_clears_completion_that_cannot_be_observed(self):
+        self.change(self.key, end=True)
+        device = Device(self.match)
+        runs = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            completed=runs.append)
+        runner.step(100)
+        runner.step(101)
+        self.assertTrue(runner.end_pending)
+        with patch.object(device, 'screenshot', side_effect=OSError('device disconnected')):
+            with self.assertRaisesRegex(OSError, 'device disconnected'):
+                runner.step(102)
+        device.frame = self.cancel
+        runner.step(103)
+        runner.step(104)
+        self.assertEqual(runs, [])
 
     def test_negative_wait_overrides_queued_action_and_rearms_on_return(self):
         device=Device(self.match)

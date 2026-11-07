@@ -358,11 +358,35 @@ class OmniRunner:
             self.last_launch = now
             self.missing_since = None
 
+    def _invalidate_visual_state(self, now: float) -> None:
+        """A failed I/O attempt makes the previous state/action progress uncertain.
+
+        Re-arm only after two new matching screenshots. In particular, never
+        complete a run based on a screen transition that was not observed.
+        """
+        self._stable_key = ''
+        self._streak = 0
+        self.current = ''
+        self.entered_at = now
+        self.action_at = now
+        self.chain_index = 0
+        self.chain_wait_until = 0
+        self.attempts = 0
+        self.end_pending = False
+        self._acted = False
+        self.unknown_count = 0
+
     def step(self, now: float | None = None) -> Match:
         now = time.monotonic() if now is None else now
         self.wait_remaining = None
-        raw = self.device.screenshot()
-        frame = normalize(raw)
+        try:
+            raw = self.device.screenshot()
+            frame = normalize(raw)
+        except (ADBError, OSError):
+            self._invalidate_visual_state(now)
+            self.last_frame = None
+            self.last_observation = UNKNOWN
+            raise
         self.last_frame = frame
         # ADB `wm size` can report an old base orientation. Use screenshot
         # geometry, and never continue an action chain across a rotation or
@@ -374,17 +398,7 @@ class OmniRunner:
         if changed:
             self.log(f'Display geometry changed to {geometry[0]}x{geometry[1]}; '
                      'reconfirming state before input')
-            self._stable_key = ''
-            self._streak = 0
-            self.current = ''
-            self.entered_at = now
-            self.action_at = now
-            self.chain_index = 0
-            self.chain_wait_until = 0
-            self.attempts = 0
-            self.end_pending = False
-            self._acted = False
-            self.unknown_count = 0
+            self._invalidate_visual_state(now)
         observation = self.detector.detect(frame)
         self.last_observation = observation
         # Recognition intentionally uses a fixed coordinate canvas for saved
@@ -454,7 +468,15 @@ class OmniRunner:
             return observation
         if self.chain_index == 0:
             self.action_at = now
-        executed = self._execute(chain[self.chain_index], now)
+        try:
+            executed = self._execute(chain[self.chain_index], now)
+        except (ADBError, OSError):
+            # An interrupted touch/typing command may have partially reached
+            # Android. Do not silently advance or reuse an old recognition
+            # streak; treat the next screenshot as a new state observation.
+            self._invalidate_visual_state(now)
+            self.last_observation = UNKNOWN
+            raise
         if executed:
             self._acted = True
         if self.chain_index >= len(chain):
