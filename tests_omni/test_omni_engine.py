@@ -332,7 +332,10 @@ class EngineTests(unittest.TestCase):
         device=Device(self.match)
         runner=OmniRunner(device,self.folder,'com.game.demo')
         runner.device_size=(2160,3840)
-        runner._execute({'kind':'field_text','point':[200,400],'text':'Agent 21'},100)
+        # Direct _execute() tests bypass step(), so supply a fresh frame clock.
+        runner.last_capture_started_at=100.0
+        with patch('omniflow.engine.time.monotonic', return_value=100.0):
+            runner._execute({'kind':'field_text','point':[200,400],'text':'Agent 21'},100)
         self.assertEqual(device.taps,[(800,1600)])
         self.assertEqual(device.texts,['Agent 21'])
 
