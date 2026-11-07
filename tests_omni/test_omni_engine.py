@@ -669,7 +669,7 @@ class EngineTests(unittest.TestCase):
         runner.device_size = (2160, 3840)
         runner.last_capture_started_at = 100.0
         with patch('omniflow.engine.time.monotonic', return_value=100.0):
-            with self.assertRaisesRegex(WorkflowError, 'Invalid field_text'):
+            with self.assertRaisesRegex(WorkflowError, 'outside 540'):
                 runner._execute(
                     {'kind': 'field_text', 'point': [900, 200], 'text': 'valid'}, 100)
         self.assertEqual(device.taps, [])
