@@ -81,6 +81,31 @@ def _rect(frame: np.ndarray, bounds: list[int]) -> np.ndarray:
     return frame[y1:y2, x1:x2]
 
 
+def validate_ocr_expression(text: str, regex: bool = False) -> str:
+    """Reject invalid OCR rules before they reach the live state machine."""
+    expression = str(text)
+    if not expression.strip():
+        raise WorkflowError('OCR condition must contain text')
+    if regex:
+        try:
+            re.compile(expression, re.IGNORECASE)
+        except re.error as exc:
+            raise WorkflowError(f'Invalid OCR regular expression: {exc}') from exc
+    return expression
+
+
+def preview_conditions(frame: np.ndarray, conditions: list[dict]) -> list[bool]:
+    """Test unsaved Studio rules against pixels without loading or executing actions."""
+    if not conditions:
+        raise WorkflowError('Add at least one recognition condition to test')
+    if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
+            frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
+        raise WorkflowError('Capture a valid color screenshot before testing conditions')
+    image = frame if frame.shape == (SIZE[1], SIZE[0], 3) else normalize(frame)
+    cache: dict = {}
+    return [bool(_condition(image, rule, cache)) for rule in conditions]
+
+
 def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
     kind = condition.get('type')
     rect = condition.get('rect', [0, 0, *SIZE])
@@ -97,9 +122,8 @@ def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
         if region not in ocr_cache:
             ocr_cache[region] = OCREngine.read(roi)
         found = ocr_cache[region]
-        expression = str(condition.get('text', ''))
-        if not expression:
-            raise WorkflowError('OCR condition must contain text')
+        expression = validate_ocr_expression(
+            condition.get('text', ''), bool(condition.get('regex')))
         if condition.get('regex'):
             passed = re.search(expression, found, re.IGNORECASE) is not None
         else:
