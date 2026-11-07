@@ -165,6 +165,19 @@ prompts remain enabled. Qt tests cover condition toggles, action reorder/reset,
 selection restoration and save boundaries. This is draft-only undo, not a
 persistent version history.
 
+**Visual editing copy and order (current iteration):** Both WHEN condition rows
+and THEN action steps now offer **Copy, move up/down and Remove** controls.
+Copy creates an independent deep copy immediately below the selected row;
+move retains the moved row's selection and is bounded at the first/last row.
+Contextual controls disable themselves when there is no valid selected row or
+movement is impossible, rather than appearing clickable but doing nothing.
+These operations participate in the same 30-step draft Undo/Redo history,
+preserve the user's editing context and only persist during an explicit Save.
+Reordering conditions changes their review/display sequence, not the AND
+recognition semantics; reordering actions changes their actual execution order.
+Offscreen Qt tests cover independent copies, selection, disabled controls,
+boundary no-ops, undo/redo and saved action-chain ordering.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
