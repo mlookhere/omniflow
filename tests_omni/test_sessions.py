@@ -122,16 +122,23 @@ class ManagerTests(unittest.TestCase):
 
         target_frame = self.frame
         device = DelayedSecondCapture()
-        self.addCleanup(device.release_second.set)
         manager = InstanceManager(self.db,
                                   device_factory=lambda serial: device,
                                   poll_seconds=0.35)
-        self.addCleanup(manager.stop_all)
         ok, reason = manager.start('emulator:pause', 'com.example.game',
                                    'Tap', folder)
         self.assertTrue(ok, reason)
         session = manager.snapshot()[0]
-        self.addCleanup(lambda: session.worker.join(3))
+
+        def cleanup_worker():
+            # Windows holds SQLite files open while worker/keepalive threads
+            # still run. Stop first, then join before TemporaryDirectory cleanup.
+            device.release_second.set()
+            manager.stop_all()
+            session.worker.join(3)
+            self.assertFalse(session.worker.is_alive())
+
+        self.addCleanup(cleanup_worker)
         self.assertTrue(device.second_started.wait(3))
         manager.pause(session.serial, True)
         device.release_second.set()
