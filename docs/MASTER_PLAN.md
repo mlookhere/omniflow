@@ -55,7 +55,7 @@ explicit per-game verification, not an unlimited-success claim.
 ### Near-term priority queue
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
-2. **P0 screenshot bottleneck:** optimize the actual ADB capture/normalization pipeline; assess reusable decoded-video frames without changing input permissions or making stale frames appear current.
+2. **P0 screenshot bottleneck:** run `tools/profile_capture.py` on real MuMu to distinguish ADB screencap/PNG transport from host decoding and normalization; optimize whichever p95 dominates. Investigate reusable decoded-video frames only with freshness/rotation checks and no additional encoders.
 3. **P1 text-action completeness:** verified field focus, keyboard/IME adapter and safe handling of unsupported characters (never silently mangle text).
 4. **P1 operator visibility:** dependency checks in GUI, per-action dry-run traces, target screenshot snapshots, failure reason and retry status.
 5. **P2 composition:** reusable workflows/subflows, variable extraction from OCR, conditional branching and loops with stop policies.

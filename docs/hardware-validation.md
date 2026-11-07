@@ -15,6 +15,25 @@ Uploaded evidence from a 120-second run on `127.0.0.1:16640`:
 
 **Next measurement:** profile ADB `screencap` transport/decode latency; evaluate a bounded **shared decoded H.264 frame source** as a capture alternative for the selected instance, with freshness/rotation and automatic fallback. Do not enable ten encoders by default or weaken the 0.8 FPS criterion.
 
+### Profile the slow ADB screenshot pipeline (M6)
+
+The one-MuMu baseline measured only **0.719 screenshot FPS**. Before modifying the
+capture backend, measure three stages separately on the same Windows machine:
+
+```powershell
+.\.venv\Scripts\python.exe tools\profile_capture.py 
+    --serial 127.0.0.1:16640 --seconds 120 --poll 0.9 
+    --min-fps 0.8 --output hardware-evidence\capture-profile.json
+```
+
+Compare `timings_ms.adb_exec_ms`, `png_decode_ms` and `normalize_ms`
+(mean and p95), plus `effective_fps` and `png_bytes_mean`. ADB exec time
+includes Android PNG encoding, ADB process startup and transport; these cannot
+be separated further by this tool. Profiling sends no game input, starts no
+H.264 encoders, and rejects invalid frames, missing devices, errors, and FPS
+below the unchanged 0.8 threshold. **This is diagnosis, not proof of a faster
+capture backend or ten-instance acceptance.**
+
 ## 0. Collect a complete read-only evidence set (Windows)
 
 For a **single-MuMu capacity estimate**, start one emulator on a changing
