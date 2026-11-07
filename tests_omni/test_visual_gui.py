@@ -195,6 +195,83 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_draft_action_preview_redacts_text_and_never_uses_device_or_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('PreviewActions', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                        taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('127.0.0.1:16384', 'PreviewActions', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.extra_chain = [
+                    {'kind': 'tap', 'point': [150, 250]},
+                    {'kind': 'wait', 'seconds': 2},
+                    {'kind': 'field_text', 'point': [150, 250],
+                     'text': 'secret-987'},
+                ]
+                with patch('omniflow.devices.Device.screenshot') as capture, \\
+                     patch('swordx.workflows._write_manifest') as write:
+                    studio._preview_draft_actions()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                output = studio.action_preview_status.text()
+                self.assertIn('1. Tap location selected on screen', output)
+                self.assertIn('2. Wait 2 seconds', output)
+                self.assertIn('3. Tap selected field and type text (contents hidden)', output)
+                self.assertNotIn('secret-987', output)
+                self.assertIn('no taps or saves', output)
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
+    def test_draft_action_preview_rejects_invalid_steps_and_honors_wait(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('DraftSafety', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                        taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'DraftSafety', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio._preview_draft_actions()
+                self.assertIn('Tap location selected on screen',
+                              studio.action_preview_status.text())
+
+                studio.extra_chain = [{'kind': 'tap', 'point': [700, 200]}]
+                studio._preview_draft_actions()
+                self.assertIn('Draft action invalid:',
+                              studio.action_preview_status.text())
+                self.assertIn('Nothing saved or tapped',
+                              studio.action_preview_status.text())
+
+                studio.passive.setChecked(True)
+                studio._preview_draft_actions()
+                self.assertIn('WAIT — no input will be sent',
+                              studio.action_preview_status.text())
+                self.assertNotIn('Draft action invalid',
+                                 studio.action_preview_status.text())
+
+                studio.passive.setChecked(False)
+                studio.extra_chain = [{'kind': 'wait', 'seconds': 5}]
+                studio._refresh_extra()
+                self.assertIn('Unsaved actions can be checked',
+                              studio.action_preview_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_saved_studio_inspection_explains_states_without_input_or_save(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
