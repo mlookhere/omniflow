@@ -129,6 +129,17 @@ or workflow writes are made. Replays are single-frame recognition evidence,
 **not** action/timing/retry simulations or physical device acceptance. Unit
 and offscreen Qt tests cover read-only results and missing/unsafe sources.
 
+**Replay collision diagnostics (current iteration):** The read-only replay now
+also records *other passing states* for each saved screenshot, even when the
+expected state is selected. Competing passive WAIT and actionable candidates
+are visibly distinguished in a scrollable five-column results table (recorded
+state, result, selected state, other matches, reason). Image-template failures
+show measured score and required minimum; failed OCR/color/pixel/NOT checks
+retain concise rule descriptions. Multiple overlapping matches are a warning,
+not automatically a replay failure, because the normal priority ordering still
+chooses one state. The audit only inspects static saved captures; it does not
+predict state transitions or change runtime tap behavior.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
