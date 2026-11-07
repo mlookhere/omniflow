@@ -411,6 +411,112 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_rule_copy_reorder_and_disabled_controls_are_undoable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('RuleCopy', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                        taps=[(150, 250)])
+            original = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'RuleCopy', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                controls = studio._selection_buttons['rule']
+                self.assertFalse(controls['duplicate'].isEnabled())
+                self.assertFalse(controls['edit'].isEnabled())
+                self.assertFalse(controls['up'].isEnabled())
+                studio.extra_conditions = [
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300], 'text': 'READY'},
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [75, 75, 75], 'tolerance': 15}]
+                studio._refresh_extra()
+                studio.rules_list.setCurrentRow(0)
+                self.assertTrue(controls['duplicate'].isEnabled())
+                self.assertFalse(controls['up'].isEnabled())
+                self.assertTrue(controls['down'].isEnabled())
+                studio._duplicate_rule()
+                self.assertEqual(len(studio.extra_conditions), 3)
+                self.assertEqual(studio.rules_list.currentRow(), 1)
+                self.assertIsNot(studio.extra_conditions[0],
+                                 studio.extra_conditions[1])
+                self.assertIsNot(studio.extra_conditions[0]['rect'],
+                                 studio.extra_conditions[1]['rect'])
+                studio.extra_conditions[1]['rect'][0] = 105
+                self.assertEqual(studio.extra_conditions[0]['rect'][0], 100)
+                # A duplicate is a distinct draft value, not an alias.
+                studio._move_rule(1)
+                self.assertEqual(studio.rules_list.currentRow(), 2)
+                self.assertFalse(controls['down'].isEnabled())
+                studio._move_rule(1)  # Out-of-range must be a no-op.
+                self.assertEqual(len(studio._undo_edits), 2)
+                studio._undo_edit()
+                self.assertEqual(studio.rules_list.currentRow(), 1)
+                studio._undo_edit()
+                self.assertEqual(len(studio.extra_conditions), 2)
+                studio._redo_edit()
+                self.assertEqual(len(studio.extra_conditions), 3)
+                self.assertEqual(studio.rules_list.currentRow(), 1)
+                self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                 original)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_action_copy_reorder_and_save_preserve_chain_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ActionCopy', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            original = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'ActionCopy', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                controls = studio._selection_buttons['action']
+                self.assertFalse(controls['duplicate'].isEnabled())
+                self.assertFalse(controls['remove'].isEnabled())
+                studio.extra_chain = [
+                    {'kind': 'tap', 'point': [150, 250]},
+                    {'kind': 'wait', 'seconds': 2}]
+                studio._refresh_extra()
+                studio.actions_list.setCurrentRow(0)
+                self.assertTrue(controls['duplicate'].isEnabled())
+                self.assertFalse(controls['up'].isEnabled())
+                studio._duplicate_action()
+                self.assertEqual(studio.actions_list.currentRow(), 1)
+                self.assertEqual([a['kind'] for a in studio.extra_chain],
+                                 ['tap', 'tap', 'wait'])
+                self.assertIsNot(studio.extra_chain[0]['point'],
+                                 studio.extra_chain[1]['point'])
+                studio._move_action(1)
+                self.assertEqual(studio.actions_list.currentRow(), 2)
+                self.assertFalse(controls['down'].isEnabled())
+                self.assertEqual([a['kind'] for a in studio.extra_chain],
+                                 ['tap', 'wait', 'tap'])
+                studio._undo_edit()
+                self.assertEqual([a['kind'] for a in studio.extra_chain],
+                                 ['tap', 'tap', 'wait'])
+                studio._redo_edit()
+                self.assertEqual([a['kind'] for a in studio.extra_chain],
+                                 ['tap', 'wait', 'tap'])
+                self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                 original)
+                studio._save()
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual([a['kind'] for a in
+                                  saved['actions'][key]['action_chain']],
+                                 ['tap', 'wait', 'tap'])
+                self.assertFalse(studio._undo_buttons[0].isEnabled())
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_settings_only_studio_save_is_atomic_and_preserves_templates(self):
         from swordx import workflows
         with tempfile.TemporaryDirectory() as tmp:
