@@ -111,6 +111,39 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertEqual(len(manifest['states'][key]), 1)
             self.assertEqual(manifest['actions'][key]['taps'], [[130, 140]])
 
+    def test_legacy_settings_save_preserves_studio_fields_by_default(self):
+        from swordx.workflows import update_step_settings
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('LegacySave', Path(root))
+            key = record_step(
+                folder, 'Before', self.frame, [],
+                action_chain=[{'kind': 'tap', 'point': [140, 155]}],
+                conditions=[{'type': 'color', 'rect': [80, 100, 220, 170],
+                             'bgr': [200, 100, 10]}],
+                condition_only=True)
+            path = folder / 'manifest.json'
+            original = json.loads(path.read_text())['actions'][key]
+            update_step_settings(folder, key, 'After', end=False, retry=False)
+            saved = json.loads(path.read_text())['actions'][key]
+            self.assertEqual(saved['label'], 'After')
+            for field in ('action_chain', 'conditions', 'skip_template'):
+                self.assertEqual(saved[field], original[field])
+
+    def test_settings_extra_validation_never_writes_partial_manifest(self):
+        from swordx.workflows import update_step_settings
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('SafeSave', Path(root))
+            key = record_step(folder, 'Original', self.frame,
+                              [(80, 100, 220, 170)], taps=[(140, 155)])
+            path = folder / 'manifest.json'
+            original = path.read_bytes()
+            with self.assertRaisesRegex(ValueError, 'recognition condition'):
+                update_step_settings(
+                    folder, key, 'Changed', end=True, retry=True,
+                    studio={'action_chain': [], 'conditions': [],
+                            'skip_template': True})
+            self.assertEqual(path.read_bytes(), original)
+
     def test_readable_editor_summaries_do_not_expose_coordinates(self):
         self.assertIn('Swipe',action_summary({'kind':'swipe','start':[20,20],
                                                'end':[120,180],'duration_ms':450}))
