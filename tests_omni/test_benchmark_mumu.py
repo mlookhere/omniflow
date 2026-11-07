@@ -134,6 +134,31 @@ class BenchmarkTests(unittest.TestCase):
         self.assertTrue(any('capture/detector error' in check for check in checks))
         self.assertTrue(any('below' in check for check in checks))
 
+    def test_benchmark_rejects_corrupt_capture_rate_and_counters(self):
+        from dataclasses import replace
+
+        valid = benchmark.DeviceResult(
+            '127.0.0.1:16384', 120, 0, 120.0, 1.0,
+            800.0, 900.0, None, max_frame_gap_seconds=2.0)
+        self.assertEqual(benchmark.evaluate([valid], 1, 0.8, minimum_seconds=120), [])
+        cases = (
+            ('nan FPS', {'effective_fps': float('nan')}, 'invalid capture FPS'),
+            ('infinite FPS', {'effective_fps': float('inf')}, 'invalid capture FPS'),
+            ('negative FPS', {'effective_fps': -1.0}, 'invalid capture FPS'),
+            ('fabricated FPS', {'effective_fps': 2.0}, 'frame count and FPS disagree'),
+            ('zero elapsed', {'elapsed_seconds': 0.0}, 'invalid measured duration'),
+            ('nan elapsed', {'elapsed_seconds': float('nan')}, 'invalid measured duration'),
+            ('fractional frames', {'frames': 120.5}, 'invalid whole-number screenshot count'),
+            ('negative frames', {'frames': -1}, 'invalid whole-number screenshot count'),
+            ('fractional errors', {'errors': 0.5}, 'invalid whole-number error count'),
+            ('negative errors', {'errors': -1}, 'invalid whole-number error count'),
+        )
+        for label, changes, reason in cases:
+            with self.subTest(case=label):
+                failures = benchmark.evaluate(
+                    [replace(valid, **changes)], 1, 0.8, minimum_seconds=120)
+                self.assertTrue(any(reason in error for error in failures), failures)
+
     def test_slow_but_successful_screenshot_reports_rejected_gap(self):
         class Clock:
             def __init__(self):
