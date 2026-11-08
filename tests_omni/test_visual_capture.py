@@ -232,6 +232,53 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertFalse(new_anchor.exists())
             self.assertFalse(new_capture.exists())
 
+    def test_failed_obsolete_image_cleanup_keeps_committed_state_successful(self):
+        # An unlink failure happens after the manifest transaction, so it
+        # cannot safely make either operation appear rolled back.
+        real_unlink = Path.unlink
+        for operation in ('recapture', 'remove'):
+            with self.subTest(operation=operation):
+                with tempfile.TemporaryDirectory() as root:
+                    folder = create_workflow('Postcommit cleanup', Path(root))
+                    rect = (80, 100, 220, 170)
+                    key = record_step(folder, 'Before', self.frame, [rect],
+                                      taps=[(130, 140)])
+                    manifest = folder / 'manifest.json'
+                    saved = json.loads(manifest.read_text(encoding='utf-8'))
+                    old_anchor = folder / 'anchors' / saved['states'][key][0]['file']
+                    old_capture = folder / 'captures' / saved['actions'][key]['capture']
+                    old_assets = {old_anchor, old_capture}
+
+                    def blocked_unlink(path, *args, **kwargs):
+                        if path in old_assets:
+                            raise PermissionError('simulated locked image')
+                        return real_unlink(path, *args, **kwargs)
+
+                    with (patch('swordx.workflows.Path.unlink',
+                                autospec=True, side_effect=blocked_unlink),
+                          self.assertLogs(level='WARNING') as logs):
+                        if operation == 'recapture':
+                            self.assertEqual(
+                                record_step(folder, 'After', self.frame, [rect],
+                                            taps=[(130, 140)], key=key), key)
+                        else:
+                            remove_step(folder, key)
+                    self.assertIn('simulated locked image', '\n'.join(logs.output))
+                    self.assertTrue(old_anchor.is_file())
+                    self.assertTrue(old_capture.is_file())
+                    current = json.loads(manifest.read_text(encoding='utf-8'))
+                    if operation == 'recapture':
+                        self.assertEqual(current['actions'][key]['label'], 'After')
+                        self.assertTrue(
+                            (folder / 'captures' /
+                             current['actions'][key]['capture']).is_file())
+                        self.assertNotEqual(
+                            current['actions'][key]['capture'],
+                            saved['actions'][key]['capture'])
+                    else:
+                        self.assertNotIn(key, current['states'])
+                        self.assertNotIn(key, current['actions'])
+
     def test_unsafe_cleanup_references_cannot_recapture_or_delete(self):
         for operation in ('recapture', 'remove'):
             for asset in ('anchor', 'capture'):
