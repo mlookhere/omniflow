@@ -1079,33 +1079,7 @@ class EngineTests(unittest.TestCase):
         rect = [155, 712, 434, 810]
         literal = {'type': 'ocr', 'rect': rect, 'text': 'READY',
                    'regex': False, 'negate': False}
-        regex = {'type': 'ocr', 'rect': rect, 'text': '^READY        self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[155,712,434,810], 'text':'PLAY'}])
-        with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
-            detected=OmniDetector(self.folder).detect(self.cancel)
-        self.assertEqual(detected.key,self.wait)  # Wait takes precedence.
-        with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
-            detected=OmniDetector(self.folder).detect(np.zeros_like(self.match))
-        self.assertEqual(detected.key,self.key)
-
-    def test_condition_negation_when_ocr_is_absent(self):
-        self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[0,0,100,100], 'text':'CANCEL','negate':True}])
-        with patch('omniflow.engine.OCREngine.read', return_value='Ready'):
-            self.assertEqual(OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,self.key)
-        with patch('omniflow.engine.OCREngine.read', return_value='Cancel'):
-            self.assertEqual(OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,'')
-
-    def test_completion_marker_counts_on_exiting_screen_only(self):
-        self.change(self.key,end=True)
-        device=Device(self.match);runs=[]
-        r=OmniRunner(device,self.folder,'com.game.demo',completed=runs.append)
-        for t in (100,101,102):r.step(t)
-        self.assertEqual(runs,[])
-        for t in (103,104):device.frame=self.cancel;r.step(t)
-        self.assertEqual(runs,[1])
-
-
-if __name__=='__main__':unittest.main()
-,
+        regex = {'type': 'ocr', 'rect': rect, 'text': '^READY',
                  'regex': True, 'negate': False}
         inverted = {'type': 'ocr', 'rect': rect, 'text': 'READY',
                     'regex': False, 'negate': True}
@@ -1116,29 +1090,42 @@ if __name__=='__main__':unittest.main()
             ocr.assert_called_once()
 
     def test_condition_only_ocr_state_and_negation(self):
-        self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[155,712,434,810], 'text':'PLAY'}])
+        self.change(self.key, skip_template=True, conditions=[
+            {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'PLAY'}])
         with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
-            detected=OmniDetector(self.folder).detect(self.cancel)
-        self.assertEqual(detected.key,self.wait)  # Wait takes precedence.
+            detected = OmniDetector(self.folder).detect(self.cancel)
+        self.assertEqual(detected.key, self.wait)  # WAIT takes precedence.
         with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
-            detected=OmniDetector(self.folder).detect(np.zeros_like(self.match))
-        self.assertEqual(detected.key,self.key)
+            detected = OmniDetector(self.folder).detect(np.zeros_like(self.match))
+        self.assertEqual(detected.key, self.key)
 
     def test_condition_negation_when_ocr_is_absent(self):
-        self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[0,0,100,100], 'text':'CANCEL','negate':True}])
+        self.change(self.key, skip_template=True, conditions=[
+            {'type': 'ocr', 'rect': [0, 0, 100, 100],
+             'text': 'CANCEL', 'negate': True}])
         with patch('omniflow.engine.OCREngine.read', return_value='Ready'):
-            self.assertEqual(OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,self.key)
+            self.assertEqual(
+                OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,
+                self.key)
         with patch('omniflow.engine.OCREngine.read', return_value='Cancel'):
-            self.assertEqual(OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,'')
+            self.assertEqual(
+                OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,
+                '')
 
     def test_completion_marker_counts_on_exiting_screen_only(self):
-        self.change(self.key,end=True)
-        device=Device(self.match);runs=[]
-        r=OmniRunner(device,self.folder,'com.game.demo',completed=runs.append)
-        for t in (100,101,102):r.step(t)
-        self.assertEqual(runs,[])
-        for t in (103,104):device.frame=self.cancel;r.step(t)
-        self.assertEqual(runs,[1])
+        self.change(self.key, end=True)
+        device = Device(self.match)
+        runs = []
+        runner = OmniRunner(device, self.folder, 'com.game.demo',
+                            completed=runs.append)
+        for t in (100, 101, 102):
+            runner.step(t)
+        self.assertEqual(runs, [])
+        for t in (103, 104):
+            device.frame = self.cancel
+            runner.step(t)
+        self.assertEqual(runs, [1])
 
 
-if __name__=='__main__':unittest.main()
+if __name__ == '__main__':
+    unittest.main()
