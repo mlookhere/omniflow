@@ -1032,6 +1032,17 @@ class EngineTests(unittest.TestCase):
         invalid = [
             ({'type': 'ocr', 'rect': [155, 712, 434, 810],
               'text': '[', 'regex': True}, 'regular expression'),
+            ({'type': 'ocr', 'rect': [155, 712, 434, 810],
+              'text': 'READY', 'regex': 'false'}, 'Recognition regex must be true or false'),
+            ({'type': 'ocr', 'rect': [155, 712, 434, 810],
+              'text': 'READY', 'regex': 1}, 'Recognition regex must be true or false'),
+            ({'type': 'ocr', 'rect': [155, 712, 434, 810],
+              'text': 'READY', 'regex': None}, 'Recognition regex must be true or false'),
+            ({'type': 'color', 'bgr': [51, 58, 69],
+              'negate': 'false'}, 'Recognition negate must be true or false'),
+            ({'type': 'pixel', 'point': [200, 400],
+              'bgr': [51, 58, 69], 'negate': 0},
+             'Recognition negate must be true or false'),
             ({'type': 'ocr', 'rect': [0, 0, 0, 20],
               'text': 'READY'}, 'outside the normalized screen'),
             ({'type': 'pixel', 'point': [540, 200],
@@ -1062,6 +1073,47 @@ class EngineTests(unittest.TestCase):
         self.change(self.key, conditions=[valid_ocr])
         detector = OmniDetector(self.folder)
         self.assertIn(self.key, detector.actions)
+
+    def test_explicit_boolean_ocr_flags_keep_normal_matching(self):
+        from omniflow.engine import preview_conditions
+        rect = [155, 712, 434, 810]
+        literal = {'type': 'ocr', 'rect': rect, 'text': 'READY',
+                   'regex': False, 'negate': False}
+        regex = {'type': 'ocr', 'rect': rect, 'text': '^READY        self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[155,712,434,810], 'text':'PLAY'}])
+        with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
+            detected=OmniDetector(self.folder).detect(self.cancel)
+        self.assertEqual(detected.key,self.wait)  # Wait takes precedence.
+        with patch('omniflow.engine.OCREngine.read', return_value='PLAY NOW'):
+            detected=OmniDetector(self.folder).detect(np.zeros_like(self.match))
+        self.assertEqual(detected.key,self.key)
+
+    def test_condition_negation_when_ocr_is_absent(self):
+        self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[0,0,100,100], 'text':'CANCEL','negate':True}])
+        with patch('omniflow.engine.OCREngine.read', return_value='Ready'):
+            self.assertEqual(OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,self.key)
+        with patch('omniflow.engine.OCREngine.read', return_value='Cancel'):
+            self.assertEqual(OmniDetector(self.folder).detect(np.zeros_like(self.match)).key,'')
+
+    def test_completion_marker_counts_on_exiting_screen_only(self):
+        self.change(self.key,end=True)
+        device=Device(self.match);runs=[]
+        r=OmniRunner(device,self.folder,'com.game.demo',completed=runs.append)
+        for t in (100,101,102):r.step(t)
+        self.assertEqual(runs,[])
+        for t in (103,104):device.frame=self.cancel;r.step(t)
+        self.assertEqual(runs,[1])
+
+
+if __name__=='__main__':unittest.main()
+,
+                 'regex': True, 'negate': False}
+        inverted = {'type': 'ocr', 'rect': rect, 'text': 'READY',
+                    'regex': False, 'negate': True}
+        with patch('omniflow.engine.OCREngine.read', return_value='READY') as ocr:
+            self.assertEqual(
+                preview_conditions(self.match, [literal, regex, inverted]),
+                [True, True, False])
+            ocr.assert_called_once()
 
     def test_condition_only_ocr_state_and_negation(self):
         self.change(self.key,skip_template=True,conditions=[{'type':'ocr','rect':[155,712,434,810], 'text':'PLAY'}])
