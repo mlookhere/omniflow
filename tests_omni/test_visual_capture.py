@@ -232,6 +232,35 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertFalse(new_anchor.exists())
             self.assertFalse(new_capture.exists())
 
+    def test_load_step_rejects_bad_screenshot_geometry_without_editing_manifest(self):
+        from swordx.workflows import load_step
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Capture geometry', Path(root))
+            key = record_step(folder, 'Ready', self.frame,
+                              [(80, 100, 220, 170)], taps=[(130, 140)])
+            manifest = folder / 'manifest.json'
+            saved = json.loads(manifest.read_text(encoding='utf-8'))
+            capture = folder / 'captures' / saved['actions'][key]['capture']
+            original_manifest = manifest.read_bytes()
+            self.assertTrue(cv2.imwrite(str(capture), self.frame[:700, :500]))
+            with self.assertRaisesRegex(ValueError, 'normalized 540×960'):
+                load_step(folder, key)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+
+            capture.write_bytes(b'corrupt screenshot')
+            with self.assertRaisesRegex(ValueError, 'unreadable'):
+                load_step(folder, key)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+
+            # Preserve support for old workflows without a full screenshot.
+            capture.unlink()
+            action, boxes, taps, preview = load_step(folder, key)
+            self.assertTrue(action['_needs_recapture'])
+            self.assertEqual(preview.shape, (960, 540, 3))
+            self.assertEqual(boxes, [(80, 100, 220, 170)])
+            self.assertEqual(taps, [(130, 140)])
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+
     def test_load_step_rejects_unsafe_imported_images_before_reading(self):
         from swordx.workflows import load_step
         for kind in ('captures', 'anchors'):
