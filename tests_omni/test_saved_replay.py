@@ -39,6 +39,69 @@ class SavedReplayTests(unittest.TestCase):
     def manifest(self):
         return self.folder / 'manifest.json'
 
+    def test_draft_inspector_isolated_and_template_gates_unsaved_ocr(self):
+        from omniflow.engine import OmniDetector
+        from omniflow.replay import draft_recognition_inspector
+
+        key = self.record('Saved picture')
+        detector = OmniDetector(self.folder)
+        manifest_before = self.manifest().read_bytes()
+        rule = {'type': 'ocr', 'rect': [95, 125, 245, 260],
+                'text': 'READY'}
+        preview = draft_recognition_inspector(
+            detector, key, conditions=[rule], condition_match='all',
+            condition_only=False, threshold=.90)
+        self.assertNotIn('conditions', detector.actions[key])
+        self.assertNotIn('threshold', detector.actions[key])
+        self.assertEqual(preview.actions[key]['conditions'], [rule])
+        self.assertEqual(preview.actions[key]['threshold'], .90)
+        with (patch('omniflow.engine.OCREngine.read',
+                    return_value='PRIVATE READY') as ocr,
+              patch.object(preview, '_match_template',
+                           return_value=.89)):
+            selected, details = preview.inspect(self.frame)
+            self.assertFalse(selected.key)
+            self.assertEqual(details[0]['status'], 'template below threshold')
+            ocr.assert_not_called()
+        with (patch('omniflow.engine.OCREngine.read',
+                    return_value='PRIVATE READY') as ocr,
+              patch.object(preview, '_match_template',
+                           return_value=.91)):
+            selected, details = preview.inspect(self.frame)
+            self.assertEqual(selected.key, key)
+            self.assertEqual(details[0]['status'], 'selected')
+            ocr.assert_called_once()
+        self.assertEqual(manifest_before, self.manifest().read_bytes())
+        self.assertNotIn('PRIVATE READY', repr(details))
+        self.assertNotIn('conditions', detector.actions[key])
+
+        # Unchecking custom confidence discards the prior saved override.
+        data = json.loads(self.manifest().read_text())
+        data['actions'][key]['threshold'] = .98
+        self.manifest().write_text(json.dumps(data))
+        detector = OmniDetector(self.folder)
+        default = draft_recognition_inspector(
+            detector, key, conditions=[], condition_match='all',
+            condition_only=False, threshold=None)
+        self.assertNotIn('threshold', default.actions[key])
+        self.assertEqual(default.threshold, .82)
+        self.assertEqual(detector.actions[key]['threshold'], .98)
+
+        with patch('omniflow.engine.OCREngine.read') as ocr:
+            for conditions, mode, only, threshold in (
+                ([{'type': 'ocr', 'rect': [0, 0, 10, 10],
+                   'text': '(' , 'regex': True}], 'all', True, None),
+                ([], 'unsupported', False, None),
+                ([], 'all', False, float('nan')),
+                ([], 'all', True, None)):
+                with self.subTest(mode=mode, conditions=conditions):
+                    with self.assertRaises(WorkflowError):
+                        draft_recognition_inspector(
+                            detector, key, conditions=conditions,
+                            condition_match=mode, condition_only=only,
+                            threshold=threshold)
+            ocr.assert_not_called()
+
     def test_saved_capture_matches_without_writing_any_files(self):
         key = self.record()
         before = {file.relative_to(self.folder): file.read_bytes()

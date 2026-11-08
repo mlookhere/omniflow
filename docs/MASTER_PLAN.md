@@ -987,3 +987,21 @@ Offscreen Qt regressions verify new-state reuse, source independence,
 cancellation, unsafe paths, lack of ADB input and no premature writes.
 Physical Windows/MuMu acceptance and enforced required checks remain
 release gates.
+
+**Combined unsaved recognition check (current Studio iteration):** A new
+**Test full draft WHEN** read-only control evaluates the current unsaved
+AND/OR rules and custom image confidence together, on a single screenshot.
+For existing saved states it constructs an isolated in-memory one-state
+view and calls the production detector's `inspect` matcher; it never
+rewrites anchors or mutates the saved manifest. Image threshold failures
+short-circuit OCR exactly as in live matching and report per-rule evidence
+only when evaluated. For a new condition-only state it uses the same
+validated OCR/color/pixel predicate without requiring a first save.
+New image-template states and unsaved region/image recaptures are not
+invented as saved templates: the test clearly requires an actual saved
+template first. The result explicitly excludes other-state ranking,
+action readiness and live two-frame safety confirmation. Validation occurs
+before any optional screenshot read, and failures clear stale success text.
+Engine/replay and Windows Qt regressions cover correct matching, thresholds,
+no leaked OCR output, validation and no device input or disk changes.
+No physical Windows/MuMu acceptance or `dev` protection claim is implied.

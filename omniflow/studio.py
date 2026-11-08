@@ -695,6 +695,17 @@ class OmniStudio(RecorderDialog):
         self.rule_test_status = QLabel('Unsaved rules can be tested before saving.')
         self.rule_test_status.setWordWrap(True)
         rule_col.addWidget(self.rule_test_status)
+        complete_tester = QPushButton('Test full draft WHEN (no taps)')
+        complete_tester.setToolTip(
+            'Combine unsaved text/color rules with the saved image template '
+            'and current confidence setting; new condition-only states '
+            'can be tested before saving. One-frame check, no actions.')
+        complete_tester.clicked.connect(self._test_complete_draft)
+        rule_col.addWidget(complete_tester)
+        self.complete_test_status = QLabel(
+            'Combined draft recognition has not been checked.')
+        self.complete_test_status.setWordWrap(True)
+        rule_col.addWidget(self.complete_test_status)
         tester=QPushButton('Test saved workflow on current screen (no taps)')
         tester.clicked.connect(self._test_detection)
         rule_col.addWidget(tester)
@@ -762,6 +773,12 @@ class OmniStudio(RecorderDialog):
         chain_col.addWidget(self.action_preview_status)
         self.tabs.addTab(chain,'THEN · Actions')
         self._load_extra()
+
+    def _field_changed(self, *args):
+        if hasattr(self, 'complete_test_status') and not self._loading:
+            self.complete_test_status.setText(
+                'Draft changed. Rerun the combined recognition test.')
+        super()._field_changed(*args)
 
     def _update_controls(self):
         super()._update_controls()
@@ -1167,6 +1184,9 @@ class OmniStudio(RecorderDialog):
         self.actions_list.clear()
         if hasattr(self, 'rule_test_status'):
             self.rule_test_status.setText('Unsaved rules can be tested before saving.')
+        if hasattr(self, 'complete_test_status'):
+            self.complete_test_status.setText(
+                'Combined draft recognition has not been checked.')
         if hasattr(self, 'action_preview_status'):
             self.action_preview_status.setText(
                 'Unsaved actions can be checked before saving or running.')
@@ -1504,6 +1524,86 @@ class OmniStudio(RecorderDialog):
             f'{sum(outcomes)}/{len(outcomes)} conditions match this screenshot. '
             'Draft only: image templates and other states were not tested; '
             'nothing was saved or tapped.\n' + '\n'.join(details))
+
+    def _test_complete_draft(self):
+        """One-frame full WHEN check of unsaved rules and saved image template.
+
+        A draft image recapture cannot be tested against old saved anchors:
+        refuse that misleading outcome instead of inventing new templates.
+        """
+        from .engine import (OmniDetector, WorkflowError,
+                             preview_condition_details, validate_condition)
+        from .replay import (describe_recognition_evidence,
+                             draft_recognition_inspector)
+        status = self.complete_test_status
+        try:
+            for index, rule in enumerate(self.extra_conditions, 1):
+                try:
+                    validate_condition(rule)
+                except WorkflowError as exc:
+                    raise WorkflowError(f'Condition {index}: {exc}') from exc
+            mode = self.condition_logic.currentData()
+            if mode not in ('all', 'any'):
+                raise WorkflowError('Condition combination must be AND or OR')
+            self._priority_value()
+            condition_only = self.rules_only.isChecked()
+            if condition_only and not self.extra_conditions:
+                raise WorkflowError('Condition-only states need at least one WHEN rule')
+            if not condition_only and self._visual_dirty:
+                raise WorkflowError(
+                    'Image regions or screenshot changed. Save the state first '
+                    'to create its updated image template')
+            detector = None
+            if self.editing_key:
+                detector = OmniDetector(self._folder())
+                inspector = draft_recognition_inspector(
+                    detector, self.editing_key,
+                    conditions=self.extra_conditions, condition_match=mode,
+                    condition_only=condition_only,
+                    threshold=self._image_threshold_override())
+            elif not condition_only:
+                raise WorkflowError(
+                    'Save this new state to create an image template, or '
+                    'enable condition-only recognition')
+        except (WorkflowError, ValueError, TypeError, KeyError,
+                OSError, cv2.error) as exc:
+            status.setText(f'Combined draft test unavailable: {exc}. '
+                           'No screenshot or input requested.')
+            return
+        image = self._editor_frame()
+        if image is None:
+            status.setText(
+                'Combined draft test unavailable: no valid screenshot. '
+                'No state was saved or tapped.')
+            return
+        try:
+            if detector is not None:
+                winner, details = inspector.inspect(image)
+                lines = describe_recognition_evidence(inspector, details)
+                matched = bool(winner.key)
+                phase = details[0]['status']
+            else:
+                # A never-saved condition-only state has no image gate. Its
+                # rules use the same OCR/pixel evaluator as the live engine.
+                evaluated = preview_condition_details(image, self.extra_conditions)
+                outcomes = [part['passed'] for part in evaluated]
+                matched = all(outcomes) if mode == 'all' else any(outcomes)
+                phase = 'conditions passed' if matched else 'conditions failed'
+                lines = [
+                    f"  {'PASS' if part['passed'] else 'FAIL'} — "
+                    f"{condition_summary(rule)} ({part['explanation']})"
+                    for rule, part in zip(self.extra_conditions, evaluated)
+                ]
+        except (WorkflowError, ValueError, TypeError, KeyError,
+                OSError, cv2.error) as exc:
+            status.setText(f'Combined draft test failed: {exc}. '
+                           'Nothing was saved or tapped.')
+            return
+        status.setText(
+            f'{"MATCH" if matched else "NO MATCH"}: {phase}. '
+            'Combined draft WHEN on one screenshot; other saved states, '
+            'action readiness and two-frame live confirmation were NOT tested. '
+            'Nothing was saved or tapped.\n' + '\n'.join(lines))
 
     def _test_detection(self):
         from .devices import Device

@@ -5,6 +5,7 @@ No screenshots, manifest entries or emulator input are modified.
 """
 from __future__ import annotations
 
+from copy import copy
 from pathlib import Path
 
 import cv2
@@ -12,8 +13,42 @@ import numpy as np
 
 from swordx.workflows import _safe_saved_image, step_order
 from .engine import (OmniDetector, WorkflowError, resolve_action_chain,
-                     validate_action, validate_saved_action_chains)
+                     validate_action, validate_recognition_manifest,
+                     validate_saved_action_chains)
 from .visual import action_summary, condition_summary
+
+
+def draft_recognition_inspector(
+        detector: OmniDetector, key: str, *, conditions: list[dict],
+        condition_match: str, condition_only: bool,
+        threshold: float | None) -> OmniDetector:
+    """Build an in-memory single-state inspector using the production matcher.
+
+    Fail closed on invalid unsaved rules before requesting a screenshot.
+    Saved templates are shared read-only; the detector and manifest on disk
+    are never edited. Do not use this as a claim about other saved states.
+    """
+    if key not in detector.actions:
+        raise WorkflowError('Save or select a recorded state to test its image')
+    action = dict(detector.actions[key])
+    action['conditions'] = conditions
+    action['condition_match'] = condition_match
+    action['skip_template'] = condition_only
+    # Removing a saved override means use the workflow default, matching the
+    # unchecked custom-confidence control in Studio.
+    action.pop('threshold', None)
+    if threshold is not None:
+        action['threshold'] = threshold
+    manifest = {
+        'states': {key: detector.manifest['states'][key]},
+        'actions': {key: action},
+        'threshold': detector.threshold,
+    }
+    validate_recognition_manifest(manifest)
+    draft = copy(detector)
+    draft.manifest = manifest
+    draft.actions = manifest['actions']
+    return draft
 
 
 def describe_action_plan(action: dict, chain: list[dict]) -> list[str]:

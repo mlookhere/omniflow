@@ -205,6 +205,130 @@ class VisualStudioGuiTests(unittest.TestCase):
         dialog.kind.setCurrentIndex(dialog.kind.findData('color'))
         self.assertEqual(dialog.result_rule()['bgr'], [10, 20, 30])
 
+    def test_combined_draft_matches_unsaved_rules_and_saved_image_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('FullDraft', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'FullDraft', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.extra_conditions = [
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [75, 75, 75], 'tolerance': 255}]
+                studio._refresh_extra()
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                with (patch('omniflow.engine.OmniDetector._match_template',
+                            return_value=.89) as matcher,
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_complete_draft()
+                    self.assertIn('MATCH: selected',
+                                  studio.complete_test_status.text())
+                    studio.image_custom.setChecked(True)
+                    studio.image_confidence.setValue(95)
+                    studio._test_complete_draft()
+                    self.assertIn('NO MATCH: template below threshold',
+                                  studio.complete_test_status.text())
+                    self.assertIn('Conditions not evaluated',
+                                  studio.complete_test_status.text())
+                    self.assertEqual(matcher.call_count, 2)
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('other saved states',
+                              studio.complete_test_status.text())
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+                self.assertNotIn(
+                    'conditions',
+                    json.loads((folder / 'manifest.json').read_text())[
+                        'actions'][key])
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_combined_draft_new_condition_only_and_bad_inputs_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('NewDraft', root)
+            studio = OmniStudio('', 'NewDraft', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.rules_only.setChecked(True)
+                studio.extra_conditions = [
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [75, 75, 75], 'tolerance': 0}]
+                studio._refresh_extra()
+                original = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_complete_draft()
+                    self.assertIn('MATCH: conditions passed',
+                                  studio.complete_test_status.text())
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                studio.extra_conditions = [{
+                    'type': 'ocr', 'rect': [100, 200, 230, 300],
+                    'text': '(', 'regex': True}]
+                studio.complete_test_status.setText('MATCH: stale')
+                with (patch('omniflow.engine.OCREngine.read') as ocr,
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_complete_draft()
+                    self.assertIn('Combined draft test unavailable',
+                                  studio.complete_test_status.text())
+                    self.assertNotIn('MATCH: stale',
+                                     studio.complete_test_status.text())
+                    ocr.assert_not_called()
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                 original)
+                studio.extra_conditions = []
+                studio.rules_only.setChecked(False)
+                with patch('omniflow.devices.Device.screenshot') as adb:
+                    studio._test_complete_draft()
+                    self.assertIn('Save this new state',
+                                  studio.complete_test_status.text())
+                    adb.assert_not_called()
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_combined_draft_refuses_stale_unsaved_image_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('StaleTemplate', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'StaleTemplate', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.canvas.boxes[0] = (110, 210, 220, 290)
+                studio._visual_dirty = True
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_complete_draft()
+                    self.assertIn('Save the state first',
+                                  studio.complete_test_status.text())
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_unsaved_studio_rule_preview_does_not_change_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
