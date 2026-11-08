@@ -423,10 +423,13 @@ class OmniDetector:
 
 
 def _target(point, device_size: tuple[int, int], crop_top: int = 0) -> tuple[int, int]:
-    if len(point) != 2:
+    if not isinstance(point, (list, tuple)) or len(point) != 2:
         raise WorkflowError('Action point must have two coordinates')
+    if any(type(value) not in (int, float) or not math.isfinite(value)
+           for value in point):
+        raise WorkflowError('Action coordinates must be finite numbers')
     w, h = device_size
-    x, y = map(float, point)
+    x, y = point
     # Preserve legacy right/bottom edge coordinates. Device mapping clamps
     # inclusive edges to valid pixels, including on cropped/rotated screens.
     if not 0 <= x <= SIZE[0] or not 0 <= y <= SIZE[1]:
@@ -471,21 +474,21 @@ def validate_action(action: dict) -> str:
         elif kind in ('hold', 'drag', 'swipe'):
             _target(action.get('start', action.get('point')), SIZE)
             _target(action.get('end', action.get('point')), SIZE)
-            duration = int(action.get('duration_ms', 650))
-            if not 50 <= duration <= 10000:
-                raise WorkflowError('Gesture duration must be 50–10000 ms')
+            duration = action.get('duration_ms', 650)
+            if type(duration) is not int or not 50 <= duration <= 10000:
+                raise WorkflowError('Gesture duration must be a whole number from 50–10000 ms')
         elif kind == 'key':
-            code = int(action.get('code', 4))
-            if not 0 <= code <= 300:
-                raise WorkflowError('Invalid Android key event')
+            code = action.get('code', 4)
+            if type(code) is not int or not 0 <= code <= 300:
+                raise WorkflowError('Invalid Android key event (integer 0–300 required)')
         elif kind in ('text', 'field_text'):
-            android_text_argument(str(action.get('text', '')))
+            android_text_argument(action.get('text', ''))
             if kind == 'field_text':
                 _target(action['point'], SIZE)
         elif kind == 'wait':
-            seconds = float(action.get('seconds', 0))
-            if not 0 <= seconds <= 86400:
-                raise WorkflowError('Wait action outside 0–86400 seconds')
+            seconds = action.get('seconds', 0)
+            if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 <= seconds <= 86400:
+                raise WorkflowError('Wait duration must be a finite number from 0–86400 seconds')
         elif kind not in ('launch', 'count_run'):
             raise WorkflowError(f'Unknown action: {kind}')
     except WorkflowError:

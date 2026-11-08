@@ -581,6 +581,13 @@ class VisualStudioGuiTests(unittest.TestCase):
             ('action_chain', [{'kind': 'tap', 'point': [-1, 200]}],
              'Invalid saved action 1'),
             ('action_chain', [None], 'Invalid saved action 1'),
+            ('action_chain', [{'kind': 'key', 'code': True}],
+             'Invalid saved action 1'),
+            ('action_chain', [{'kind': 'swipe', 'start': [100, 200],
+                               'end': [200, 300], 'duration_ms': 650.5}],
+             'Invalid saved action 1'),
+            ('action_chain', [{'kind': 'text', 'text': None}],
+             'Invalid saved action 1'),
         ]
         for field, malformed, expected_error in invalid:
             with self.subTest(field=field, malformed=malformed):

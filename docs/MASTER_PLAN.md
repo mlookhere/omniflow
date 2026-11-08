@@ -612,3 +612,18 @@ regressions cover corrupt destination with retained draft, zero image reads
 for unsafe captures, and valid target with declined discard. This is a
 local authoring safeguard, not a change to runtime matching or a claim of
 physical Windows/MuMu acceptance.
+
+**Strict imported THEN action value validation (November 7, 2026):**
+The shared action preflight no longer truncates fractional gesture durations
+or Android key codes, treats boolean values as numeric times/key codes, types
+non-string JSON values as their Python representation, or accepts string
+coordinates by implicit numeric conversion. Targets must contain two finite
+numeric coordinates, gesture timing and key codes must use integer values,
+wait duration must be a finite integer or float, and ADB text must be an
+actual supported string. Valid fractional-second waits, integral command
+defaults, and legacy normalized fractional coordinates remain supported.
+The same validator is used before live input, dry runs, Studio imports,
+saving, and read-only action previews. Source-level and offscreen Windows
+Qt regressions exercise unsafe coercions and valid compatibility; no
+device action is sent during a failed preflight. Physical Windows/MuMu
+acceptance and protected dev required-check enforcement remain outstanding.

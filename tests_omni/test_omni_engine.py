@@ -701,6 +701,21 @@ class EngineTests(unittest.TestCase):
             {'kind': 'field_text', 'text': 'not;safe', 'point': [200, 300]},
             {'kind': 'wait', 'seconds': -1},
             {'kind': 'wait', 'seconds': float('nan')},
+            {'kind': 'wait', 'seconds': True},
+            {'kind': 'wait', 'seconds': '2'},
+            {'kind': 'tap', 'point': [True, 200]},
+            {'kind': 'tap', 'point': ['100', 200]},
+            {'kind': 'tap', 'point': [float('inf'), 200]},
+            {'kind': 'tap', 'point': [float('nan'), 200]},
+            {'kind': 'swipe', 'start': [100, 200], 'end': [200, 300],
+             'duration_ms': 650.5},
+            {'kind': 'swipe', 'start': [100, 200], 'end': [200, 300],
+             'duration_ms': '650'},
+            {'kind': 'key', 'code': True},
+            {'kind': 'key', 'code': 4.7},
+            {'kind': 'text', 'text': None},
+            {'kind': 'text', 'text': 123},
+            {'kind': 'field_text', 'point': [200, 300], 'text': False},
         ]
         for action in invalid:
             with self.subTest(action=action):
@@ -713,6 +728,21 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(device.keys, [])
         self.assertEqual(device.texts, [])
         self.assertEqual(device.launches, [])
+
+    def test_valid_action_numeric_defaults_and_fractional_wait_remain_supported(self):
+        from omniflow.engine import validate_action
+        for action in (
+            {'kind': 'tap', 'point': [100.5, 200]},
+            {'kind': 'hold', 'point': [100, 200]},
+            {'kind': 'swipe', 'start': [100, 200], 'end': [200, 300],
+             'duration_ms': 650},
+            {'kind': 'key', 'code': 4},
+            {'kind': 'wait', 'seconds': 0.25},
+            {'kind': 'text', 'text': 'Ready Player_1'},
+            {'kind': 'field_text', 'point': [200, 300], 'text': 'Ready'},
+        ):
+            with self.subTest(action=action):
+                self.assertEqual(validate_action(action), action['kind'])
 
     def test_dry_run_traces_each_step_waits_and_redacts_text(self):
         secret = 'account-private-42'
