@@ -438,6 +438,20 @@ corruption and legacy fallback; offscreen Qt checks both selected-state
 rollback and read-only replay warnings. This is file-level geometry safety,
 not proof of correct real-device touch scaling or MuMu acceptance.
 
+**Normalized action target boundary (November 7, 2026):** The live
+action mapper historically accepted `x=540` and `y=960` (inclusive edges)
+and clamped them to the last device pixel, even though visual authoring uses
+540×960 pixel coordinates with final valid indices **539 and 959**. Imported
+action chains could therefore silently target an unintended edge pixel.
+The shared action validation/Android mapping path now rejects those exclusive
+edge points with the same visible out-of-range error already used for larger
+coordinates. Python regressions cover tap, double-tap, hold, swipe, drag
+and visually targeted text, valid final pixel mapping, and runner preflight/
+offline replay failing before device input. Offscreen Qt confirms that Studio
+rejects bad copied or imported action drafts before any manifest write. This
+changes only the two invalid boundary values, not image matching, timer
+behavior, action execution order or physical-device geometry verification.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
