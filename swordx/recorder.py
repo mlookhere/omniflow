@@ -769,21 +769,28 @@ class RecorderDialog(QDialog):
         self.save_status.setText('New state — capture a screen to begin.')
         self._progress()
 
+    def _restore_step_selection(self, previous):
+        """Keep highlighted state aligned with the editor after a failed switch."""
+        self.steps.blockSignals(True)
+        try:
+            if previous is not None:
+                self.steps.setCurrentItem(previous)
+            else:
+                self.steps.setCurrentRow(-1)
+        finally:
+            self.steps.blockSignals(False)
+
     def _select_step(self, current, _previous):
         if current is None or not self._folder():
             return
         if not self._confirm_discard():
-            self.steps.blockSignals(True)
-            if _previous is not None:
-                self.steps.setCurrentItem(_previous)
-            else:
-                self.steps.setCurrentRow(-1)
-            self.steps.blockSignals(False)
+            self._restore_step_selection(_previous)
             return
         key = current.data(Qt.UserRole)
         try:
             action, boxes, taps, frame = load_step(self._folder(), key)
         except (OSError, ValueError, KeyError) as exc:
+            self._restore_step_selection(_previous)
             QMessageBox.warning(self, 'Could not load state', str(exc))
             return
         self._loading = True
