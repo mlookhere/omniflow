@@ -338,6 +338,68 @@ class VisualCaptureTests(unittest.TestCase):
                         read.assert_not_called()
                     self.assertEqual(manifest.read_bytes(), before)
 
+    def test_imported_invalid_touch_data_fails_before_image_reads(self):
+        from swordx.workflows import load_step
+        invalid = [
+            ('taps', 123),
+            ('taps', [[130]]),
+            ('taps', [[True, 140]]),
+            ('taps', [[540, 140]]),
+            ('gestures', None),
+            ('gestures', ['not a gesture']),
+            ('gestures', [{'kind': 'tap', 'point': '130,140'}]),
+            ('gestures', [{'kind': 'drag', 'start': [100, 120],
+                           'end': [180, 220], 'duration_ms': '900'}]),
+            ('gestures', [{'kind': 'drag', 'start': [100, 120],
+                           'end': [180, 960], 'duration_ms': 900}]),
+            ('gestures', [{'kind': 'unknown'}]),
+            ('tap', '130,140'),
+        ]
+        for field, value in invalid:
+            with self.subTest(field=field, value=value):
+                with tempfile.TemporaryDirectory() as root:
+                    folder = create_workflow('Untrusted saved gesture', Path(root))
+                    key = record_step(folder, 'Ready', self.frame,
+                                      [(80, 100, 220, 170)], taps=[(130, 140)])
+                    manifest = folder / 'manifest.json'
+                    data = json.loads(manifest.read_text(encoding='utf-8'))
+                    action = data['actions'][key]
+                    if field == 'tap':
+                        action.pop('taps', None)
+                    if field == 'taps':
+                        action.pop('gestures', None)
+                    action[field] = value
+                    manifest.write_text(json.dumps(data), encoding='utf-8')
+                    before = manifest.read_bytes()
+                    with (patch('swordx.workflows.cv2.imread') as read,
+                          patch('swordx.workflows._write_manifest') as write):
+                        with self.assertRaisesRegex(ValueError, 'Invalid saved'):
+                            load_step(folder, key)
+                        read.assert_not_called()
+                        write.assert_not_called()
+                    self.assertEqual(manifest.read_bytes(), before)
+
+    def test_imported_valid_tap_and_drag_data_preserves_editor_geometry(self):
+        from swordx.workflows import load_step
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Valid gesture compatibility', Path(root))
+            frame = self.frame.copy()
+            frame[415:450, 275:350] = (12, 210, 25)
+            boxes = [(80, 100, 220, 170), (250, 400, 390, 490)]
+            gestures = [
+                {'kind': 'tap', 'point': [130, 140]},
+                {'kind': 'drag', 'start': [290, 430],
+                 'end': [340, 460], 'duration_ms': 900},
+            ]
+            key = record_step(folder, 'Ready', frame, boxes, gestures=gestures)
+            before = (folder / 'manifest.json').read_bytes()
+            action, regions, taps, screenshot = load_step(folder, key)
+            self.assertEqual(regions, boxes)
+            self.assertEqual(action['gestures'], gestures)
+            self.assertEqual(taps, [(130, 140), None])
+            self.assertEqual(screenshot.shape, (960, 540, 3))
+            self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+
     def test_partial_image_write_failure_rolls_back_new_and_recaptured_assets(self):
         rect = (80, 100, 220, 170)
         for editing in (False, True):
