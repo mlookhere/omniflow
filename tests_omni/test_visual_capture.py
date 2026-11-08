@@ -23,6 +23,26 @@ class VisualCaptureTests(unittest.TestCase):
         cv2.putText(self.frame, 'START', (85, 142), cv2.FONT_HERSHEY_SIMPLEX,
                     0.8, (245, 245, 245), 2)
 
+    def test_visual_frame_preflight_rejects_invalid_pixels_before_normalizing(self):
+        invalid = (
+            None, b'not a screenshot',
+            np.zeros((0, 0, 3), dtype=np.uint8),
+            np.zeros((960, 540), dtype=np.uint8),
+            np.zeros((960, 540, 4), dtype=np.uint8),
+            np.zeros((960, 540, 3), dtype=np.float32),
+            np.zeros((960, 540, 3), dtype=np.uint16),
+        )
+        with patch('omniflow.visual.normalize', wraps=__import__(
+                'swordx.detection', fromlist=['normalize']).normalize) as resize:
+            for frame in invalid:
+                with self.subTest(shape=getattr(frame, 'shape', frame)):
+                    with self.assertRaisesRegex(ValueError, 'nonempty 8-bit color'):
+                        require_frame(frame)
+            resize.assert_not_called()
+        normalized = require_frame(self.frame)
+        self.assertEqual(normalized.shape, (960, 540, 3))
+        self.assertEqual(normalized.dtype, np.uint8)
+
     def test_zone_and_point_validate_borders(self):
         self.assertEqual(validate_zone((0, 0, 540, 960)), (0, 0, 540, 960))
         self.assertEqual(validate_point([539, 959]), (539, 959))
