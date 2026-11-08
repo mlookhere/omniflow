@@ -18,6 +18,7 @@ try:
     from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSpinBox
     from omniflow.studio import (ActionEditor, RuleEditor, ZoneCaptureDialog,
                                  OmniStudio, ReplayResultsDialog)
+    from swordx import workflows
     from swordx.workflows import create_workflow, record_step
     QT = True
 except ImportError:
