@@ -168,10 +168,19 @@ def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, i
                 for gesture in action['gestures']]
     if not taps and not action.get('passive') and not action.get('action_chain'):  # v1.1 compatibility.
         taps = [tuple(action['tap'])] + [None] * (len(boxes) - 1)
-    frame = cv2.imread(str(capture_path)) if capture_path else None
+    frame = None
+    if capture_path and capture_path.is_file():
+        try:
+            frame = cv2.imread(str(capture_path), cv2.IMREAD_COLOR)
+        except cv2.error as exc:
+            raise ValueError('Saved screenshot is unreadable; recapture this state') from exc
+        if frame is None:
+            raise ValueError('Saved screenshot is unreadable; recapture this state')
+        if frame.dtype != np.uint8 or frame.shape != (SIZE[1], SIZE[0], 3):
+            raise ValueError('Saved screenshot must be a normalized 540×960 color image')
     if frame is None:
-        # Older workflows only contain template crops. Render those in place
-        # so users can still view the recorded regions before recapturing.
+        # Legacy/missing full-screen captures can still be edited through a
+        # reconstructed preview, but must be recaptured before visual edits.
         frame = np.full((SIZE[1], SIZE[0], 3), 28, dtype=np.uint8)
         for (x1, y1, x2, y2), anchor in zip(boxes, anchors):
             crop = cv2.imread(str(anchor))
