@@ -427,7 +427,9 @@ def _target(point, device_size: tuple[int, int], crop_top: int = 0) -> tuple[int
         raise WorkflowError('Action point must have two coordinates')
     w, h = device_size
     x, y = map(float, point)
-    if not 0 <= x <= SIZE[0] or not 0 <= y <= SIZE[1]:
+    # Normalized pixels range from (0, 0) through (539, 959).
+    # Do not silently clamp an imported point on the exclusive edge.
+    if not 0 <= x < SIZE[0] or not 0 <= y < SIZE[1]:
         raise WorkflowError(f'Point {point} outside 540×960 normalized screen')
     if not 0 <= crop_top < h:
         raise WorkflowError('Invalid screenshot crop geometry')
