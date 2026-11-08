@@ -1183,3 +1183,13 @@ input are never touched merely to invalidate status. Offscreen Windows
 Qt tests verify mode toggle, region editing and undo/redo never leave
 old MATCH verdicts visible. Physical Windows/MuMu acceptance and
 enforced branch protections remain outstanding.
+
+**Fail-closed imported OCR text (current Studio safety increment):**
+OCR condition content is now required to be an actual string at the shared
+recognition preflight, rather than silently coercing JSON null, numbers,
+booleans or objects into searchable text. This applies equally to unsaved
+rule preview, Studio Save and live detector startup before OCR inference,
+including negated rules. Existing string comparisons and regex behavior are
+unchanged. Regression cases assert that invalid values fail before any OCR
+call, and remain invalid when loaded from the saved workflow. This is not
+physical MuMu verification; the dev protection and hardware gates remain.
