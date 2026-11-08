@@ -798,6 +798,7 @@ class OmniStudio(RecorderDialog):
         self._field_changed()
         self._set_mode(0)
         self._progress()
+        self._clear_edit_history()  # Images are not stored in bounded undo history.
         self.save_status.setText(
             f'Screenshot loaded from {source}. Review targets and Save State; '
             'offline captures are not live device verification.')
@@ -876,6 +877,35 @@ class OmniStudio(RecorderDialog):
                 (name != 'up' or row > 0) and
                 (name != 'down' or row < count - 1))
 
+    def _canvas_marks(self):
+        """Small undo snapshot; screenshot pixels deliberately stay out."""
+        return {
+            'boxes': deepcopy(self.canvas.boxes),
+            'gestures': deepcopy(self.canvas.gestures),
+            'durations': list(self.canvas.drag_durations),
+        }
+
+    def _canvas_changed(self):
+        # The base Recorder connects this slot before Studio builds its
+        # history UI. Ignore programmatic state loads and undo restores.
+        if hasattr(self, '_last_canvas_marks'):
+            marks = self._canvas_marks()
+            if (marks != self._last_canvas_marks
+                    and not self._loading and not self._history_busy):
+                previous = self._edit_snapshot()
+                previous['canvas_marks'] = deepcopy(self._last_canvas_marks)
+                self._remember_edit(previous)
+            self._last_canvas_marks = marks
+        super()._canvas_changed()
+
+    def _capture(self):
+        # Live recapture intentionally starts a fresh mark undo boundary:
+        # undoing an old region on a new screen could be misleading.
+        before = self.canvas.frame
+        super()._capture()
+        if self.canvas.frame is not before and hasattr(self, '_undo_edits'):
+            self._clear_edit_history()
+
     def _add_history_controls(self, layout):
         controls = QHBoxLayout()
         for label, callback, collection in (
@@ -883,7 +913,9 @@ class OmniStudio(RecorderDialog):
                 ('Redo draft edit', self._redo_edit, self._redo_buttons)):
             button = QPushButton(label)
             button.setEnabled(False)
-            button.setToolTip('Undo/redo WHEN rules and THEN actions until Save or state switch')
+            button.setToolTip(
+                'Undo/redo draft rules, actions and drawn markers. '
+                'Screenshot replacement, Save and state switch reset history.')
             button.clicked.connect(callback)
             collection.append(button)
             controls.addWidget(button)
@@ -898,6 +930,7 @@ class OmniStudio(RecorderDialog):
             'image_custom': self.image_custom.isChecked(),
             'image_percent': self.image_confidence.value(),
             'priority_text': self.priority.text(),
+            'canvas_marks': self._canvas_marks(),
             'rule_row': self.rules_list.currentRow(),
             'action_row': self.actions_list.currentRow(),
         }
@@ -919,6 +952,7 @@ class OmniStudio(RecorderDialog):
     def _clear_edit_history(self):
         self._undo_edits.clear()
         self._redo_edits.clear()
+        self._last_canvas_marks = self._canvas_marks()
         self._update_history_buttons()
 
     def _apply_edit_snapshot(self, snapshot: dict):
@@ -957,6 +991,21 @@ class OmniStudio(RecorderDialog):
             finally:
                 self.priority.blockSignals(False)
             self._last_priority_text = self.priority.text()
+            marks = snapshot['canvas_marks']
+            if self._canvas_marks() != marks:
+                self.canvas.boxes = deepcopy(marks['boxes'])
+                self.canvas.gestures = deepcopy(marks['gestures'])
+                self.canvas.taps = [
+                    tuple(g['point']) if g and g['kind'] == 'tap' else None
+                    for g in self.canvas.gestures]
+                self.canvas.drag_durations = list(marks['durations'])
+                self._sync_durations()
+                # A restored marker may alter the saved image/gesture record.
+                # Fail safe by requiring a visual save, never bypass recapture.
+                self._visual_dirty = True
+                self.canvas.update()
+                self._progress()
+            self._last_canvas_marks = self._canvas_marks()
             self._sync_image_controls()
             self._refresh_extra(rule_row=snapshot['rule_row'],
                                 action_row=snapshot['action_row'])

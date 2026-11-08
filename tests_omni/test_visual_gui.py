@@ -205,6 +205,88 @@ class VisualStudioGuiTests(unittest.TestCase):
         dialog.kind.setCurrentIndex(dialog.kind.findData('color'))
         self.assertEqual(dialog.result_rule()['bgr'], [10, 20, 30])
 
+    def test_canvas_region_tap_and_drag_join_draft_undo_redo_without_saving(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('VisualUndo', root)
+            studio = OmniStudio('', 'VisualUndo', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.needs_recapture = False
+                before = (folder / 'manifest.json').read_bytes()
+                self.assertFalse(studio._undo_edits)
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                studio.canvas.changed.emit()
+                studio.canvas._set_gesture(
+                    0, {'kind': 'tap', 'point': [150, 250]})
+                studio.canvas._set_gesture(
+                    0, {'kind': 'drag', 'start': [110, 220],
+                        'end': [190, 280], 'duration_ms': 850})
+                self.assertEqual(len(studio._undo_edits), 3)
+                self.assertEqual(studio.canvas.gestures[0]['kind'], 'drag')
+                studio._undo_edit()
+                self.assertEqual(studio.canvas.gestures[0]['kind'], 'tap')
+                self.assertEqual(studio.canvas.taps[0], (150, 250))
+                studio._undo_edit()
+                self.assertIsNone(studio.canvas.gestures[0])
+                self.assertEqual(studio.canvas.boxes[0], (100, 200, 230, 300))
+                studio._undo_edit()
+                self.assertIsNone(studio.canvas.boxes[0])
+                self.assertFalse(studio._undo_edits)
+                studio._redo_edit()
+                studio._redo_edit()
+                studio._redo_edit()
+                self.assertEqual(studio.canvas.boxes[0], (100, 200, 230, 300))
+                self.assertEqual(studio.canvas.gestures[0]['kind'], 'drag')
+                self.assertEqual(studio.canvas.drag_durations[0], 850)
+                self.assertEqual(studio.duration_inputs[0].value(), 850)
+                self.assertTrue(studio._visual_dirty)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_canvas_marker_history_is_bounded_by_offline_capture_and_state_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UndoBoundary', root)
+            source = root / 'image.png'
+            self.assertTrue(cv2.imwrite(str(source), self.frame))
+            key = record_step(
+                folder, 'Recorded', self.frame,
+                [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'UndoBoundary', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.canvas.boxes[0] = (110, 210, 230, 310)
+                studio.canvas.changed.emit()
+                self.assertTrue(studio._undo_edits)
+                with (patch('omniflow.studio.QFileDialog.getOpenFileName',
+                            return_value=(str(source), '')),
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._import_screenshot()
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertFalse(studio._undo_edits)
+                self.assertFalse(studio._redo_edits)
+                studio.canvas._set_gesture(
+                    0, {'kind': 'tap', 'point': [120, 230]})
+                self.assertTrue(studio._undo_edits)
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                self.assertFalse(studio._undo_edits)
+                self.assertEqual(studio.canvas.gestures[0]['point'], [150, 250])
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_combined_draft_matches_unsaved_rules_and_saved_image_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

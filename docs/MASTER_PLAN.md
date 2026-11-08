@@ -1005,3 +1005,18 @@ before any optional screenshot read, and failures clear stale success text.
 Engine/replay and Windows Qt regressions cover correct matching, thresholds,
 no leaked OCR output, validation and no device input or disk changes.
 No physical Windows/MuMu acceptance or `dev` protection claim is implied.
+
+**Undo/redo visual mark edits (current Studio iteration):** The bounded
+30-step draft history now includes manually drawn legacy detection
+regions, taps and drag paths/durations alongside existing OCR/condition
+rules and action lists. Mark snapshots store only region and gesture
+metadata, never screenshot pixels. Canvas change signals record a
+snapshot before each actual mark change; undo/redo restores the paired
+tap aliases and duration controls consistently and conservatively
+marks any restored visual targets as needing a visual save. Screenshot
+file import, saved-image reuse, live capture, state switch and Save
+begin fresh histories rather than allowing undo across incompatible
+images or states. Offscreen Qt regression tests cover region, tap,
+drag, undo/redo, screenshot-boundary reset and no premature writes or
+device input. Hardware acceptance and enforced required-check
+merge gates are unchanged.
