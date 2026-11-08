@@ -810,3 +810,14 @@ regressions verify preset selection, no write/ADB side effects,
 safe cancellation and missing-frame behavior, undo/redo and
 settings-only persistence. No new runtime action types or CI gate
 relaxation; real Windows/MuMu acceptance remains pending.
+
+
+**Windows Qt guided-preset data fix (November 7, 2026):** The new
+offscreen Windows Qt test revealed that using Python tuple user-data
+for `QComboBox` could not be found reliably with `findData`,
+resulting in `currentData() is None` in the guided WHEN setup.
+Presets now use stable string identifiers (`ocr_not`, `pixel`,
+etc.), decoded only when the user opens the existing rule editor.
+The test explicitly asserts that every selected preset exists
+before it is activated. The choices, recognition behavior, and
+safety boundaries are unchanged; CI gates are not weakened.

@@ -518,7 +518,9 @@ class OmniStudio(RecorderDialog):
                 ('Pixel differs from a color', 'pixel', True),
                 ('Area matches a color', 'color', False),
                 ('Area differs from a color', 'color', True)):
-            self.rule_preset.addItem(label, (kind, negate))
+            # String user data round-trips through Qt reliably on Windows.
+            self.rule_preset.addItem(
+                label, kind + ('_not' if negate else ''))
         rule_starter.addWidget(self.rule_preset, 1)
         rule_starter_button = QPushButton('Set up check…')
         rule_starter_button.setToolTip(
@@ -874,8 +876,13 @@ class OmniStudio(RecorderDialog):
         self._create_rule()
 
     def _add_guided_rule(self):
-        kind, negate = self.rule_preset.currentData()
-        self._create_rule({'type': kind, 'negate': negate})
+        code = self.rule_preset.currentData()
+        if not code:
+            return
+        self._create_rule({
+            'type': code.removesuffix('_not'),
+            'negate': code.endswith('_not'),
+        })
 
     def _create_rule(self, initial=None):
         image = self._editor_frame()

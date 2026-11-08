@@ -262,8 +262,10 @@ class VisualStudioGuiTests(unittest.TestCase):
                                            'point': [109, 218],
                                            'bgr': [75, 75, 75],
                                            'tolerance': 25})):
-                    studio.rule_preset.setCurrentIndex(
-                        studio.rule_preset.findData(preset))
+                    code = preset[0] + ('_not' if preset[1] else '')
+                    index = studio.rule_preset.findData(code)
+                    self.assertGreaterEqual(index, 0)
+                    studio.rule_preset.setCurrentIndex(index)
                     with (patch('omniflow.studio.RuleEditor') as editor,
                           patch('omniflow.devices.Device.screenshot') as capture,
                           patch('swordx.workflows._write_manifest') as write):
