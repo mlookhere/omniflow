@@ -276,6 +276,15 @@ fields retain their existing meanings. Startup and offscreen Studio
 inspection tests assert precise warnings, no ADB activity and unchanged
 workflow files. This is metadata validation, not a change to retry policy.
 
+**Retry serialization compatibility fix:** The existing workflow writer omits
+`retry_mode` to represent `interval` and writes `on_return` explicitly,
+but the runner had interpreted a missing mode as `on_return`. This prevented
+persisted interval retries from firing. The runner and manifest validator now
+default to `interval`, matching the writer; explicit `on_return` still never
+retries an unchanged screen. A round-trip test writes both modes through
+`update_step_retry` and verifies actual action timing with the input stub.
+The existing per-visit retry cap and two-frame recognition checks remain.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
