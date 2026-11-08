@@ -232,6 +232,29 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertFalse(new_anchor.exists())
             self.assertFalse(new_capture.exists())
 
+    def test_load_step_rejects_unsafe_imported_images_before_reading(self):
+        from swordx.workflows import load_step
+        for kind in ('captures', 'anchors'):
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as root:
+                    folder = create_workflow('Unsafe selection', Path(root))
+                    key = record_step(folder, 'Recorded', self.frame,
+                                      [(80, 100, 220, 170)], taps=[(130, 140)])
+                    manifest = folder / 'manifest.json'
+                    data = json.loads(manifest.read_text(encoding='utf-8'))
+                    if kind == 'captures':
+                        data['actions'][key]['capture'] = '../../outside.jpg'
+                    else:
+                        data['states'][key][0]['file'] = '../../outside.png'
+                    manifest.write_text(json.dumps(data), encoding='utf-8')
+                    before = manifest.read_bytes()
+                    with patch('swordx.workflows.cv2.imread') as read:
+                        with self.assertRaisesRegex(ValueError,
+                                                    f'Unsafe saved {kind}'):
+                            load_step(folder, key)
+                        read.assert_not_called()
+                    self.assertEqual(manifest.read_bytes(), before)
+
     def test_failed_obsolete_image_cleanup_keeps_committed_state_successful(self):
         # An unlink failure happens after the manifest transaction, so it
         # cannot safely make either operation appear rolled back.
