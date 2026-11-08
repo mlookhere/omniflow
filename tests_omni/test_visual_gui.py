@@ -488,6 +488,48 @@ class VisualStudioGuiTests(unittest.TestCase):
                     finally:
                         studio.close()
 
+    def test_invalid_imported_gesture_restores_selection_without_image_io(self):
+        for malformed in (None, [{'kind': 'tap', 'point': None}],
+                          [{'kind': 'drag', 'start': [100, 200],
+                            'end': [140, 250], 'duration_ms': '900'}]):
+            with self.subTest(gestures=malformed):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    folder = create_workflow('InvalidGestureSwitch', root)
+                    image = self.frame.copy()
+                    image[220:270, 120:200] = (10, 230, 30)
+                    first = record_step(folder, 'First', image,
+                                        [(100, 200, 230, 300)],
+                                        taps=[(150, 250)])
+                    second = record_step(folder, 'Second', image,
+                                         [(100, 200, 230, 300)],
+                                         taps=[(150, 250)])
+                    studio = OmniStudio('', 'InvalidGestureSwitch', base=root)
+                    try:
+                        studio.steps.setCurrentRow(0)
+                        self.assertEqual(studio.editing_key, first)
+                        manifest = folder / 'manifest.json'
+                        data = json.loads(manifest.read_text(encoding='utf-8'))
+                        data['actions'][second]['gestures'] = malformed
+                        manifest.write_text(json.dumps(data), encoding='utf-8')
+                        before = manifest.read_bytes()
+                        with (patch('swordx.recorder.QMessageBox.warning') as warning,
+                              patch('swordx.workflows.cv2.imread') as read,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio.steps.setCurrentRow(1)
+                            warning.assert_called_once()
+                            read.assert_not_called()
+                            write.assert_not_called()
+                        self.assertIn('Invalid saved gesture',
+                                      warning.call_args.args[2])
+                        self.assertEqual(studio.steps.currentRow(), 0)
+                        self.assertEqual(studio.editing_key, first)
+                        self.assertEqual(studio.step_name.text(), 'First')
+                        self.assertFalse(studio._dirty)
+                        self.assertEqual(manifest.read_bytes(), before)
+                    finally:
+                        studio.close()
+
     def test_saved_capture_geometry_error_keeps_editor_target_and_replay_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
