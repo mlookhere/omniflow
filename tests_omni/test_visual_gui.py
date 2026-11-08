@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -378,6 +379,51 @@ class VisualStudioGuiTests(unittest.TestCase):
                         self.assertEqual(manifest.read_bytes(), before)
                     finally:
                         studio.close()
+
+    def test_saved_capture_geometry_error_keeps_editor_target_and_replay_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('BadCaptureGeometry', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'BadCaptureGeometry', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, first)
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                capture = folder / 'captures' / data['actions'][second]['capture']
+                self.assertTrue(cv2.imwrite(str(capture), image[:700, :500]))
+                before = manifest.read_bytes()
+
+                with patch('swordx.recorder.QMessageBox.warning') as warning:
+                    studio.steps.setCurrentRow(1)
+                    warning.assert_called_once()
+                self.assertIn('normalized 540×960', warning.call_args.args[2])
+                self.assertEqual(studio.steps.currentRow(), 0)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.step_name.text(), 'First')
+                self.assertFalse(studio._dirty)
+
+                dialogs = []
+                with (patch.object(ReplayResultsDialog, 'exec',
+                                   new=lambda dlg: dialogs.append(dlg)),
+                      patch('omniflow.devices.Device.screenshot') as device,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._replay_saved_screenshots()
+                    device.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual(len(dialogs), 1)
+                self.assertEqual(dialogs[0].table.item(1, 1).text(), 'UNAVAILABLE')
+                self.assertIn('normalized 540×960',
+                              dialogs[0].table.item(1, 4).text())
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                studio.close()
 
     def test_studio_failed_manifest_replace_warns_without_losing_saved_state(self):
         with tempfile.TemporaryDirectory() as tmp:
