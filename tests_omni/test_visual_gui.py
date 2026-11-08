@@ -417,6 +417,45 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_draft_preview_rejects_malformed_legacy_entries_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('MalformedGesturePreview', root)
+            manifest = folder / 'manifest.json'
+            before = manifest.read_bytes()
+            studio = OmniStudio('', 'MalformedGesturePreview', base=root)
+            try:
+                studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
+                for malformed in (['broken'], '', [], 0, False, {'kind': 'warp'}):
+                    with self.subTest(malformed=malformed):
+                        studio.canvas.gestures[1] = malformed
+                        studio.action_preview_status.setText(
+                            'Old valid preview — should not survive')
+                        with (patch('omniflow.devices.Device.screenshot') as capture,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio._preview_draft_actions()
+                            capture.assert_not_called()
+                            write.assert_not_called()
+                        result = studio.action_preview_status.text()
+                        self.assertIn('Draft action invalid:', result)
+                        self.assertIn('Legacy alternative 2:', result)
+                        self.assertIn('Nothing saved or tapped.', result)
+                        self.assertNotIn('Old valid preview', result)
+                        self.assertEqual(manifest.read_bytes(), before)
+
+                studio.canvas.gestures[1] = {'kind': 'tap',
+                                             'point': [250, 350]}
+                studio._preview_draft_actions()
+                self.assertIn('1. Tap location selected on screen',
+                              studio.action_preview_status.text())
+                self.assertNotIn('Draft action invalid',
+                                 studio.action_preview_status.text())
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_saved_studio_inspection_explains_states_without_input_or_save(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

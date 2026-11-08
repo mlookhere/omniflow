@@ -691,3 +691,20 @@ states continue to skip dormant actions. Offscreen Qt regressions cover an
 invalid second gesture, repair and successful preview, passive WAIT, and
 zero screenshot/manifest I/O. Real Windows/MuMu acceptance and enforced
 required checks on dev remain outstanding.
+
+
+**Malformed legacy gesture entries in unsaved THEN preview
+(November 7, 2026):** The draft action preview previously converted
+each nonempty canvas gesture with `dict(step)` outside the preview's
+error handler, and filtered away falsey non-None values. Corrupt or
+programmatically imported second-region entries could therefore throw
+an uncaught Qt slot exception or be overlooked while the first-region
+action was displayed as valid. The preview now uses read-only references
+to every non-None gesture and lets the shared production validator
+reject malformed entries, including empty strings/lists and falsey
+values, with an indexed legacy alternative error. No gesture data is
+mutated and no screenshot or Android input is attempted. Source-level
+startup and offscreen Windows Qt regressions cover malformed secondary
+entries, unchanged manifest, stale-preview cleanup and successful
+repair. Protected dev required checks and actual MuMu hardware
+acceptance remain open release gates.

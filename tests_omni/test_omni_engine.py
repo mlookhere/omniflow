@@ -658,6 +658,24 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(OmniRunner(
             Device(self.match), self.folder, 'com.game.demo').runs, 0)
 
+    def test_malformed_non_dict_legacy_alternative_fails_before_capture(self):
+        manifest = self.folder / 'manifest.json'
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        action = data['actions'][self.key]
+        action.pop('action_chain', None)
+        action['gestures'] = [
+            {'kind': 'tap', 'point': [200, 400]},
+            ['broken'],
+        ]
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        device = Device(self.match)
+        with patch.object(device, 'screenshot') as capture:
+            with self.assertRaisesRegex(
+                    WorkflowError, 'action 2: Action step must be an object'):
+                OmniRunner(device, self.folder, 'com.game.demo')
+            capture.assert_not_called()
+        self.assertFalse(device.taps)
+
     def test_all_legacy_gesture_alternatives_preflight_before_input(self):
         manifest = self.folder / 'manifest.json'
         data = json.loads(manifest.read_text(encoding='utf-8'))

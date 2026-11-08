@@ -899,8 +899,11 @@ class OmniStudio(RecorderDialog):
         if self.extra_chain is not None:
             action['action_chain'] = self.extra_chain
         else:
-            action['gestures'] = [dict(step) for step in self.canvas.gestures
-                                  if step]
+            # This is read-only. Do not coerce malformed draft entries into
+            # dictionaries or silently drop invalid but non-None values:
+            # the shared action validator must inspect every alternative.
+            action['gestures'] = [step for step in self.canvas.gestures
+                                  if step is not None]
         try:
             regions = len(self.canvas.boxes)
             if self.extra_chain is None and not action['passive']:
