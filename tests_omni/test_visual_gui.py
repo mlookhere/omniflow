@@ -332,6 +332,35 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_new_state_refuses_unsafe_screenshot_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeStudioWrite', root)
+            manifest = folder / 'manifest.json'
+            before = manifest.read_bytes()
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            studio = OmniStudio('', 'UnsafeStudioWrite', base=root)
+            try:
+                studio.canvas.load(image)
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
+                studio.step_name.setText('Ready')
+                with (patch('swordx.workflows._safe_saved_image',
+                            side_effect=ValueError('Saved captures directory resolves outside workflow')),
+                      patch('swordx.workflows.cv2.imwrite') as write,
+                      patch('swordx.workflows._write_manifest') as save,
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._save()
+                    warning.assert_called_once()
+                    write.assert_not_called()
+                    save.assert_not_called()
+                self.assertIn('Saved captures directory resolves outside workflow',
+                              warning.call_args.args[2])
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_studio_delete_retains_images_used_by_remaining_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
