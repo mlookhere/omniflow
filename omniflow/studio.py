@@ -1507,10 +1507,13 @@ class OmniStudio(RecorderDialog):
     def _edit_rule(self):
         row=self.rules_list.currentRow()
         if row<0:return
-        if not isinstance(self.extra_conditions[row], dict):
+        from .engine import WorkflowError, validate_condition
+        try:
+            validate_condition(self.extra_conditions[row])
+        except WorkflowError as exc:
             QMessageBox.warning(
                 self, 'Invalid rule',
-                'This rule is not an object. Remove it and add a valid rule.')
+                f'{exc}. Remove this rule and add a valid replacement.')
             return
         image = self._editor_frame()
         dialog=RuleEditor(initial=self.extra_conditions[row],parent=self,frame=image)
@@ -1590,10 +1593,22 @@ class OmniStudio(RecorderDialog):
     def _edit_action(self):
         row=self.actions_list.currentRow()
         if row<0:return
+        from .engine import WorkflowError, validate_action
+        try:
+            validate_action(self.extra_chain[row])
+        except WorkflowError as exc:
+            QMessageBox.warning(
+                self, 'Invalid action',
+                f'{exc}. Remove this action and add a valid replacement.')
+            return
         image = self._editor_frame()
         dialog=ActionEditor(self.extra_chain[row],parent=self,frame=image)
         if dialog.exec()==QDialog.Accepted:
-            result = dialog.result_action()
+            try:
+                result = dialog.result_action()
+            except (ValueError, KeyError) as exc:
+                QMessageBox.warning(self, 'Action', str(exc))
+                return
             if result != self.extra_chain[row]:
                 self._remember_edit()
                 self.extra_chain[row] = result
