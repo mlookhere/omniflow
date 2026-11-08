@@ -1372,3 +1372,20 @@ alternative selection, malformed alternative validation and zero ADB
 or manifest writes. This is authoring/save parity, not a change to
 runtime action execution. Required `dev` status enforcement and actual
 MuMu hardware acceptance remain outstanding; PR #2 stays draft.
+
+**Studio legacy region-to-gesture slot parity (current increment):**
+For new or visually re-recorded legacy actions, draft preview now
+requires Region 1 and checks the corresponding touch/drag gesture in
+each occupied region slot. The prior count-only test could still show a
+ready preview for an image box in slot 1 and its only gesture in slot 2,
+or for only slot 2 being populated, although Recorder Save would reject
+these mismatches. The fix fails closed with a region-specific correction
+message before displaying a text preview or action-target map. It retains
+the existing count/explicit-action-chain guard, per-step validation,
+and compatibility with unchanged imported recordings. Windows Qt
+regression checks both mismatched layouts, recovery with a valid paired
+slot, no emulator screenshot or manifest writes. The pure recorder test
+confirms mismatched legacy counts cannot create files and a modern
+explicit two-command chain remains saveable with one image region.
+Real hardware acceptance and enforced `dev` required checks remain
+unverified; PR #2 stays draft/unmerged.
