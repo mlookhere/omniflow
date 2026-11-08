@@ -997,6 +997,75 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_explicit_action_chain_saves_image_state_without_legacy_gesture(self):
+        from omniflow.engine import OmniDetector, validate_saved_action_chains
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ChainOnlyVisualSave', root)
+            original = (folder / 'manifest.json').read_bytes()
+            frame = self.frame.copy()
+            frame[220:270, 120:200] = (10, 230, 30)
+            studio = OmniStudio('', 'ChainOnlyVisualSave', base=root)
+            try:
+                studio.canvas.load(frame)
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                self.assertEqual(studio.canvas.gestures, [None, None])
+                first = {'kind': 'tap', 'point': [150, 250]}
+                wait = {'kind': 'wait', 'seconds': 2}
+                studio.extra_chain = [first, wait]
+                studio.step_name.setText('Chain-only state')
+                studio._preview_draft_actions()
+                self.assertIn('2. Wait 2 seconds',
+                              studio.action_preview_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                 original)
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._save()
+                    capture.assert_not_called()
+                    warning.assert_not_called()
+
+                manifest = folder / 'manifest.json'
+                saved = json.loads(manifest.read_text(encoding='utf-8'))
+                self.assertEqual(len(saved['states']), 1)
+                key = next(iter(saved['states']))
+                self.assertEqual(len(saved['states'][key]), 1)
+                self.assertEqual(saved['actions'][key]['action_chain'],
+                                 [first, wait])
+                self.assertEqual(saved['actions'][key]['gestures'], [])
+                validate_saved_action_chains(saved)
+                self.assertEqual(OmniDetector(folder).detect(frame).key, key)
+                self.assertFalse(studio._dirty)
+
+                # An existing chain-only state must remain saveable after
+                # recapturing its artwork, with no legacy gesture reintroduced.
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                changed = frame.copy()
+                changed[230:260, 130:170] = (20, 210, 45)
+                studio.canvas.replace_frame(changed)
+                studio._visual_dirty = True
+                studio._field_changed()
+                self.assertEqual(studio.canvas.gestures, [None, None])
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._save()
+                    capture.assert_not_called()
+                    warning.assert_not_called()
+                reloaded = json.loads(manifest.read_text(encoding='utf-8'))
+                self.assertEqual(reloaded['actions'][key]['action_chain'],
+                                 [first, wait])
+                self.assertEqual(reloaded['actions'][key]['gestures'], [])
+                self.assertEqual(len(reloaded['states'][key]), 1)
+                validate_saved_action_chains(reloaded)
+                self.assertEqual(OmniDetector(folder).detect(changed).key, key)
+                self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_offline_file_import_invalid_or_cancel_retains_draft(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
