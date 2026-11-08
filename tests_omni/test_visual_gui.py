@@ -498,6 +498,98 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_action_map_draws_targets_and_hides_private_text(self):
+        from omniflow.studio import ActionMapDialog
+        frame = self.frame.copy()
+        actions = [
+            {'kind': 'tap', 'point': [150, 250]},
+            {'kind': 'wait', 'seconds': 2},
+            {'kind': 'swipe', 'start': [180, 330], 'end': [240, 430],
+             'duration_ms': 700},
+            {'kind': 'field_text', 'point': [160, 260],
+             'text': 'hidden-token-987'},
+        ]
+        view = ActionMapDialog(frame, actions)
+        try:
+            self.assertEqual((view.annotated.width(), view.annotated.height()),
+                             (540, 960))
+            marker = view.annotated.toImage().pixelColor(150, 250)
+            self.assertNotEqual((marker.red(), marker.green(), marker.blue()),
+                                (75, 75, 75))
+            self.assertIn('SEQUENTIAL', view.intro.text())
+            self.assertIn('1. Tap location', view.details.toPlainText())
+            self.assertIn('3. Swipe', view.details.toPlainText())
+            self.assertIn('contents hidden', view.details.toPlainText())
+            self.assertNotIn('hidden-token-987', view.details.toPlainText())
+            self.assertTrue(np.array_equal(frame, self.frame))
+        finally:
+            view.close()
+
+    def test_action_map_read_only_refuses_missing_or_invalid_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ActionMapDraft', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('127.0.0.1:16384', 'ActionMapDraft', base=root)
+            try:
+                studio.extra_chain = [{'kind': 'tap', 'point': [150, 250]}]
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('omniflow.studio.ActionMapDialog') as preview,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._show_action_map()
+                    capture.assert_not_called()
+                    preview.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Action map unavailable',
+                              studio.action_preview_status.text())
+                studio.canvas.load(self.frame)
+                studio.needs_recapture = False
+                studio.extra_chain = [
+                    {'kind': 'tap', 'point': [150, 250]},
+                    {'kind': 'field_text', 'point': [200, 300],
+                     'text': 'secret-value'},
+                ]
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('omniflow.studio.ActionMapDialog') as preview,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._show_action_map()
+                    preview.assert_called_once()
+                    preview.return_value.exec.assert_called_once()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual(preview.call_args.args[1], studio.extra_chain)
+                studio.extra_chain[0] = {'kind': 'tap', 'point': [700, 250]}
+                with patch('omniflow.studio.ActionMapDialog') as preview:
+                    studio._show_action_map()
+                    preview.assert_not_called()
+                self.assertIn('Draft action invalid:',
+                              studio.action_preview_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_action_map_shows_both_legacy_region_alternatives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('LegacyActionMap', root)
+            studio = OmniStudio('', 'LegacyActionMap', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.canvas.boxes = [(100, 200, 230, 300),
+                                       (260, 400, 370, 500)]
+                studio.canvas.gestures = [
+                    {'kind': 'tap', 'point': [150, 250]},
+                    {'kind': 'tap', 'point': [290, 450]}]
+                with patch('omniflow.studio.ActionMapDialog') as preview:
+                    studio._show_action_map()
+                    preview.assert_called_once()
+                self.assertTrue(preview.call_args.kwargs['alternatives'])
+                self.assertEqual(len(preview.call_args.args[1]), 2)
+            finally:
+                studio.close()
+
     def test_draft_action_preview_rejects_invalid_steps_and_honors_wait(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -838,3 +838,21 @@ clock regression verifies 5 frames in 0.08749 seconds report 0.087 s,
 with an FPS that reconciles exactly with that reported duration.
 The fix is narrowly required to keep the existing CI quality gate
 meaningful; it is not a resumption of multi-device implementation.
+
+
+**Feature — read-only screenshot action target map (November 7,
+2026):** Added a beginner-friendly THEN control to visualize numbered
+tap/double-tap/hold/field-focus targets and swipe/drag arrows over an
+in-memory copy of the loaded original screenshot. A plain-English
+side panel lists all actions, including nonvisual waits/keys, and
+redacts text contents. Legacy two-region gestures appear as explicitly
+labeled *alternatives*, never an invented sequential action chain;
+passive WAIT has no touch markers. The existing draft text preview
+and new map share the same production action preflight; invalid
+drafts fail closed. Missing/stale saved captures report unavailability
+without invoking MuMu or changing workflow files. Offscreen Qt
+regressions check target drawing, source-image immutability, redaction,
+validation, zero screenshot/device writes and paired legacy mapping.
+The UI is a read-only guide, not simulated playback or hardware
+acceptance; merge gates remain enforced-check protection on dev and
+physical Windows/MuMu acceptance.

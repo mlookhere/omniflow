@@ -11,7 +11,8 @@ from copy import deepcopy
 
 import cv2
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFormLayout, QHeaderView,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -476,6 +477,61 @@ class ReplayResultsDialog(QDialog):
         self.evidence.setPlainText('\n'.join(lines))
 
 
+class ActionMapDialog(QDialog):
+    """Read-only screenshot overlay of validated, numbered action targets."""
+
+    def __init__(self, frame, actions, *, alternatives=False, passive=False,
+                 parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Action target map · Read-only')
+        self.resize(830, 810)
+        layout = QHBoxLayout(self)
+        rgb = cv2.cvtColor(require_frame(frame), cv2.COLOR_BGR2RGB)
+        self.annotated = QPixmap.fromImage(QImage(
+            rgb.data, rgb.shape[1], rgb.shape[0], rgb.strides[0],
+            QImage.Format_RGB888).copy())
+        painter = QPainter(self.annotated)
+        if not passive:
+            for index, action in enumerate(actions, 1):
+                kind, label = action['kind'], str(index)
+                color = QColor('#f0cb70')
+                if kind in ('tap', 'double_tap', 'hold', 'field_text'):
+                    point = QPoint(*validate_point(action['point']))
+                    CaptureCanvas._draw_marker(painter, point, label, color)
+                elif kind in ('swipe', 'drag'):
+                    start = QPoint(*validate_point(action['start']))
+                    end = QPoint(*validate_point(action['end']))
+                    CaptureCanvas._draw_arrow(painter, start, end, color)
+                    CaptureCanvas._draw_marker(painter, start, label, color)
+        painter.end()
+        self.screen = QLabel()
+        self.screen.setPixmap(self.annotated.scaled(
+            405, 720, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        layout.addWidget(self.screen)
+        sidebar = QVBoxLayout()
+        self.intro = QLabel(
+            'ALTERNATIVE targets — matched region selects one gesture.'
+            if alternatives else
+            'SEQUENTIAL actions — numbered targets follow the step order.')
+        self.intro.setWordWrap(True)
+        sidebar.addWidget(self.intro)
+        self.details = QPlainTextEdit()
+        self.details.setReadOnly(True)
+        self.details.setPlainText(
+            'WAIT — no action targets or device input' if passive else
+            '\n'.join(f'{index}. {action_summary(action)}'
+                      for index, action in enumerate(actions, 1)))
+        sidebar.addWidget(self.details, 1)
+        note = QLabel('Read-only draft map. No taps, emulator screenshots '
+                      'or saved changes. Text contents are hidden.')
+        note.setWordWrap(True)
+        sidebar.addWidget(note)
+        close = QDialogButtonBox(QDialogButtonBox.Close)
+        close.rejected.connect(self.reject)
+        sidebar.addWidget(close)
+        layout.addLayout(sidebar, 1)
+
+
 class OmniStudio(RecorderDialog):
     def __init__(self, serial='', selected_workflow='', parent=None, base=None):
         super().__init__(serial, selected_workflow, parent, base=base)
@@ -609,6 +665,9 @@ class OmniStudio(RecorderDialog):
         draft_actions = QPushButton('Preview current draft actions (no taps)')
         draft_actions.clicked.connect(self._preview_draft_actions)
         chain_col.addWidget(draft_actions)
+        map_actions = QPushButton('Map draft action targets on screenshot (no taps)')
+        map_actions.clicked.connect(self._show_action_map)
+        chain_col.addWidget(map_actions)
         self.action_preview_status = QLabel(
             'Unsaved actions can be checked before saving or running.')
         self.action_preview_status.setWordWrap(True)
@@ -1017,52 +1076,72 @@ class OmniStudio(RecorderDialog):
             self._refresh_extra(action_row=row)
             self._field_changed()
 
-    def _preview_draft_actions(self):
-        """Check unsaved THEN steps without any screenshot, save or Android I/O."""
+    def _draft_action_plan(self):
+        """Shared fail-closed validation for text and screenshot previews."""
         from .engine import WorkflowError, resolve_action_chain, validate_action
         from .replay import describe_action_plan
-
-        action = {
-            'passive': self.passive.isChecked(),
-            'pre_tap_delay_seconds': self._delay_seconds(),
-        }
+        action = {'passive': self.passive.isChecked(),
+                  'pre_tap_delay_seconds': self._delay_seconds()}
         if self.extra_chain is not None:
             action['action_chain'] = self.extra_chain
         else:
-            # This is read-only. Do not coerce malformed draft entries into
-            # dictionaries or silently drop invalid but non-None values:
-            # the shared action validator must inspect every alternative.
-            action['gestures'] = [step for step in self.canvas.gestures
-                                  if step is not None]
+            action['gestures'] = [g for g in self.canvas.gestures if g is not None]
+        regions = len(self.canvas.boxes)
+        legacy = self.extra_chain is None and not action['passive']
+        choices = None
+        if legacy:
+            choices = resolve_action_chain(action, 1)
+            for index, gesture in enumerate(choices, 1):
+                try:
+                    validate_action(gesture)
+                except WorkflowError as exc:
+                    raise WorkflowError(
+                        f'Legacy alternative {index}: {exc}') from exc
+        chain = resolve_action_chain(action, regions)
+        steps = describe_action_plan(action, chain)
+        paired = (legacy and regions > 1 and len(action['gestures']) > 1)
+        return action, steps, choices if paired else chain, paired
+
+    def _preview_draft_actions(self):
+        """Preview unsaved actions without screenshot, saving or Android I/O."""
+        from .engine import WorkflowError
         try:
-            regions = len(self.canvas.boxes)
-            if self.extra_chain is None and not action['passive']:
-                # Paired legacy gestures are alternatives, not a sequence.
-                # Validate every alternative, including targets hidden by
-                # the first-region-only preview, as runner startup does.
-                for index, alternative in enumerate(
-                        resolve_action_chain(action, 1), 1):
-                    try:
-                        validate_action(alternative)
-                    except WorkflowError as exc:
-                        raise WorkflowError(
-                            f'Legacy alternative {index}: {exc}') from exc
-            chain = resolve_action_chain(action, regions)
-            steps = describe_action_plan(action, chain)
+            _action, steps, _targets, paired = self._draft_action_plan()
         except (WorkflowError, ValueError, TypeError, KeyError) as exc:
             self.action_preview_status.setText(
                 f'Draft action invalid: {exc}. Nothing saved or tapped.')
             return
         note = (' Legacy paired regions: only the first alternative is shown; '
-                'the selected region decides the live action.'
-                if self.extra_chain is None and regions > 1 and
-                len(action['gestures']) > 1 and not action['passive']
-                else '')
+                'the selected region decides the live action.' if paired else '')
         self.action_preview_status.setText(
             'Draft-only action preview (no taps or saves):\n' +
             '\n'.join(f'{index}. {step}' for index, step in enumerate(steps, 1)) +
             note + '\nLive execution additionally requires confirmed fresh '
             'screenshots, permission and timing.')
+
+    def _show_action_map(self):
+        """Map unsaved targets on the loaded screenshot; never capture from ADB."""
+        from .engine import WorkflowError
+        try:
+            action, _steps, targets, paired = self._draft_action_plan()
+        except (WorkflowError, ValueError, TypeError, KeyError) as exc:
+            self.action_preview_status.setText(
+                f'Draft action invalid: {exc}. Nothing saved or tapped.')
+            return
+        if self.canvas.frame is None or self.needs_recapture:
+            self.action_preview_status.setText(
+                'Action map unavailable: select or capture a real screenshot '
+                'first. No emulator screenshot was requested.')
+            return
+        try:
+            dialog = ActionMapDialog(
+                self.canvas.frame, targets, alternatives=paired,
+                passive=bool(action['passive']), parent=self)
+        except (ValueError, TypeError, KeyError, cv2.error) as exc:
+            self.action_preview_status.setText(
+                f'Action map unavailable: {exc}. Nothing saved or tapped.')
+            return
+        dialog.exec()
 
     def _test_draft_conditions(self):
         """Inspect current WHEN rules without saving or sending game input."""
