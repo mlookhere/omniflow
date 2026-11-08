@@ -706,6 +706,16 @@ class OmniStudio(RecorderDialog):
             'Combined draft recognition has not been checked.')
         self.complete_test_status.setWordWrap(True)
         rule_col.addWidget(self.complete_test_status)
+        batch_tester = QPushButton('Check draft across recorded screenshots (no taps)')
+        batch_tester.setToolTip(
+            'Compare unsaved WHEN rules to every saved capture in this workflow. '
+            'Report possible matches on other states; do not save or send input.')
+        batch_tester.clicked.connect(self._audit_draft_saved_screenshots)
+        rule_col.addWidget(batch_tester)
+        self.batch_test_status = QLabel(
+            'Draft recognition has not been checked across saved screenshots.')
+        self.batch_test_status.setWordWrap(True)
+        rule_col.addWidget(self.batch_test_status)
         tester=QPushButton('Test saved workflow on current screen (no taps)')
         tester.clicked.connect(self._test_detection)
         rule_col.addWidget(tester)
@@ -783,6 +793,9 @@ class OmniStudio(RecorderDialog):
             if hasattr(self, 'action_preview_status'):
                 self.action_preview_status.setText(
                     'Draft changed. Preview actions again before running.')
+            if hasattr(self, 'batch_test_status'):
+                self.batch_test_status.setText(
+                    'Draft changed. Rerun the recorded-screenshot check.')
         super()._field_changed(*args)
 
     def _update_controls(self):
@@ -1256,6 +1269,9 @@ class OmniStudio(RecorderDialog):
         if hasattr(self, 'complete_test_status'):
             self.complete_test_status.setText(
                 'Combined draft recognition has not been checked.')
+        if hasattr(self, 'batch_test_status'):
+            self.batch_test_status.setText(
+                'Draft recognition has not been checked across saved screenshots.')
         if hasattr(self, 'action_preview_status'):
             self.action_preview_status.setText(
                 'Unsaved actions can be checked before saving or running.')
@@ -1673,6 +1689,68 @@ class OmniStudio(RecorderDialog):
             'Combined draft WHEN on one screenshot; other saved states, '
             'action readiness and two-frame live confirmation were NOT tested. '
             'Nothing was saved or tapped.\n' + '\n'.join(lines))
+
+    def _audit_draft_saved_screenshots(self):
+        """Read-only draft collision check over the workflow's saved captures."""
+        from .engine import WorkflowError, validate_condition
+        from .replay import audit_draft_saved_captures
+
+        try:
+            folder = self._folder()
+            if folder is None:
+                raise WorkflowError('Select or create a workflow first')
+            for index, condition in enumerate(self.extra_conditions, 1):
+                try:
+                    validate_condition(condition)
+                except WorkflowError as exc:
+                    raise WorkflowError(f'Condition {index}: {exc}') from exc
+            if not self.rules_only.isChecked() and self._visual_dirty:
+                raise WorkflowError(
+                    'Save updated image regions or screenshot first; '
+                    'the recorded templates are not this draft')
+            self._priority_value()
+            results = audit_draft_saved_captures(
+                folder, self.editing_key,
+                conditions=self.extra_conditions,
+                condition_match=self.condition_logic.currentData(),
+                condition_only=self.rules_only.isChecked(),
+                threshold=self._image_threshold_override())
+        except (WorkflowError, OSError, ValueError, TypeError, KeyError,
+                cv2.error) as exc:
+            self.batch_test_status.setText(
+                f'Draft screenshot check unavailable: {exc}. '
+                'No workflow files changed or device input requested.')
+            return
+
+        readable = sum(item['status'] in (
+            'matched', 'collision', 'not matched') for item in results)
+        own = sum(item['status'] == 'matched' for item in results)
+        collisions = sum(item['status'] == 'collision' for item in results)
+        unknown = len(results) - readable
+        overview = (
+            f'Draft matched {own} own-state screenshots; '
+            f'{collisions} possible cross-state matches among '
+            f'{readable} readable recordings; {unknown} unavailable/error. '
+            'One-frame independent matching only, not live state selection. '
+            'No files saved or emulator input.')
+        self.batch_test_status.setText(overview)
+        lines = [
+            f"{item['source']}: {item['status'].upper()} — {item['reason']}"
+            + ('\n' + '\n'.join(item['evidence']) if item['evidence'] else '')
+            for item in results
+        ]
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle('Unsaved WHEN against saved screenshots')
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setText(overview)
+        dialog.setInformativeText(
+            'Open Details to inspect each recorded screen and rule evidence. '
+            'A cross-state match is a potential collision; the saved workflow '
+            'and live two-frame selection were not evaluated.')
+        dialog.setDetailedText(
+            '\n\n'.join(lines) if lines else
+            'No recorded screenshots in this workflow.')
+        dialog.exec()
 
     def _test_detection(self):
         from .devices import Device

@@ -1035,3 +1035,23 @@ verify prior MATCH status disappears after offline screenshot replacement
 and unsaved action preview disappears after gesture edits. This is
 preview freshness, not multi-frame live-state confirmation; physical
 Windows/MuMu acceptance and protected CI remain release gates.
+
+**Unsaved WHEN cross-screen audit (current Studio iteration):** Studio now
+checks the current unsaved recognition rules against all recorded full-screen
+workflow captures without saving or touching MuMu. This extends the
+single-screenshot combined draft preview to surface potential false
+positives: matching a *different* state's saved screenshot is reported
+as a possible collision, not as proof the draft would win normal
+multi-state selection. For existing states it uses the same isolated
+in-memory production detector and current unsaved AND/OR, optional
+template and custom threshold. New condition-only drafts can run without
+a saved template; new or modified image-template drafts cannot claim
+validity without saving their updated anchors first. Invalid rules fail
+before reading saved captures. Missing, unsafe, damaged and wrong-size
+captures remain unavailable, never counted as passing. The batch read
+shares the existing replay path/geometry checks, reports per-screen
+recognition evidence and read-only counts, and explicitly excludes live
+two-frame confirmation and action readiness. Qt/source regressions
+verify cross-screen matches, invalid input/capture containment, saved
+manifest immutability and absence of ADB input. No multi-device or
+merge-gate changes.

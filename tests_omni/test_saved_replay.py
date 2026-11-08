@@ -102,6 +102,68 @@ class SavedReplayTests(unittest.TestCase):
                             threshold=threshold)
             ocr.assert_not_called()
 
+    def test_unsaved_draft_batch_reveals_cross_state_matches_without_writing(self):
+        from omniflow.replay import audit_draft_saved_captures
+
+        first = self.record('Original')
+        other = self.record('Other screen')
+        manifest_before = self.manifest().read_bytes()
+        rules = [{'type': 'pixel', 'rect': [95, 125, 245, 260],
+                  'point': [110, 180], 'bgr': [15, 225, 20],
+                  'tolerance': 255}]
+        with patch('omniflow.devices.Device.screenshot') as adb:
+            results = audit_draft_saved_captures(
+                self.folder, first, conditions=rules,
+                condition_match='all', condition_only=True, threshold=None)
+            adb.assert_not_called()
+        self.assertEqual([item['source_key'] for item in results],
+                         [first, other])
+        self.assertEqual([item['status'] for item in results],
+                         ['matched', 'collision'])
+        self.assertIn('selected', results[1]['reason'])
+        self.assertEqual(self.manifest().read_bytes(), manifest_before)
+        self.assertNotIn('conditions', json.loads(
+            manifest_before)['actions'][first])
+
+    def test_unsaved_condition_only_batch_and_invalid_capture_fail_closed(self):
+        from omniflow.replay import audit_draft_saved_captures
+
+        first = self.record('One')
+        second = self.record('Two')
+        data = json.loads(self.manifest().read_text())
+        data['actions'][second]['capture'] = '../outside.png'
+        self.manifest().write_text(json.dumps(data), encoding='utf-8')
+        before = self.manifest().read_bytes()
+        rules = [{'type': 'color', 'rect': [95, 125, 245, 260],
+                  'bgr': [0, 0, 0], 'tolerance': 255}]
+        with (patch('omniflow.devices.Device.screenshot') as adb,
+              patch('omniflow.replay.cv2.imread',
+                    wraps=cv2.imread) as read):
+            results = audit_draft_saved_captures(
+                self.folder, None, conditions=rules,
+                condition_match='any', condition_only=True, threshold=None)
+            adb.assert_not_called()
+            read.assert_called_once()
+        self.assertEqual(results[0]['status'], 'collision')
+        self.assertEqual(results[1]['status'], 'unavailable')
+        self.assertEqual(results[1]['reason'], 'Unsafe screenshot reference')
+        self.assertEqual(self.manifest().read_bytes(), before)
+
+        with patch('omniflow.devices.Device.screenshot') as adb:
+            for condition_only, conditions, mode, threshold in (
+                    (False, rules, 'all', None),
+                    (True, [], 'all', None),
+                    (True, rules, 'wrong', None),
+                    (True, rules, 'all', float('nan'))):
+                with self.subTest(condition_only=condition_only,
+                                  conditions=conditions, mode=mode):
+                    with self.assertRaises(WorkflowError):
+                        audit_draft_saved_captures(
+                            self.folder, None, conditions=conditions,
+                            condition_match=mode, condition_only=condition_only,
+                            threshold=threshold)
+            adb.assert_not_called()
+
     def test_saved_capture_matches_without_writing_any_files(self):
         key = self.record()
         before = {file.relative_to(self.folder): file.read_bytes()

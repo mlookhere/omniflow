@@ -113,6 +113,94 @@ def describe_recognition_evidence(detector: OmniDetector,
     return lines
 
 
+def audit_draft_saved_captures(
+        folder: Path, key: str | None, *, conditions: list[dict],
+        condition_match: str, condition_only: bool,
+        threshold: float | None) -> list[dict]:
+    """Cross-check unsaved WHEN recognition against recorded screenshot examples.
+
+    This tests only the draft state against each image, not the final winning
+    state in the saved workflow. Matches on another state's image are
+    potential collisions, not proof that runtime would select this draft.
+    """
+    detector = OmniDetector(folder)
+    if key:
+        draft = draft_recognition_inspector(
+            detector, key, conditions=conditions,
+            condition_match=condition_match, condition_only=condition_only,
+            threshold=threshold)
+        draft_key = key
+    else:
+        if not condition_only:
+            raise WorkflowError('Save the new image-template state before replay')
+        draft_key = '__unsaved_draft__'
+        while draft_key in detector.actions:
+            draft_key += '_'
+        manifest = {
+            'states': {draft_key: []},
+            'actions': {draft_key: {
+                'label': 'Unsaved draft', 'skip_template': True,
+                'conditions': conditions, 'condition_match': condition_match}},
+            'threshold': detector.threshold,
+        }
+        validate_recognition_manifest(manifest)
+        draft = copy(detector)
+        draft.manifest = manifest
+        draft.actions = manifest['actions']
+        draft.templates = {}
+
+    results = []
+    for source_key in step_order(detector.manifest):
+        action = detector.actions[source_key]
+        result = {
+            'source_key': source_key,
+            'source': action.get('label', source_key),
+            'status': 'unavailable',
+            'reason': '',
+            'evidence': [],
+        }
+        results.append(result)
+        frame, reason = _read_saved_capture(detector.folder, action.get('capture'))
+        if frame is None:
+            result['reason'] = reason
+            continue
+        try:
+            winner, details = draft.inspect(frame)
+        except (WorkflowError, cv2.error, ValueError, KeyError, TypeError) as exc:
+            result['status'] = 'error'
+            result['reason'] = f'Draft inspection failed: {exc}'
+            continue
+        result['evidence'] = describe_recognition_evidence(draft, details)
+        result['reason'] = details[0]['status']
+        if winner.key:
+            result['status'] = 'matched' if source_key == key else 'collision'
+        else:
+            result['status'] = 'not matched'
+    return results
+
+
+def _read_saved_capture(folder: Path, name: str | None) -> tuple[np.ndarray | None, str]:
+    """Reuse the exact read-only path/geometry checks for every replay."""
+    if not name:
+        return None, 'No saved screenshot (legacy or unrecorded state)'
+    try:
+        path = _safe_saved_image(folder, 'captures', name)
+    except ValueError:
+        return None, 'Unsafe screenshot reference'
+    if not path.is_file():
+        return None, 'Saved screenshot is missing'
+    try:
+        frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    except cv2.error:
+        frame = None
+    if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
+            frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
+        return None, 'Saved screenshot is unreadable'
+    if frame.shape != (960, 540, 3):
+        return None, 'Saved screenshot must be a normalized 540×960 color image'
+    return frame, ''
+
+
 def replay_saved_captures(folder: Path) -> list[dict]:
     """Check every recorded state against the same matcher used during runs.
 
@@ -136,30 +224,9 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             'evidence': [],
         }
         results.append(item)
-        name = action.get('capture')
-        if not name:
-            item['reason'] = 'No saved screenshot (legacy or unrecorded state)'
-            continue
-        # Reuse the recorder's containment guard. A symlinked captures
-        # directory itself must not make external screenshots look valid.
-        try:
-            path = _safe_saved_image(detector.folder, 'captures', name)
-        except ValueError:
-            item['reason'] = 'Unsafe screenshot reference'
-            continue
-        if not path.is_file():
-            item['reason'] = 'Saved screenshot is missing'
-            continue
-        try:
-            frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
-        except cv2.error:
-            frame = None
-        if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
-                frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
-            item['reason'] = 'Saved screenshot is unreadable'
-            continue
-        if frame.shape != (960, 540, 3):
-            item['reason'] = 'Saved screenshot must be a normalized 540×960 color image'
+        frame, reason = _read_saved_capture(detector.folder, action.get('capture'))
+        if frame is None:
+            item['reason'] = reason
             continue
         try:
             winner, details = detector.inspect(frame)

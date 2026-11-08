@@ -414,6 +414,81 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_draft_batch_audit_reports_saved_screen_collisions_and_is_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('DraftBatch', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'First', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            record_step(folder, 'Second', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'DraftBatch', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.extra_conditions = [{
+                    'type': 'pixel', 'rect': [100, 200, 230, 300],
+                    'point': [120, 230], 'bgr': [75, 75, 75],
+                    'tolerance': 255}]
+                studio.rules_only.setChecked(True)
+                studio._refresh_extra()
+                with (patch('omniflow.studio.QMessageBox') as message,
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._audit_draft_saved_screenshots()
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('1 possible cross-state matches',
+                              studio.batch_test_status.text())
+                details = message.return_value.setDetailedText.call_args.args[0]
+                self.assertIn('First: MATCHED', details)
+                self.assertIn('Second: COLLISION', details)
+                self.assertIn('selected', details)
+                self.assertEqual(before, {
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()})
+                studio.condition_logic.setCurrentIndex(
+                    studio.condition_logic.findData('any'))
+                self.assertIn('Rerun the recorded-screenshot check',
+                              studio.batch_test_status.text())
+                self.assertNotIn('possible cross-state matches',
+                                 studio.batch_test_status.text())
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_draft_batch_preflight_rejects_unsaved_image_without_device_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('DraftBatchPreflight', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'First', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'DraftBatchPreflight', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio._visual_dirty = True
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('omniflow.studio.QMessageBox') as box,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._audit_draft_saved_screenshots()
+                    adb.assert_not_called()
+                    box.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Save updated image regions',
+                              studio.batch_test_status.text())
+                self.assertEqual(before, (folder / 'manifest.json').read_bytes())
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_screenshot_change_invalidates_old_recognition_verdicts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
