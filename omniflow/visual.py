@@ -117,6 +117,8 @@ def action_summary(action: dict) -> str:
 
 
 def condition_summary(rule: dict) -> str:
+    if not isinstance(rule, dict):
+        return 'Invalid condition — review or remove'
     kind = rule.get('type', '?')
     op = 'NOT ' if rule.get('negate') else ''
     if kind == 'ocr':
