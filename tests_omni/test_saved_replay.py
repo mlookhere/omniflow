@@ -143,7 +143,13 @@ class SavedReplayTests(unittest.TestCase):
                 self.folder, None, conditions=rules,
                 condition_match='any', condition_only=True, threshold=None)
             adb.assert_not_called()
-            read.assert_called_once()
+            # The saved detector legitimately reads anchor templates before
+            # inspecting captures. Only the safe recorded screenshot should
+            # be read from captures; the traversal candidate must not be.
+            capture_reads = [
+                call for call in read.call_args_list
+                if Path(call.args[0]).parent.name == 'captures']
+            self.assertEqual(len(capture_reads), 1)
         self.assertEqual(results[0]['status'], 'collision')
         self.assertEqual(results[1]['status'], 'unavailable')
         self.assertEqual(results[1]['reason'], 'Unsafe screenshot reference')

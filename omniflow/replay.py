@@ -143,6 +143,10 @@ def audit_draft_saved_captures(
                 'conditions': conditions, 'condition_match': condition_match}},
             'threshold': detector.threshold,
         }
+        # Even when an image gate is disabled, malformed numeric draft
+        # settings must not be interpreted as valid by offline diagnostics.
+        if threshold is not None:
+            manifest['actions'][draft_key]['threshold'] = threshold
         validate_recognition_manifest(manifest)
         draft = copy(detector)
         draft.manifest = manifest
