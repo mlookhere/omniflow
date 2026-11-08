@@ -523,10 +523,11 @@ class ReplayResultsDialog(QDialog):
         from .replay import replay_saved_action_map
 
         try:
-            frame, chain, passive, label = replay_saved_action_map(
+            frame, chain, passive, label, delay = replay_saved_action_map(
                 self._folder, self._results[row]['expected_key'])
             dialog = ActionMapDialog(
-                frame, chain, passive=passive, saved_label=label, parent=self)
+                frame, chain, passive=passive, saved_label=label,
+                initial_delay_seconds=delay, parent=self)
         except (WorkflowError, OSError, ValueError, TypeError, KeyError,
                 cv2.error) as exc:
             QMessageBox.warning(
@@ -539,7 +540,7 @@ class ActionMapDialog(QDialog):
     """Read-only screenshot overlay of validated, numbered action targets."""
 
     def __init__(self, frame, actions, *, alternatives=False, passive=False,
-                 saved_label=None, parent=None):
+                 saved_label=None, initial_delay_seconds=0, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Action target map · Read-only')
         self.resize(830, 810)
@@ -578,18 +579,20 @@ class ActionMapDialog(QDialog):
         sidebar.addWidget(self.intro)
         self.details = QPlainTextEdit()
         self.details.setReadOnly(True)
+        from .replay import describe_action_trace
         self.details.setPlainText(
-            'WAIT — no action targets or device input' if passive else
-            '\n'.join(f'{index}. {action_summary(action)}'
-                      for index, action in enumerate(actions, 1)))
+            '\n'.join(describe_action_trace(
+                actions, passive=passive,
+                initial_delay_seconds=initial_delay_seconds)))
         sidebar.addWidget(self.details, 1)
         note = QLabel(
             ('Read-only saved replay map. Workflow and screenshot were '
              'rechecked; live two-frame confirmation was not performed. '
              if saved_label is not None else
              'Read-only draft map. ')
-            + 'No taps, emulator screenshots or saved changes. '
-              'Text contents are hidden.')
+            + 'Effects are descriptive only; normalized coordinates are '
+              'not device-pixel coordinates. No taps, emulator screenshots '
+              'or saved changes. Text contents are hidden.')
         note.setWordWrap(True)
         sidebar.addWidget(note)
         close = QDialogButtonBox(QDialogButtonBox.Close)
@@ -1565,7 +1568,9 @@ class OmniStudio(RecorderDialog):
         try:
             dialog = ActionMapDialog(
                 self.canvas.frame, targets, alternatives=paired,
-                passive=bool(action['passive']), parent=self)
+                passive=bool(action['passive']),
+                initial_delay_seconds=action['pre_tap_delay_seconds'],
+                parent=self)
         except (ValueError, TypeError, KeyError, cv2.error) as exc:
             self.action_preview_status.setText(
                 f'Action map unavailable: {exc}. Nothing saved or tapped.')

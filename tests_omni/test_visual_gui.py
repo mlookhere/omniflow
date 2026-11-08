@@ -1371,6 +1371,26 @@ class VisualStudioGuiTests(unittest.TestCase):
         finally:
             view.close()
 
+    def test_action_map_shows_per_step_read_only_trace_without_secrets(self):
+        secret = 'do-not-show-token-712'
+        dialog = ActionMapDialog(
+            self.frame,
+            [{'kind': 'field_text', 'point': [150, 250], 'text': secret},
+             {'kind': 'wait', 'seconds': 2},
+             {'kind': 'tap', 'point': [140, 220]}],
+            saved_label='Ready', initial_delay_seconds=3)
+        try:
+            detail = dialog.details.toPlainText()
+            self.assertIn('delay 3s after stable', detail)
+            self.assertIn('DRY RUN', detail)
+            self.assertIn('normalized (150, 250)', detail)
+            self.assertIn('2. Wait 2 seconds', detail)
+            self.assertIn('3. Tap location selected', detail)
+            self.assertNotIn(secret, detail)
+            self.assertIn('Read-only saved replay map', dialog.findChildren(QLabel)[-1].text())
+        finally:
+            dialog.close()
+
     def test_action_map_read_only_refuses_missing_or_invalid_draft(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

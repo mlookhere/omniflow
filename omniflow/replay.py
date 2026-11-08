@@ -67,6 +67,54 @@ def describe_action_plan(action: dict, chain: list[dict]) -> list[str]:
     return steps
 
 
+def describe_action_trace(chain: list[dict], *, passive: bool = False,
+                          initial_delay_seconds: int = 0) -> list[str]:
+    """Explain validated runner steps in order without executing any of them.
+
+    Coordinates are normalized 540×960 authoring positions, not Android
+    device pixels. Never include text payloads in returned trace lines.
+    """
+    if passive:
+        return ['WAIT — no commands or Android input']
+    lines = []
+    if initial_delay_seconds:
+        lines.append(
+            f'Before step 1: delay {initial_delay_seconds}s after stable '
+            'recognition (no input)')
+    for index, action in enumerate(chain, 1):
+        kind = validate_action(action)
+        label = action_summary(action)
+        if kind in ('tap', 'double_tap'):
+            point = action['point']
+            count = 2 if kind == 'double_tap' else 1
+            effect = (f'{count} Android tap(s) at normalized '
+                      f'({point[0]}, {point[1]})')
+        elif kind in ('hold', 'drag', 'swipe'):
+            start = action.get('start', action.get('point'))
+            end = action.get('end', action.get('point'))
+            effect = (
+                f'Android swipe from ({start[0]}, {start[1]}) to '
+                f'({end[0]}, {end[1]}) over '
+                f'{action.get("duration_ms", 650)} ms')
+        elif kind == 'field_text':
+            point = action['point']
+            effect = (
+                f'Android tap at normalized ({point[0]}, {point[1]}), '
+                'then type [contents hidden]')
+        elif kind == 'text':
+            effect = 'Android text input [contents hidden]'
+        elif kind == 'key':
+            effect = f'Android keyevent {action.get("code", 4)}'
+        elif kind == 'wait':
+            effect = f'Delay {action.get("seconds", 0)}s; no Android input'
+        elif kind == 'launch':
+            effect = 'Launch configured game; requires fresh session permission'
+        else:
+            effect = 'Mark session run complete; no Android input'
+        lines.append(f'{index}. {label}\n   DRY RUN · {effect}')
+    return lines
+
+
 def describe_selected_actions(detector: OmniDetector, key: str,
                               trigger: int) -> list[str]:
     """Preview the actual winning state using the live runner's chain resolver."""
@@ -206,7 +254,8 @@ def _read_saved_capture(folder: Path, name: str | None) -> tuple[np.ndarray | No
 
 
 def replay_saved_action_map(
-        folder: Path, source_key: str) -> tuple[np.ndarray, list[dict], bool, str]:
+        folder: Path, source_key: str
+        ) -> tuple[np.ndarray, list[dict], bool, str, int]:
     """Resolve a recorded screen's current winning actions for a visual dry-run.
 
     The replay row is only a navigation hint. Reload and validate the actual
@@ -229,7 +278,8 @@ def replay_saved_action_map(
         action, len(detector.manifest['states'].get(winner.key, [])),
         winner.trigger)
     describe_action_plan(action, chain)  # Revalidate the selected commands.
-    return frame, chain, bool(action.get('passive')), winner.label
+    return (frame, chain, bool(action.get('passive')), winner.label,
+            int(action.get('pre_tap_delay_seconds', 0)))
 
 
 def replay_saved_captures(folder: Path) -> list[dict]:

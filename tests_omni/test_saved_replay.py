@@ -178,7 +178,7 @@ class SavedReplayTests(unittest.TestCase):
         before = {file.relative_to(self.folder): file.read_bytes()
                   for file in self.folder.rglob('*') if file.is_file()}
         with patch('omniflow.devices.Device.screenshot') as device:
-            frame, steps, passive, label = replay_saved_action_map(
+            frame, steps, passive, label, delay = replay_saved_action_map(
                 self.folder, tap_key)
             device.assert_not_called()
         saved_name = json.loads(self.manifest().read_text())[
@@ -189,6 +189,7 @@ class SavedReplayTests(unittest.TestCase):
         self.assertTrue(np.array_equal(frame, saved_frame))
         self.assertEqual(steps, [])
         self.assertTrue(passive)
+        self.assertEqual(delay, 0)
         self.assertEqual(label, 'Wait for queue')
         self.assertEqual(
             before, {file.relative_to(self.folder): file.read_bytes()
@@ -221,6 +222,60 @@ class SavedReplayTests(unittest.TestCase):
                 replay_saved_action_map(self.folder, good)
             device.assert_not_called()
             image.assert_not_called()
+
+    def test_action_dry_run_trace_matches_runner_steps_without_private_text(self):
+        from omniflow.replay import describe_action_trace
+        secret = 'some-private-data-999'
+        actions = [
+            {'kind': 'tap', 'point': [150, 210]},
+            {'kind': 'double_tap', 'point': [150, 211]},
+            {'kind': 'hold', 'point': [120, 240], 'duration_ms': 800},
+            {'kind': 'swipe', 'start': [140, 260], 'end': [170, 290],
+             'duration_ms': 670},
+            {'kind': 'field_text', 'point': [130, 220], 'text': secret},
+            {'kind': 'text', 'text': secret},
+            {'kind': 'key', 'code': 4},
+            {'kind': 'wait', 'seconds': 2},
+            {'kind': 'launch'},
+            {'kind': 'count_run'},
+        ]
+        trace = describe_action_trace(actions, initial_delay_seconds=3)
+        self.assertEqual(len(trace), len(actions) + 1)
+        self.assertIn('delay 3s after stable', trace[0])
+        self.assertIn('1 Android tap(s) at normalized (150, 210)', trace[1])
+        self.assertIn('2 Android tap(s) at normalized (150, 211)', trace[2])
+        self.assertIn('(120, 240) to (120, 240) over 800 ms', trace[3])
+        self.assertIn('(140, 260) to (170, 290) over 670 ms', trace[4])
+        self.assertIn('type [contents hidden]', trace[5])
+        self.assertIn('Android text input [contents hidden]', trace[6])
+        self.assertIn('keyevent 4', trace[7])
+        self.assertIn('no Android input', trace[8])
+        self.assertIn('Launch configured game', trace[9])
+        self.assertIn('Mark session run complete', trace[10])
+        self.assertNotIn(secret, repr(trace))
+        self.assertEqual(
+            describe_action_trace(actions, passive=True),
+            ['WAIT — no commands or Android input'])
+        with self.assertRaisesRegex(WorkflowError, 'outside'):
+            describe_action_trace([{'kind': 'tap', 'point': [999, 210]}])
+
+    def test_saved_action_map_trace_includes_initial_delay_for_winning_state(self):
+        from omniflow.replay import replay_saved_action_map, describe_action_trace
+
+        key = record_step(
+            self.folder, 'Delayed tap', self.frame, [self.rect],
+            taps=[(150, 210)], pre_tap_delay_seconds=4)
+        before = self.manifest().read_bytes()
+        frame, chain, passive, label, delay = replay_saved_action_map(
+            self.folder, key)
+        self.assertFalse(passive)
+        self.assertEqual(label, 'Delayed tap')
+        self.assertEqual(delay, 4)
+        self.assertEqual(len(chain), 1)
+        trace = describe_action_trace(chain, initial_delay_seconds=delay)
+        self.assertIn('delay 4s after stable', trace[0])
+        self.assertIn('normalized (150, 210)', trace[1])
+        self.assertEqual(before, self.manifest().read_bytes())
 
     def test_saved_capture_matches_without_writing_any_files(self):
         key = self.record()

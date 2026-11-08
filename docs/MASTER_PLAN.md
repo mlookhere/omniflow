@@ -1073,3 +1073,19 @@ remain hidden. Source and offscreen Qt tests cover WAIT selection,
 stale capture refusal, invalid non-winning actions, button state and
 disk/device immutability. Hardware acceptance and enforced `dev`
 checks remain merge blockers.
+
+**Per-action dry-run trace in action maps (current Studio iteration):**
+Both unsaved draft target maps and saved-screenshot replay target maps now
+show a validated, ordered, explicitly non-executing per-step trace
+alongside numbered visual markers. The trace describes normalized target
+positions and runner-equivalent effects for taps, double taps, holds,
+drags/swipes, field selection and text entry (text contents always
+hidden), key events, delays, game launch and run completion. It also
+shows the configured initial delay after stable recognition. Saved
+replay obtains this delay from a newly revalidated winning state;
+unsaved maps use the current editor value. WAIT outcomes show no
+actions. Device resolution/cropping mapping, live session permission,
+fresh two-frame confirmation, and real execution remain untested; no
+runtime behavior was changed. Source and Windows Qt regressions cover
+step sequence, secret redaction, delays, invalid targets and UI text.
+Release/merge hardware and required-check gates remain unchanged.
