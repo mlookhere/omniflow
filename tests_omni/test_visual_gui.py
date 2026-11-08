@@ -647,10 +647,14 @@ class VisualStudioGuiTests(unittest.TestCase):
             {'expected': 'Waiting for match', 'status': 'matched',
              'actual': 'Waiting for match', 'reason': 'Recorded state selected',
              'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}],
-             'action_plan': ['WAIT — no input will be sent']},
+             'action_plan': ['WAIT — no input will be sent'],
+             'evidence': ['Waiting for match [WAIT]: selected — image 96% (minimum 82%)',
+                          'Press Match [ACTION]: overridden by WAIT — image 94% (minimum 82%)']},
             {'expected': 'Press Match', 'status': 'different',
              'actual': 'Waiting for match', 'reason': 'overridden by WAIT',
-             'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}]},
+             'overlaps': [{'key': 'tap', 'label': 'Press Match', 'passive': False}],
+             'evidence': ['Press Match [ACTION]: conditions failed — condition-only',
+                          '  FAIL — zone average color']},
             {'expected': 'Legacy state', 'status': 'unavailable',
              'actual': '', 'reason': 'No saved screenshot',
              'overlaps': []},
@@ -670,6 +674,20 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.table.item(1, 1).text(), 'DIFFERENT')
         self.assertEqual(dialog.table.item(1, 4).text(), 'overridden by WAIT')
         self.assertEqual(dialog.table.item(2, 1).text(), 'UNAVAILABLE')
+        self.assertTrue(dialog.evidence.isReadOnly())
+        self.assertIn('overridden by WAIT', dialog.evidence.toPlainText())
+        dialog.table.setCurrentCell(1, 0)
+        self.assertIn('FAIL — zone average color', dialog.evidence.toPlainText())
+        dialog.table.setCurrentCell(2, 0)
+        self.assertIn('No saved screenshot', dialog.evidence.toPlainText())
+        dialog.table.setCurrentCell(-1, -1)
+        self.assertEqual(dialog.evidence.toPlainText(), '')
+
+    def test_empty_replay_dialog_keeps_evidence_panel_empty(self):
+        dialog = ReplayResultsDialog([])
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.table.rowCount(), 0)
+        self.assertEqual(dialog.evidence.toPlainText(), '')
 
     def test_draft_condition_undo_redo_restores_selection_and_never_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
