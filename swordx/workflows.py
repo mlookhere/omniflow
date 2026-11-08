@@ -100,6 +100,24 @@ def _saved_step_images(folder: Path, probes: list[dict], capture: str | None) ->
     return paths
 
 
+def _unshared_step_images(folder: Path, content: dict, key: str) -> list[Path]:
+    """Only reclaim images that no other saved state still references."""
+    if key not in content['states'] or key not in content['actions']:
+        raise ValueError('Saved state no longer exists; reload the workflow')
+    images = _saved_step_images(folder, content['states'][key],
+                                content['actions'][key].get('capture'))
+    shared = set()
+    for other, probes in content['states'].items():
+        if other == key:
+            continue
+        if other not in content['actions']:
+            raise ValueError('Saved state actions are incomplete; reload the workflow')
+        for path in _saved_step_images(folder, probes,
+                                       content['actions'][other].get('capture')):
+            shared.add(path.resolve())
+    return [path for path in images if path.resolve() not in shared]
+
+
 def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, int]],
                                                 list[tuple[int, int] | None], np.ndarray | None]:
     """Load editable region/gesture pairs and saved screenshot (if available)."""
@@ -360,8 +378,7 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
     if key is not None and (key not in content['states'] or key not in content['actions']):
         raise ValueError('Saved state no longer exists; reload the workflow')
     state_key = key or ('STEP_' + uuid4().hex[:12].upper())
-    old_images = (_saved_step_images(folder, content['states'][key],
-                                     content['actions'][key].get('capture'))
+    old_images = (_unshared_step_images(folder, content, key)
                   if key is not None else [])
     (folder / 'anchors').mkdir(exist_ok=True)
     (folder / 'captures').mkdir(exist_ok=True)
@@ -423,8 +440,7 @@ def remove_step(folder: Path, key: str) -> None:
     file = folder / 'manifest.json'
     content = json.loads(file.read_text(encoding='utf-8'))
     # Check references before the manifest changes, not after a file is deleted.
-    images = _saved_step_images(folder, content['states'][key],
-                                content['actions'][key].get('capture'))
+    images = _unshared_step_images(folder, content, key)
     content['states'].pop(key)
     content['actions'].pop(key)
     content['order'] = step_order(content)
