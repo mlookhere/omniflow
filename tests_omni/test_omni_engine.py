@@ -1255,6 +1255,12 @@ class EngineTests(unittest.TestCase):
               'text': 'READY'}, 'outside the normalized screen'),
             ({'type': 'pixel', 'point': [540, 200],
               'bgr': [50, 60, 70]}, 'Selected pixel'),
+            ({'type': 'pixel', 'rect': [155, 712, 434, 810],
+              'point': [434, 770], 'bgr': [50, 60, 70]},
+             'must lie inside its recognition zone'),
+            ({'type': 'pixel', 'rect': [155, 712, 434, 810],
+              'point': [155, 810], 'bgr': [50, 60, 70], 'negate': True},
+             'must lie inside its recognition zone'),
             ({'type': 'color', 'bgr': [50, 60]}, 'three BGR'),
             ({'type': 'color', 'bgr': [50, 60, 256]}, 'three BGR'),
             ({'type': 'color', 'bgr': [50, 60, 70],
@@ -1281,6 +1287,29 @@ class EngineTests(unittest.TestCase):
         self.change(self.key, conditions=[valid_ocr])
         detector = OmniDetector(self.folder)
         self.assertIn(self.key, detector.actions)
+
+    def test_pixel_zone_includes_lower_edge_and_excludes_upper_edge(self):
+        from omniflow.engine import preview_conditions, validate_condition
+
+        zone = [155, 712, 434, 810]
+        for point in ([155, 712], [433, 809]):
+            with self.subTest(point=point):
+                color = self.match[point[1], point[0]].tolist()
+                rule = {'type': 'pixel', 'rect': zone,
+                        'point': point, 'bgr': color, 'tolerance': 0}
+                validate_condition(rule)
+                self.assertEqual(preview_conditions(self.match, [rule]), [True])
+                self.change(self.key, conditions=[rule])
+                self.assertEqual(OmniDetector(self.folder).detect(self.match).key,
+                                 self.key)
+
+        # Existing rules with no explicit zone use the whole screen.
+        full_screen = {
+            'type': 'pixel', 'point': [0, 0],
+            'bgr': self.match[0, 0].tolist(), 'tolerance': 0,
+        }
+        validate_condition(full_screen)
+        self.assertEqual(preview_conditions(self.match, [full_screen]), [True])
 
     def test_explicit_boolean_ocr_flags_keep_normal_matching(self):
         from omniflow.engine import preview_conditions
