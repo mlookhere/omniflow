@@ -642,3 +642,20 @@ workflow manifests are not rewritten. Pure Python and offscreen Qt tests
 verify that neither list nor preview exposes example payloads and that
 editing remains intact. This does not encrypt saved workflow text,
 change Android input, or substitute for physical Windows/MuMu acceptance.
+
+
+**Fail-closed draft diagnostic preflight and stale-result cleanup
+(November 7, 2026):** The unsaved WHEN "Test conditions" button now uses
+the shared recognition validator *before* requesting a MuMu screenshot.
+A malformed OCR regular expression or imported rule cannot trigger an
+unnecessary screenshot/legacy preview replacement, mutate draft flags,
+or leave a previous PASS result visible. If capture fails or no usable
+screenshot exists, the status explicitly says the test is unavailable
+rather than retaining a stale match. Draft THEN action preview now
+also catches errors during legacy/explicit chain resolution, not just
+errors formatting individual actions, so malformed in-memory drafts
+become warnings instead of uncaught Qt slot exceptions. Offscreen Qt
+regressions cover invalid OCR before capture, failed screenshot after
+a prior match status, malformed action chains, no Android input, no
+workflow writes and unchanged draft state. Live hardware acceptance and
+protected dev required-check enforcement remain separate blockers.

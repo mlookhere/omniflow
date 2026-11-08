@@ -898,9 +898,9 @@ class OmniStudio(RecorderDialog):
         else:
             action['gestures'] = [dict(step) for step in self.canvas.gestures
                                   if step]
-        regions = len(self.canvas.boxes)
-        chain = resolve_action_chain(action, regions)
         try:
+            regions = len(self.canvas.boxes)
+            chain = resolve_action_chain(action, regions)
             steps = describe_action_plan(action, chain)
         except (WorkflowError, ValueError, TypeError, KeyError) as exc:
             self.action_preview_status.setText(
@@ -922,13 +922,27 @@ class OmniStudio(RecorderDialog):
         if not self.extra_conditions:
             self.rule_test_status.setText('Add a recognition condition to test.')
             return
+        from .engine import WorkflowError, preview_conditions, validate_condition
+        try:
+            # Reject malformed unsaved rules before live screenshot capture,
+            # which can replace a legacy preview and mark the editor dirty.
+            for index, rule in enumerate(self.extra_conditions, 1):
+                try:
+                    validate_condition(rule)
+                except WorkflowError as exc:
+                    raise WorkflowError(f'Condition {index}: {exc}') from exc
+        except (WorkflowError, ValueError, TypeError, KeyError) as exc:
+            self.rule_test_status.setText(f'Condition test failed: {exc}')
+            return
         image = self._editor_frame()
         if image is None:
+            # An earlier PASS must not survive a failed screenshot capture.
+            self.rule_test_status.setText(
+                'Condition test unavailable: no valid screenshot was captured.')
             return
-        from .engine import WorkflowError, preview_conditions
         try:
             outcomes = preview_conditions(image, self.extra_conditions)
-        except (WorkflowError, ValueError, KeyError, cv2.error) as exc:
+        except (WorkflowError, ValueError, TypeError, KeyError, cv2.error) as exc:
             self.rule_test_status.setText(f'Condition test failed: {exc}')
             return
         details = [

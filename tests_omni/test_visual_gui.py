@@ -196,6 +196,84 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_draft_condition_preflight_rejects_bad_regex_before_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('RulePreflight', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('127.0.0.1:16384', 'RulePreflight', base=root)
+            try:
+                studio.rule_test_status.setText('1/1 conditions match (stale)')
+                studio.extra_conditions = [
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                     'text': '(', 'regex': True}]
+                studio.needs_recapture = True
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_draft_conditions()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Condition test failed: Condition 1:',
+                              studio.rule_test_status.text())
+                self.assertIn('Invalid OCR regular expression',
+                              studio.rule_test_status.text())
+                self.assertNotIn('conditions match', studio.rule_test_status.text())
+                self.assertIsNone(studio.canvas.frame)
+                self.assertFalse(studio._dirty)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                studio.close()
+
+    def test_failed_draft_condition_capture_clears_stale_match_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('RuleCaptureFailure', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('127.0.0.1:16384', 'RuleCaptureFailure', base=root)
+            try:
+                studio.extra_conditions = [
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [75, 75, 75]}]
+                studio.rule_test_status.setText('1/1 conditions match (stale)')
+                with (patch('omniflow.devices.Device.screenshot',
+                            side_effect=RuntimeError('capture failed')) as capture,
+                      patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_draft_conditions()
+                    capture.assert_called_once()
+                    warning.assert_called_once()
+                    write.assert_not_called()
+                self.assertIn('Condition test unavailable: no valid screenshot',
+                              studio.rule_test_status.text())
+                self.assertNotIn('conditions match', studio.rule_test_status.text())
+                self.assertFalse(studio._dirty)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                studio.close()
+
+    def test_draft_action_preview_catches_invalid_chain_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ActionPreflight', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'ActionPreflight', base=root)
+            try:
+                # A malformed editor/import draft must not surface as a Qt slot
+                # exception before the safe preview's existing error handler.
+                studio.extra_chain = 7
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._preview_draft_actions()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Draft action invalid:',
+                              studio.action_preview_status.text())
+                self.assertIn('Nothing saved or tapped',
+                              studio.action_preview_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_draft_action_preview_redacts_text_and_never_uses_device_or_disk(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
