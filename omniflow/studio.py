@@ -509,6 +509,18 @@ class OmniStudio(RecorderDialog):
         self.rules_list.currentRowChanged.connect(
             lambda _: self._update_selection_buttons('rule'))
         self._add_history_controls(rule_col)
+        logic_row = QHBoxLayout()
+        logic_row.addWidget(QLabel('Combine WHEN checks:'))
+        self.condition_logic = QComboBox()
+        self.condition_logic.addItem('Match all (AND) — every check passes', 'all')
+        self.condition_logic.addItem('Match any (OR) — at least one passes', 'any')
+        self.condition_logic.setToolTip(
+            'Combine text, color and pixel checks. A saved image template, '
+            'if enabled, must still match before these checks are considered.')
+        self._last_condition_match = 'all'
+        self.condition_logic.currentIndexChanged.connect(self._condition_mode_changed)
+        logic_row.addWidget(self.condition_logic, 1)
+        rule_col.addLayout(logic_row)
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
         self.rules_only.toggled.connect(self._rule_mode_changed)
         rule_col.addWidget(self.rules_only)
@@ -587,6 +599,7 @@ class OmniStudio(RecorderDialog):
             'conditions': deepcopy(self.extra_conditions),
             'chain': deepcopy(self.extra_chain),
             'rules_only': self.rules_only.isChecked(),
+            'condition_match': self.condition_logic.currentData(),
             'rule_row': self.rules_list.currentRow(),
             'action_row': self.actions_list.currentRow(),
         }
@@ -620,6 +633,13 @@ class OmniStudio(RecorderDialog):
                 self.rules_only.setChecked(snapshot['rules_only'])
             finally:
                 self.rules_only.blockSignals(False)
+            self.condition_logic.blockSignals(True)
+            try:
+                self.condition_logic.setCurrentIndex(
+                    self.condition_logic.findData(snapshot['condition_match']))
+                self._last_condition_match = self.condition_logic.currentData()
+            finally:
+                self.condition_logic.blockSignals(False)
             self._refresh_extra(rule_row=snapshot['rule_row'],
                                 action_row=snapshot['action_row'])
         finally:
@@ -650,12 +670,25 @@ class OmniStudio(RecorderDialog):
         self._remember_edit(previous)
         self._field_changed()
 
+    def _condition_mode_changed(self, _index):
+        mode = self.condition_logic.currentData()
+        if self._history_busy or mode == self._last_condition_match:
+            return
+        previous = self._edit_snapshot()
+        previous['condition_match'] = self._last_condition_match
+        self._remember_edit(previous)
+        self._last_condition_match = mode
+        self.rule_test_status.setText('WHEN combination changed. Test the draft again.')
+        self._field_changed()
+
     def _load_extra(self):
         if not hasattr(self,'rules_list'):return
         self.extra_chain=None;self.extra_conditions=[]
         folder=self._folder()
+        mode = 'all'
         if folder and self.editing_key:
             action=json.loads((folder/'manifest.json').read_text(encoding='utf-8'))['actions'].get(self.editing_key,{})
+            mode = action.get('condition_match', 'all')
             self.extra_chain=action.get('action_chain')
             self.extra_conditions=action.get('conditions',[])
             self.rules_only.blockSignals(True)
@@ -665,6 +698,12 @@ class OmniStudio(RecorderDialog):
             self.rules_only.blockSignals(True)
             self.rules_only.setChecked(False)
             self.rules_only.blockSignals(False)
+        self.condition_logic.blockSignals(True)
+        try:
+            self.condition_logic.setCurrentIndex(self.condition_logic.findData(mode))
+        finally:
+            self.condition_logic.blockSignals(False)
+        self._last_condition_match = mode
         self._refresh_extra(rule_row=-1, action_row=-1)
         self._clear_edit_history()
 
@@ -675,6 +714,8 @@ class OmniStudio(RecorderDialog):
 
         if not isinstance(action, dict):
             raise WorkflowError('Invalid saved Studio action')
+        if action.get('condition_match', 'all') not in ('all', 'any'):
+            raise WorkflowError('Invalid saved condition match mode')
         conditions = action.get('conditions', [])
         if not isinstance(conditions, list):
             raise WorkflowError('Invalid saved conditions: expected a list')
@@ -982,7 +1023,11 @@ class OmniStudio(RecorderDialog):
             f'{"PASS" if ok else "FAIL"} — {condition_summary(rule)}'
             for ok, rule in zip(outcomes, self.extra_conditions)
         ]
+        mode = self.condition_logic.currentData()
+        matched = all(outcomes) if mode == 'all' else any(outcomes)
+        joiner = 'ALL (AND)' if mode == 'all' else 'ANY (OR)'
         self.rule_test_status.setText(
+            f'{"MATCH" if matched else "NO MATCH"} with {joiner}: '
             f'{sum(outcomes)}/{len(outcomes)} conditions match this screenshot. '
             'Draft only: image templates and other states were not tested; '
             'nothing was saved or tapped.\n' + '\n'.join(details))

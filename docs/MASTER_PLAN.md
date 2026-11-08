@@ -757,3 +757,22 @@ the additional isolated matcher preflight, preserving previous warnings
 and unsaved-draft safeguards without weakening either validation path.
 No tests or CI checks were relaxed. This correction must pass both Python
 and Windows Qt checks at its own commit before being marked green.
+
+
+**New feature — beginner-friendly ALL (AND) / ANY (OR) WHEN logic
+(November 7, 2026):** The Studio's WHEN tab now offers an explicit
+"Match all" or "Match any" selector for text, pixel and color
+recognition conditions, supporting game menus, alternate prompts and
+different valid screen cues without duplicating states. The matching
+engine and read-only replay share the same `condition_match` state
+field, which defaults to legacy AND when absent. The saved image
+template remains a separate mandatory gate when enabled; OR never
+bypasses it. The unsaved tester reports overall MATCH/NO MATCH,
+AND/OR semantics and each rule's PASS/FAIL. The choice is included
+in Studio undo/redo and atomically saved with both screenshot edits
+and settings-only changes; choosing default AND omits the extra
+field for backward compatibility. Invalid saved modes are rejected
+before discarding a current draft. Engine, replay, persistence and
+offscreen Windows Qt regressions cover correctness and usability.
+Nested rule groups, OCR variables and advanced branching remain future
+incremental capabilities requiring their own tests and safe preview.

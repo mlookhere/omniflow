@@ -196,6 +196,54 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_condition_match_mode_is_previewed_undoable_and_saved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('LogicStudio', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                              taps=[(150, 250)])
+            studio = OmniStudio('', 'LogicStudio', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.condition_logic.currentData(), 'all')
+                studio.extra_conditions = [
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [10, 230, 30], 'tolerance': 255},
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [0, 0, 0], 'tolerance': 0},
+                ]
+                studio._refresh_extra()
+                studio._field_changed()
+                old = (folder / 'manifest.json').read_bytes()
+                studio._test_draft_conditions()
+                self.assertIn('NO MATCH with ALL (AND): 1/2',
+                              studio.rule_test_status.text())
+                studio.condition_logic.setCurrentIndex(
+                    studio.condition_logic.findData('any'))
+                studio._test_draft_conditions()
+                self.assertIn('MATCH with ANY (OR): 1/2',
+                              studio.rule_test_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), old)
+                studio._undo_edit()
+                self.assertEqual(studio.condition_logic.currentData(), 'all')
+                studio._redo_edit()
+                self.assertEqual(studio.condition_logic.currentData(), 'any')
+                studio._save()
+                data = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(data['actions'][key]['condition_match'], 'any')
+                self.assertFalse(studio._dirty)
+                studio.condition_logic.setCurrentIndex(
+                    studio.condition_logic.findData('all'))
+                studio._save()
+                data = json.loads((folder / 'manifest.json').read_text())
+                self.assertNotIn('condition_match', data['actions'][key])
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_draft_condition_preflight_rejects_bad_regex_before_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
