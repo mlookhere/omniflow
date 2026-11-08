@@ -260,6 +260,32 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertFalse(new_anchor.exists())
             self.assertFalse(new_capture.exists())
 
+    def test_missing_legacy_capture_preserves_both_regions_and_drag_metadata(self):
+        from swordx.workflows import load_step
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Legacy regions', Path(root))
+            frame = self.frame.copy()
+            frame[415:450, 275:350] = (12, 210, 25)
+            boxes = [(80, 100, 220, 170), (250, 400, 390, 490)]
+            gestures = [
+                {'kind': 'tap', 'point': [130, 140]},
+                {'kind': 'drag', 'start': [290, 430],
+                 'end': [340, 460], 'duration_ms': 900},
+            ]
+            key = record_step(folder, 'Legacy', frame, boxes, gestures=gestures)
+            manifest = folder / 'manifest.json'
+            data = json.loads(manifest.read_text(encoding='utf-8'))
+            capture = folder / 'captures' / data['actions'][key]['capture']
+            capture.unlink()
+            before = manifest.read_bytes()
+            action, loaded_boxes, taps, preview = load_step(folder, key)
+            self.assertTrue(action['_needs_recapture'])
+            self.assertEqual(loaded_boxes, boxes)
+            self.assertEqual(action['gestures'], gestures)
+            self.assertEqual(taps, [(130, 140), None])
+            self.assertEqual(preview.shape, (960, 540, 3))
+            self.assertEqual(manifest.read_bytes(), before)
+
     def test_load_step_rejects_bad_screenshot_geometry_without_editing_manifest(self):
         from swordx.workflows import load_step
         with tempfile.TemporaryDirectory() as root:
