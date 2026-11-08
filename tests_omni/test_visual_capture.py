@@ -383,6 +383,25 @@ class VisualCaptureTests(unittest.TestCase):
                         self.assertNotIn(key, current['states'])
                         self.assertNotIn(key, current['actions'])
 
+    def test_delete_manifest_replace_failure_preserves_state_and_images(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Atomic delete failure', Path(root))
+            key = record_step(folder, 'Saved', self.frame,
+                              [(80, 100, 220, 170)], taps=[(130, 140)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            with patch('swordx.workflows.os.replace',
+                       side_effect=OSError('simulated manifest write failure')):
+                with self.assertRaisesRegex(OSError, 'simulated manifest write failure'):
+                    remove_step(folder, key)
+            self.assertEqual(
+                {p.relative_to(folder): p.read_bytes()
+                 for p in folder.rglob('*') if p.is_file()}, before)
+            self.assertEqual(list(folder.glob('.manifest.json.*.tmp')), [])
+            data = json.loads((folder / 'manifest.json').read_text())
+            self.assertIn(key, data['states'])
+            self.assertIn(key, data['actions'])
+
     def test_unsafe_cleanup_references_cannot_recapture_or_delete(self):
         for operation in ('recapture', 'remove'):
             for asset in ('anchor', 'capture'):
