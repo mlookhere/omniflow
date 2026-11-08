@@ -328,6 +328,19 @@ without file changes. This is a narrow editor integrity guard, not physical
 workflow validation or a release/merge claim. Required CI and actual MuMu
 acceptance remain independent gates.
 
+**Shared saved-image preservation (November 7, 2026):** Legacy/imported
+workflows can contain multiple states pointing to one screenshot or anchor.
+After safe-path cleanup was introduced, recapturing/deleting one of those
+states would otherwise unlink an image still required by the surviving state.
+Reclamation now validates each recorded reference and removes only old assets
+that are not referenced by any other state (including resolved in-workflow
+aliases). A malformed sibling-state reference blocks destructive cleanup before
+any screenshot or manifest write. Python regressions exercise shared-image
+retention during recapture and deletion, and an offscreen Windows Qt regression
+checks the real Studio Delete action. No user workflow data is migrated or
+rewritten just for this guard; real-device and enforced CI acceptance remain
+outstanding.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
