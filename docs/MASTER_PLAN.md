@@ -1338,3 +1338,20 @@ existing workflow files and canvas untouched, while a subsequent valid
 capture preserves the selected zones/gestures. Real Windows/MuMu capture
 acceptance and enforced required checks on `dev` remain outstanding;
 PR #2 stays draft/unmerged.
+
+**Legacy gesture dry-run matches recorded region count (current Studio increment):**
+The draft text preview and action-target map now count populated detection
+regions rather than the two canvas slots always allocated by the recorder.
+With one region, multiple legacy gestures are previewed in sequence as
+`resolve_action_chain` executes them; two recorded regions select one
+alternative by the winning image anchor, with both alternatives available
+on the visual map. Condition-only actions must use an explicit action
+sequence rather than offering a misleading preview of legacy touch slots
+that the recorder does not save. The preview validates all legacy
+gesture alternatives before showing readiness and does not change the
+runner's action resolution. Offscreen Qt regressions compare one- and
+two-region results directly to the production resolver, verify the
+action-map alternative flag and no ADB or manifest writes, and preserve
+the prior invalid-alternative coverage with actual recorded regions.
+Hardware verification and required status enforcement on `dev`
+remain independent blockers; PR #2 stays draft/unmerged.
