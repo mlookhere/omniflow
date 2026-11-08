@@ -294,12 +294,55 @@ class VisualStudioGuiTests(unittest.TestCase):
                 info = box.return_value
                 self.assertIn('No actions were executed', info.setInformativeText.call_args.args[0])
                 details = info.setDetailedText.call_args.args[0]
-                self.assertIn('Recognized state: selected', details)
-                self.assertIn('Image ', details)
+                self.assertIn('Recognized state [ACTION]: selected', details)
+                self.assertIn('image ', details)
+                from omniflow.engine import OmniDetector
+                from omniflow.replay import describe_recognition_evidence
+                detector = OmniDetector(folder)
+                _, states = detector.inspect(image)
+                self.assertEqual(
+                    details, '\n'.join(describe_recognition_evidence(detector, states)))
                 info.exec.assert_called_once()
                 self.assertEqual((folder / 'manifest.json').read_bytes(), manifest)
             finally:
                 studio.close()
+
+    def test_saved_detection_opencv_failure_warns_without_input_or_write(self):
+        for problem in (cv2.error('simulated template failure'),
+                        TypeError('simulated invalid inspection data')):
+            with self.subTest(problem=type(problem).__name__):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    folder = create_workflow('InspectFailure', root)
+                    image = self.frame.copy()
+                    image[220:270, 120:200] = (10, 230, 30)
+                    record_step(folder, 'Ready', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+                    before = {p.relative_to(folder): p.read_bytes()
+                              for p in folder.rglob('*') if p.is_file()}
+                    studio = OmniStudio('127.0.0.1:16384', 'InspectFailure',
+                                       base=root)
+                    try:
+                        with (patch('omniflow.devices.Device.screenshot',
+                                    return_value=image) as capture,
+                              patch('omniflow.engine.OmniDetector.inspect',
+                                    side_effect=problem) as inspect,
+                              patch('omniflow.devices.Device.tap') as tap,
+                              patch('swordx.workflows._write_manifest') as save,
+                              patch('omniflow.studio.QMessageBox.warning') as warning):
+                            studio._test_detection()
+                            capture.assert_called_once()
+                            inspect.assert_called_once()
+                            tap.assert_not_called()
+                            save.assert_not_called()
+                            warning.assert_called_once()
+                        self.assertEqual(warning.call_args.args[1], 'Recognition test')
+                        self.assertIn(str(problem), warning.call_args.args[2])
+                        self.assertEqual(
+                            {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()}, before)
+                    finally:
+                        studio.close()
 
     def test_legacy_rule_or_action_editor_recapture_keeps_existing_overlays(self):
         for edit_kind in ('rule', 'action'):
