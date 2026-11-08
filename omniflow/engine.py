@@ -136,6 +136,8 @@ def validate_condition(condition: dict) -> None:
                     any(type(v) is not int for v in point) or
                     not (0 <= point[0] < SIZE[0] and 0 <= point[1] < SIZE[1])):
                 raise WorkflowError('Selected pixel is outside the normalized screen')
+            if not (x1 <= point[0] < x2 and y1 <= point[1] < y2):
+                raise WorkflowError('Selected pixel must lie inside its recognition zone')
     else:
         raise WorkflowError(f'Unknown detector type: {kind}')
 
