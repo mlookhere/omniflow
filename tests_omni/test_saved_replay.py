@@ -225,6 +225,60 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unavailable')
         self.assertEqual(result['reason'], 'Saved screenshot is unreadable')
 
+    def test_redirected_capture_directory_is_unavailable_and_never_read(self):
+        key = self.record('External capture')
+        captures = self.folder / 'captures'
+        outside = Path(self.temp.name) / 'outside_captures'
+        captures.rename(outside)
+        try:
+            captures.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            outside.rename(captures)
+            self.skipTest('Directory symlinks not available')
+
+        before = self.manifest().read_bytes()
+        with patch('omniflow.replay.cv2.imread', wraps=cv2.imread) as read:
+            result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['expected_key'], key)
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertEqual(result['reason'], 'Unsafe screenshot reference')
+        self.assertEqual(result['evidence'], [])
+        self.assertEqual(result['action_plan'], [])
+        self.assertFalse(any(str(outside) in str(call.args[0])
+                             for call in read.call_args_list))
+        self.assertEqual(self.manifest().read_bytes(), before)
+
+    def test_redirected_anchor_directory_fails_before_image_reads(self):
+        self.record('External anchor')
+        anchors = self.folder / 'anchors'
+        outside = Path(self.temp.name) / 'outside_anchors'
+        anchors.rename(outside)
+        try:
+            anchors.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            outside.rename(anchors)
+            self.skipTest('Directory symlinks not available')
+
+        before = self.manifest().read_bytes()
+        with patch('omniflow.engine.cv2.imread') as read:
+            with self.assertRaisesRegex(WorkflowError,
+                                        'anchors directory resolves outside workflow'):
+                replay_saved_captures(self.folder)
+            read.assert_not_called()
+        self.assertEqual(self.manifest().read_bytes(), before)
+
+    def test_colon_in_imported_capture_name_is_not_a_safe_filename(self):
+        key = self.record('Imported screenshot')
+        content = json.loads(self.manifest().read_text(encoding='utf-8'))
+        content['actions'][key]['capture'] = 'external:C.jpg'
+        self.manifest().write_text(json.dumps(content), encoding='utf-8')
+        with patch('omniflow.replay.cv2.imread', wraps=cv2.imread) as read:
+            result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertEqual(result['reason'], 'Unsafe screenshot reference')
+        self.assertFalse(any('external:C.jpg' in str(call.args[0])
+                             for call in read.call_args_list))
+
     def test_replay_explains_which_condition_rejected_the_capture(self):
         record_step(
             self.folder, 'Wrong color', self.frame, [],
