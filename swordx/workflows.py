@@ -382,20 +382,28 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
                   if key is not None else [])
     (folder / 'anchors').mkdir(exist_ok=True)
     (folder / 'captures').mkdir(exist_ok=True)
-    stamp = uuid4().hex[:10]
+    # File names must never contain a manifest-supplied state key: imported
+    # workflows can have arbitrary keys, including traversal characters.
+    stamp = uuid4().hex
+    capture_name = f'capture_{stamp}.jpg'
+    anchor_names = [f'anchor_{stamp}_{index}.png' for index in range(len(boxes))]
+    # Check both destination roots before the first write. An externally
+    # replaced anchors/captures directory must not redirect new image output.
+    capture_path = _safe_saved_image(folder, 'captures', capture_name)
+    anchor_paths = [_safe_saved_image(folder, 'anchors', name)
+                    for name in anchor_names]
     probes = []
     created = []
-    capture_name = f'{state_key}_{stamp}.jpg'
     try:
         for index, (x1, y1, x2, y2) in enumerate(boxes):
-            filename = f'{state_key}_{stamp}_{index}.png'
+            filename = anchor_names[index]
             image = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
-            path = folder / 'anchors' / filename
+            path = anchor_paths[index]
             if not cv2.imwrite(str(path), image):
                 raise OSError(f'Cannot save region image: {filename}')
             created.append(path)
             probes.append({'file': filename, 'rect': [x1, y1, x2, y2]})
-        path = folder / 'captures' / capture_name
+        path = capture_path
         if not cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 89]):
             raise OSError('Cannot save state screenshot')
         created.append(path)
