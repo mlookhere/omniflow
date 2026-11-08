@@ -598,6 +598,65 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(device.swipes,[(100,100,100,300,650),(200,400,200,400,700)])
         self.assertEqual(device.keys,[4]);self.assertEqual(device.texts,['hi world']);self.assertEqual(runs,[1])
 
+    def test_saved_chain_fails_startup_before_an_earlier_valid_tap(self):
+        manifest = self.folder / 'manifest.json'
+        original = json.loads(manifest.read_text(encoding='utf-8'))
+        bad_chains = [
+            ([{'kind': 'tap', 'point': [200, 400]},
+              {'kind': 'swipe', 'start': [200, 400],
+               'end': [200, 600], 'duration_ms': 0}], 'action 2'),
+            ([{'kind': 'tap', 'point': [200, 400]},
+              {'kind': 'field_text', 'point': [200, 400],
+               'text': 'unsafe;command'}], 'action 2'),
+            ([{'kind': 'tap', 'point': [200, 400]},
+              {'kind': 'teleport'}], 'action 2'),
+            ({'kind': 'tap', 'point': [200, 400]}, 'action steps must be a list'),
+        ]
+        for chain, expected in bad_chains:
+            with self.subTest(chain=chain):
+                data = json.loads(json.dumps(original))
+                data['actions'][self.key]['action_chain'] = chain
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                device = Device(self.match)
+                with (patch.object(device, 'screenshot') as screenshot,
+                      patch('omniflow.engine.OCREngine.read') as ocr):
+                    with self.assertRaisesRegex(WorkflowError, expected):
+                        OmniRunner(device, self.folder, 'com.game.demo')
+                    screenshot.assert_not_called()
+                    ocr.assert_not_called()
+                self.assertFalse(device.taps)
+                self.assertFalse(device.swipes)
+                self.assertFalse(device.texts)
+        manifest.write_text(json.dumps(original), encoding='utf-8')
+        self.assertEqual(OmniRunner(
+            Device(self.match), self.folder, 'com.game.demo').runs, 0)
+
+    def test_all_legacy_gesture_alternatives_preflight_before_input(self):
+        manifest = self.folder / 'manifest.json'
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        # The second alternative may not be chosen by the first frame.
+        data['states'][self.key].append(dict(data['states'][self.key][0]))
+        action = data['actions'][self.key]
+        action.pop('action_chain', None)
+        action['gestures'] = [
+            {'kind': 'tap', 'point': [200, 400]},
+            {'kind': 'tap', 'point': [750, 400]},
+        ]
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        device = Device(self.match)
+        with patch.object(device, 'screenshot') as capture:
+            with self.assertRaisesRegex(
+                    WorkflowError, 'action 2: Point'):
+                OmniRunner(device, self.folder, 'com.game.demo')
+            capture.assert_not_called()
+        self.assertFalse(device.taps)
+
+    def test_passive_wait_with_old_dormant_tap_data_stays_compatible(self):
+        # A WAIT state never executes its stored gestures.
+        self.change(self.wait, action_chain=[{'kind': 'unused-old-command'}])
+        runner = OmniRunner(Device(self.match), self.folder, 'com.game.demo')
+        self.assertEqual(runner._chain(self.wait, 0), [])
+
     def test_dry_run_rejects_unsupported_and_malformed_actions_without_io(self):
         device = Device(self.match)
         messages = []
