@@ -1015,6 +1015,50 @@ class EngineTests(unittest.TestCase):
         manifest.write_text(json.dumps(base), encoding='utf-8')
         self.assertEqual(OmniDetector(self.folder).detect(self.match).key, self.key)
 
+    def test_empty_or_oversized_anchor_never_reaches_either_detector_loader(self):
+        manifest = self.folder / 'manifest.json'
+        saved_manifest = manifest.read_bytes()
+        base = json.loads(saved_manifest)
+        filename = base['states'][self.key][0]['file']
+        anchor = self.folder / 'anchors' / filename
+        saved_anchor = anchor.read_bytes()
+        try:
+            # A workflow with all image states loads through ScreenDetector;
+            # a mixed image/condition-only workflow uses OmniDetector's loader.
+            for mixed in (False, True):
+                data = json.loads(saved_manifest)
+                if mixed:
+                    data['states'][self.wait] = []
+                    data['actions'][self.wait].update({
+                        'skip_template': True,
+                        'conditions': [{
+                            'type': 'color', 'rect': [150, 700, 440, 830],
+                            'bgr': [51, 58, 69], 'tolerance': 25}],
+                    })
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                for size in (0, 32 * 1024 * 1024 + 1):
+                    with self.subTest(mixed=mixed, size=size):
+                        with anchor.open('wb') as stream:
+                            stream.truncate(size)
+                        device = Device(self.match)
+                        with (patch('swordx.detection.ScreenDetector.__init__') as legacy,
+                              patch('omniflow.engine.cv2.imread') as read,
+                              patch.object(device, 'screenshot') as capture,
+                              patch('omniflow.engine.OCREngine.read') as ocr):
+                            with self.assertRaisesRegex(
+                                    WorkflowError, 'at most 32 MiB'):
+                                OmniRunner(device, self.folder, 'com.game.demo')
+                            legacy.assert_not_called()
+                            read.assert_not_called()
+                            capture.assert_not_called()
+                            ocr.assert_not_called()
+                        self.assertFalse(device.taps)
+        finally:
+            anchor.write_bytes(saved_anchor)
+            manifest.write_bytes(saved_manifest)
+        self.assertEqual(OmniDetector(self.folder).detect(self.match).key,
+                         self.key)
+
     def test_anchor_symlink_escape_and_mismatched_image_size_fail_closed(self):
         manifest = self.folder / 'manifest.json'
         base = json.loads(manifest.read_text(encoding='utf-8'))
