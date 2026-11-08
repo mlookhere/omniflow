@@ -52,7 +52,13 @@ def describe_recognition_evidence(detector: OmniDetector,
         image = (f"image {state['template_confidence']:.0%} "
                  f"(minimum {state['threshold']:.0%})"
                  if state['has_template'] else 'condition-only')
-        lines.append(f"{state['label']} [{kind}]: {state['status']} — {image}")
+        priority = float(detector.actions[state['key']].get('priority', 0))
+        reason = state.get('rank_reason', '')
+        suffix = (f' · priority {priority:g}' if state['status'] in (
+                  'selected', 'overridden by WAIT', 'lower-ranked match') else '')
+        if reason:
+            suffix += f' · {reason}'
+        lines.append(f"{state['label']} [{kind}]: {state['status']} — {image}{suffix}")
         rules = detector.actions[state['key']].get('conditions', [])
         outcomes = state['condition_results']
         if rules:
@@ -148,6 +154,8 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             expected = next((d for d in details if d['key'] == key), None)
             item['reason'] = (expected['status'] if expected is not None
                               else 'Recorded state not present in matcher')
+            if expected is not None and expected['status'] == 'lower-ranked match':
+                item['reason'] += f" ({expected['rank_reason']})"
             if expected is not None and expected['status'] == 'template below threshold':
                 item['reason'] += (
                     f" (image {expected['template_confidence']:.0%}, "

@@ -927,3 +927,16 @@ unsaved previews still do not claim to select a state. New source and
 offscreen Qt regressions cover status/explanations, negation, OCR caching,
 no secret text in trace output and read-only no-input behavior. No physical
 acceptance or required-check enforcement claim is implied.
+
+**Overlapping-state rank diagnostics (current Studio iteration):** Saved
+screenshot replay and read-only recognition inspection now explain *why* a
+passing state lost: passive WAIT precedence, lower measured image confidence,
+lower explicit priority at equal confidence, or stable state-key tie-break
+when all other ranks tie. The output includes relevant state priority values
+without changing their ordering or saving any workflow data. The replay
+results' reason column surfaces the comparison for lower-ranked matches;
+existing WAIT result labels remain unchanged. Matching continues to use
+the exact production comparator (WAIT, confidence, priority, key).
+Engine, replay, and offscreen Qt regressions assert those four cases
+and the absence of device input or manifest writes. CI and Windows/MuMu
+physical acceptance remain independent release gates.

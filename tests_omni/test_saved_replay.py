@@ -117,6 +117,30 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(results[0]['overlaps'], [
             {'key': action_key, 'label': 'Tap', 'passive': False}])
 
+    def test_replay_explains_why_competing_action_state_lost(self):
+        rules = [{'type': 'color', 'rect': [95, 125, 245, 260],
+                  'bgr': [0, 0, 0], 'tolerance': 255}]
+        low = record_step(self.folder, 'Lower rank', self.frame, [],
+                          condition_only=True, conditions=rules,
+                          action_chain=[{'kind': 'tap', 'point': [150, 210]}])
+        high = record_step(self.folder, 'Higher rank', self.frame, [],
+                           condition_only=True, conditions=rules,
+                           action_chain=[{'kind': 'tap', 'point': [150, 210]}])
+        data = json.loads(self.manifest().read_text())
+        data['actions'][low]['priority'] = -2
+        data['actions'][high]['priority'] = 9
+        self.manifest().write_text(json.dumps(data), encoding='utf-8')
+        before = self.manifest().read_bytes()
+        with patch('omniflow.devices.Device.screenshot') as capture:
+            result = replay_saved_captures(self.folder)[0]
+            capture.assert_not_called()
+        self.assertEqual(result['actual_key'], high)
+        self.assertEqual(result['status'], 'different')
+        self.assertIn('priority -2 below selected 9', result['reason'])
+        self.assertIn('priority -2 below selected 9',
+                      '\n'.join(result['evidence']))
+        self.assertEqual(before, self.manifest().read_bytes())
+
     def test_replay_previews_chain_order_and_hides_text_contents(self):
         secret = 'secret123'
         record_step(

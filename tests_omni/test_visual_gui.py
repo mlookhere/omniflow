@@ -237,6 +237,40 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_rank_reason_is_visible_in_offline_replay_dialog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('RankingPreview', root)
+            rules = [{'type': 'color', 'rect': [100, 200, 230, 300],
+                      'bgr': [75, 75, 75], 'tolerance': 0}]
+            first = record_step(folder, 'Lower', self.frame, [],
+                                condition_only=True, conditions=rules,
+                                action_chain=[{'kind': 'tap', 'point': [110, 220]}])
+            second = record_step(folder, 'Higher', self.frame, [],
+                                 condition_only=True, conditions=rules,
+                                 action_chain=[{'kind': 'tap', 'point': [110, 220]}])
+            manifest = folder / 'manifest.json'
+            data = json.loads(manifest.read_text())
+            data['actions'][first]['priority'] = 1
+            data['actions'][second]['priority'] = 5
+            manifest.write_text(json.dumps(data), encoding='utf-8')
+            before = manifest.read_bytes()
+            from omniflow.replay import replay_saved_captures
+            with (patch('omniflow.devices.Device.screenshot') as capture,
+                  patch('swordx.workflows._write_manifest') as write):
+                results = replay_saved_captures(folder)
+                dialog = ReplayResultsDialog(results)
+                try:
+                    self.assertIn('priority 1 below selected 5',
+                                  dialog.table.item(0, 4).text())
+                    self.assertIn('priority 1 below selected 5',
+                                  dialog.evidence.toPlainText())
+                finally:
+                    dialog.close()
+                capture.assert_not_called()
+                write.assert_not_called()
+            self.assertEqual(before, manifest.read_bytes())
+
     def test_image_confidence_override_undo_save_reload_and_clear(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

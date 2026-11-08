@@ -877,6 +877,39 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(states[1]['passive'])
         self.assertEqual((self.folder / 'manifest.json').read_bytes(), manifest_before)
 
+    def test_inspection_rank_reasons_match_production_confidence_priority_and_key(self):
+        # Confidence comes before numeric priority; ranking diagnostics
+        # must not suggest that priority can rescue a weaker image match.
+        self.change(self.key, priority=100)
+        self.change(self.wait, passive=False,
+                    action_chain=[{'kind': 'tap', 'point': [200, 400]}],
+                    priority=1)
+        detector = OmniDetector(self.folder)
+        with patch.object(detector, '_match_template', side_effect=[.91, .96]):
+            winner, states = detector.inspect(self.match)
+        self.assertEqual(winner.key, self.wait)
+        self.assertEqual(states[0]['status'], 'lower-ranked match')
+        self.assertEqual(states[0]['rank_reason'],
+                         'confidence 91.0% below selected 96.0%')
+
+        # When confidence is equal, priority decides; a remaining exact
+        # tie uses the same stable key ordering as the live detector.
+        with patch.object(detector, '_match_template', return_value=.94):
+            winner, states = detector.inspect(self.match)
+        self.assertEqual(winner.key, self.key)
+        self.assertEqual(states[1]['rank_reason'],
+                         'priority 1 below selected 100')
+        self.change(self.key, priority=0)
+        self.change(self.wait, priority=0)
+        detector = OmniDetector(self.folder)
+        with patch.object(detector, '_match_template', return_value=.94):
+            winner, states = detector.inspect(self.match)
+            with patch.object(detector, '_match_template', return_value=.94):
+                self.assertEqual(detector.detect(self.match), winner)
+        self.assertEqual(winner.key, max(self.key, self.wait))
+        losing = next(item for item in states if item['key'] != winner.key)
+        self.assertEqual(losing['rank_reason'], 'stable state-key tie-break')
+
     def test_inspect_shows_rejected_conditions_without_false_positive(self):
         self.change(self.key, skip_template=True, conditions=[
             {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'MATCH'}])

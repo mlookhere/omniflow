@@ -426,6 +426,8 @@ class OmniDetector:
                 'threshold': threshold,
                 'condition_results': None,
                 'condition_evidence': None,
+                'match_confidence': None,
+                'rank_reason': '',
                 'status': 'template below threshold',
             } if explain else None
             if confidence < threshold:
@@ -459,6 +461,7 @@ class OmniDetector:
                                     bool(action.get('passive', False)), trigger))
             if explain:
                 detail['status'] = 'matched'
+                detail['match_confidence'] = float(confidence)
                 details.append(detail)
         # A matching passive WAIT state overrides actionable states, then
         # confidence, priority and key break ties exactly as in production.
@@ -466,14 +469,28 @@ class OmniDetector:
                                                  float(self.actions[m.key].get('priority', 0)), m.key)
                      ) if candidates else UNKNOWN
         if explain:
+            winner_priority = float(self.actions[winner.key].get('priority', 0)) if winner.key else 0
             for detail in details:
                 if detail['status'] != 'matched':
                     continue
                 if detail['key'] == winner.key:
                     detail['status'] = 'selected'
+                    continue
+                if winner.passive and not detail['passive']:
+                    detail['status'] = 'overridden by WAIT'
+                    detail['rank_reason'] = 'passive WAIT takes precedence'
+                elif winner.confidence > detail['match_confidence']:
+                    detail['status'] = 'lower-ranked match'
+                    detail['rank_reason'] = (
+                        f'confidence {detail["match_confidence"]:.1%} '
+                        f'below selected {winner.confidence:.1%}')
                 else:
-                    detail['status'] = ('overridden by WAIT' if winner.passive
-                                        and not detail['passive'] else 'lower-ranked match')
+                    priority = float(self.actions[detail['key']].get('priority', 0))
+                    detail['status'] = 'lower-ranked match'
+                    detail['rank_reason'] = (
+                        f'priority {priority:g} below selected {winner_priority:g}'
+                        if priority < winner_priority
+                        else 'stable state-key tie-break')
         return winner, details
 
 
