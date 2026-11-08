@@ -354,6 +354,19 @@ symlinked output folders are rejected before any manifest/image mutation;
 offscreen Windows Qt tests verify a visible Save warning and no writes. No
 real-device or required-CI-enforcement acceptance is inferred from these tests.
 
+**Atomic Studio manifest staging (November 7, 2026):** The shared
+manifest writer previously reused one fixed `manifest.tmp` staging path
+across saves, allowing overlapping writes to interfere or leave a stale
+staging file when replacement failed. Every manifest save now stages in its
+own generated temporary file beside the destination and removes that file
+in a `finally` block; the previous manifest remains intact if replacement
+fails. This is an integrity and failure-cleanup improvement, **not**
+concurrent editor conflict resolution: last successful whole-manifest
+replacement remains authoritative. Python tests verify failed-replacement
+cleanup and distinct staging paths across successive saves. Offscreen Qt
+covers a Studio Save failure warning and preserved saved state; physical
+MuMu acceptance and enforced branch gates remain outstanding.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
