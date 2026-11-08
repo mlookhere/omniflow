@@ -2254,7 +2254,7 @@ class VisualStudioGuiTests(unittest.TestCase):
                 studio.canvas.boxes = [(100, 200, 230, 300),
                                        (260, 400, 370, 500)]
                 studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
-                studio.canvas.gestures[1] = {'kind': 'swipe',
+                studio.canvas.gestures[1] = {'kind': 'drag',
                                              'start': [200, 300],
                                              'end': [900, 400],
                                              'duration_ms': 650}
