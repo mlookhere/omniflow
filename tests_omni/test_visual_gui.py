@@ -1234,6 +1234,54 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_image_score_refuses_unsaved_region_changes_but_allows_saved_regions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ImageRegionGate', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'ImageRegionGate', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                with (patch('omniflow.engine.OmniDetector._match_template',
+                            return_value=.96) as matcher,
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as writer):
+                    studio._test_image_confidence()
+                    self.assertIn('MATCH: Image similarity', studio.image_test_status.text())
+                    self.assertEqual(matcher.call_count, 1)
+
+                    # The displayed screenshot can be compared to saved anchors,
+                    # but edited detection rectangles cannot use those anchors.
+                    studio.canvas.boxes[0] = (110, 210, 230, 310)
+                    studio.canvas.changed.emit()
+                    studio._test_image_confidence()
+                    self.assertIn('Image check unavailable:', studio.image_test_status.text())
+                    self.assertIn('Save the revised regions',
+                                  studio.image_test_status.text())
+                    self.assertNotIn('MATCH:', studio.image_test_status.text())
+                    self.assertEqual(matcher.call_count, 1)
+
+                    studio._undo_edit()
+                    self.assertEqual(studio.canvas.boxes[0],
+                                     (100, 200, 230, 300))
+                    studio._test_image_confidence()
+                    self.assertIn('MATCH: Image similarity', studio.image_test_status.text())
+                    self.assertEqual(matcher.call_count, 2)
+                    adb.assert_not_called()
+                    writer.assert_not_called()
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_image_confidence_read_only_score_before_saving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
