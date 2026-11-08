@@ -367,6 +367,19 @@ cleanup and distinct staging paths across successive saves. Offscreen Qt
 covers a Studio Save failure warning and preserved saved state; physical
 MuMu acceptance and enforced branch gates remain outstanding.
 
+**Replay state-decision evidence (November 7, 2026):** The saved-screenshot
+replay now keeps the detector's per-state inspection outcomes, including every
+candidate's selected/overridden/failed status, actual image score versus
+threshold, and each evaluated OCR/color/pixel/NOT condition's PASS/FAIL.
+Conditions skipped after a failed image threshold are labeled *not evaluated*,
+not counted as passing. Selecting a replay row in Studio shows those details
+in a separate read-only panel, without additional screenshots, Android input,
+manifest changes, or exposing raw OCR output. Unavailable captures show their
+specific reason rather than an empty or green evidence panel. Source-level
+and offscreen Qt regressions cover WAIT collisions, image rejection, conditions,
+selection and unavailable captures. This remains a **one-frame recognition
+inspection**, not a sequence/timing simulation or physical-device acceptance.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
