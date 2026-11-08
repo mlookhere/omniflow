@@ -904,6 +904,82 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertEqual(dialog.table.rowCount(), 0)
         self.assertEqual(dialog.evidence.toPlainText(), '')
 
+    def test_failed_state_reorder_preserves_unsaved_draft_and_prior_good_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('SafeReorder', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = folder / 'manifest.json'
+            studio = OmniStudio('', 'SafeReorder', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.step_name.setText('First edited but unsaved')
+                rule = {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                        'text': 'READY'}
+                with patch('omniflow.studio.RuleEditor') as editor:
+                    editor.return_value.exec.return_value = QDialog.Accepted
+                    editor.return_value.result_rule.return_value = rule
+                    studio._add_rule()
+                history = len(studio._undo_edits)
+                self.assertGreater(history, 0)
+                self.assertTrue(studio._dirty)
+
+                def reverse_visible_order():
+                    blocked = studio.steps.blockSignals(True)
+                    try:
+                        item = studio.steps.takeItem(0)
+                        studio.steps.addItem(item)
+                        studio.steps.setCurrentItem(item)
+                    finally:
+                        studio.steps.blockSignals(blocked)
+
+                # A successful drag updates the baseline. Neither it nor a
+                # later failed drag may commit or discard draft fields.
+                reverse_visible_order()
+                studio._reordered(studio.steps.keys())
+                self.assertEqual(studio.steps.keys(), [second, first])
+                self.assertEqual(studio._persisted_step_order, [second, first])
+                self.assertEqual(json.loads(manifest.read_text())['order'],
+                                 [second, first])
+                persisted = manifest.read_bytes()
+                reverse_visible_order()
+                self.assertEqual(studio.steps.keys(), [first, second])
+                with (patch('swordx.workflows.os.replace',
+                            side_effect=OSError('simulated reorder write failure')),
+                      patch('swordx.recorder.QMessageBox.warning') as warning,
+                      patch.object(studio, '_load_steps') as reload):
+                    studio._reordered(studio.steps.keys())
+                    warning.assert_called_once()
+                    reload.assert_not_called()
+                self.assertIn('simulated reorder write failure',
+                              warning.call_args.args[2])
+                self.assertEqual(studio.steps.keys(), [second, first])
+                self.assertEqual(studio.steps.currentItem().data(Qt.UserRole), first)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.step_name.text(),
+                                 'First edited but unsaved')
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(len(studio._undo_edits), history)
+                self.assertTrue(studio._dirty)
+                self.assertEqual(manifest.read_bytes(), persisted)
+
+                studio._save()
+                saved = json.loads(manifest.read_text(encoding='utf-8'))
+                self.assertEqual(saved['order'], [second, first])
+                self.assertEqual(saved['actions'][first]['label'],
+                                 'First edited but unsaved')
+                self.assertEqual(saved['actions'][first]['conditions'], [rule])
+                self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_draft_condition_undo_redo_restores_selection_and_never_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
