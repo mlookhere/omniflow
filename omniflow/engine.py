@@ -465,6 +465,8 @@ def validate_action(action: dict) -> str:
                 raise WorkflowError('Wait action outside 0–86400 seconds')
         elif kind not in ('launch', 'count_run'):
             raise WorkflowError(f'Unknown action: {kind}')
+    except WorkflowError:
+        raise
     except (KeyError, TypeError, ValueError) as exc:
         raise WorkflowError(f'Invalid {kind} action: {exc}') from exc
     return kind
