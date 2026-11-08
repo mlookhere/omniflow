@@ -2045,6 +2045,71 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_new_legacy_preview_rejects_runtime_only_actions_before_save(self):
+        from omniflow.engine import WorkflowError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_workflow('LegacyWriterParity', Path(tmp))
+            manifest = folder / 'manifest.json'
+            original = manifest.read_bytes()
+            studio = OmniStudio('', 'LegacyWriterParity', base=Path(tmp))
+            try:
+                studio.canvas.load(self.frame)
+                studio.canvas.boxes = [(100, 200, 230, 300), None]
+                start, end = [110, 220], [190, 280]
+                invalid = (
+                    ({'kind': 'double_tap', 'point': [150, 250]},
+                     'Gesture must be a tap or drag'),
+                    ({'kind': 'hold', 'point': [150, 250],
+                      'duration_ms': 650}, 'Gesture must be a tap or drag'),
+                    ({'kind': 'swipe', 'start': start, 'end': end,
+                      'duration_ms': 650}, 'Gesture must be a tap or drag'),
+                    ({'kind': 'drag', 'start': start, 'end': end,
+                      'duration_ms': 75}, 'Drag duration must be 100'),
+                    ({'kind': 'drag', 'start': start, 'end': end},
+                     'Drag duration must be 100'),
+                )
+                for gesture, reason in invalid:
+                    with self.subTest(gesture=gesture):
+                        studio.canvas.gestures = [gesture, None]
+                        with self.assertRaisesRegex(
+                                WorkflowError, 'Legacy gesture 1: ' + reason):
+                            studio._draft_action_plan()
+                        with (patch('omniflow.studio.ActionMapDialog') as dialog,
+                              patch('omniflow.devices.Device.screenshot') as adb,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio._preview_draft_actions()
+                            self.assertIn('Draft action invalid: Legacy gesture 1:',
+                                          studio.action_preview_status.text())
+                            self.assertIn(reason,
+                                          studio.action_preview_status.text())
+                            studio._show_action_map()
+                            dialog.assert_not_called()
+                            adb.assert_not_called()
+                            write.assert_not_called()
+                        self.assertEqual(manifest.read_bytes(), original)
+                for duration in (100, 10000):
+                    studio.canvas.gestures = [
+                        {'kind': 'drag', 'start': start, 'end': end,
+                         'duration_ms': duration}, None]
+                    _action, steps, targets, alternatives = studio._draft_action_plan()
+                    self.assertEqual(len(steps), 1)
+                    self.assertEqual(targets[0]['duration_ms'], duration)
+                    self.assertFalse(alternatives)
+                # Modern action sequences legitimately support swipes, holds,
+                # and shorter durations even though legacy Recorder does not.
+                studio.extra_chain = [{'kind': 'swipe', 'start': start, 'end': end,
+                                       'duration_ms': 75}]
+                _action, steps, targets, alternatives = studio._draft_action_plan()
+                self.assertEqual(len(steps), 1)
+                self.assertEqual(targets[0]['duration_ms'], 75)
+                self.assertFalse(alternatives)
+                self.assertEqual(manifest.read_bytes(), original)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_new_legacy_preview_rejects_unpaired_region_slots_before_map(self):
         from omniflow.engine import WorkflowError
 
