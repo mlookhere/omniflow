@@ -1976,6 +1976,61 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_new_legacy_preview_rejects_unpaired_region_slots_before_map(self):
+        from omniflow.engine import WorkflowError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnpairedRegionDraft', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'UnpairedRegionDraft', base=root)
+            tap = {'kind': 'tap', 'point': [150, 250]}
+            region = (100, 200, 230, 300)
+            try:
+                studio.canvas.load(self.frame)
+                cases = (
+                    ([None, region], [None, tap], 'Draw detection Region 1'),
+                    ([region, None], [None, tap], 'Region 1 needs its own paired tap/drag'),
+                )
+                for boxes, gestures, message in cases:
+                    with self.subTest(boxes=boxes, gestures=gestures):
+                        studio.canvas.boxes = boxes
+                        studio.canvas.gestures = gestures
+                        with self.assertRaisesRegex(WorkflowError, message):
+                            studio._draft_action_plan()
+                        with (patch('omniflow.studio.ActionMapDialog') as dialog,
+                              patch('omniflow.devices.Device.screenshot') as capture,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio._preview_draft_actions()
+                            self.assertIn('Draft action invalid:',
+                                          studio.action_preview_status.text())
+                            self.assertIn(message,
+                                          studio.action_preview_status.text())
+                            studio._show_action_map()
+                            self.assertIn(message,
+                                          studio.action_preview_status.text())
+                            dialog.assert_not_called()
+                            capture.assert_not_called()
+                            write.assert_not_called()
+                        self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                         before)
+
+                studio.canvas.boxes = [region, None]
+                studio.canvas.gestures = [tap, None]
+                action, steps, targets, paired = studio._draft_action_plan()
+                self.assertFalse(paired)
+                self.assertEqual(targets, [tap])
+                self.assertEqual(len(steps), 1)
+                with patch('omniflow.studio.ActionMapDialog') as dialog:
+                    studio._show_action_map()
+                    dialog.assert_called_once()
+                    self.assertFalse(dialog.call_args.kwargs['alternatives'])
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_draft_legacy_preview_uses_recorded_region_count_not_canvas_slots(self):
         from omniflow.engine import resolve_action_chain
 
