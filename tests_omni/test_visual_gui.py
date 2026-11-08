@@ -332,6 +332,36 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_failed_manifest_replace_warns_without_losing_saved_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('AtomicStudioFailure', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Before', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = folder / 'manifest.json'
+            previous = manifest.read_bytes()
+            studio = OmniStudio('', 'AtomicStudioFailure', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.step_name.setText('After')
+                with (patch('swordx.workflows.os.replace',
+                            side_effect=OSError('simulated replacement failure')),
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._save()
+                    warning.assert_called_once()
+                self.assertIn('simulated replacement failure',
+                              warning.call_args.args[2])
+                self.assertEqual(manifest.read_bytes(), previous)
+                self.assertEqual(json.loads(manifest.read_text())['actions'][key]['label'],
+                                 'Before')
+                self.assertEqual(list(folder.glob('.manifest.json.*.tmp')), [])
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_studio_new_state_refuses_unsafe_screenshot_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
