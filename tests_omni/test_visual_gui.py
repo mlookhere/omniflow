@@ -3534,7 +3534,9 @@ class VisualStudioGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             folder = create_workflow('MalformedCompare', root)
-            key = record_step(folder, 'Ready', self.frame,
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            key = record_step(folder, 'Ready', image,
                               [(100, 200, 230, 300)], taps=[(150, 250)])
             before = (folder / 'manifest.json').read_bytes()
             studio = OmniStudio('', 'MalformedCompare', base=root)
