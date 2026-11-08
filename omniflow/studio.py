@@ -1672,6 +1672,16 @@ class OmniStudio(RecorderDialog):
             # one touch per image region. Existing untouched imported formats
             # retain their historical runtime preview.
             if not self.editing_key or self._visual_dirty:
+                # Runtime accepts more gesture kinds and shorter drags than
+                # the legacy recorder can persist. Use the writer's exact
+                # preflight before claiming this draft is ready to save.
+                from swordx.workflows import validate_recorded_gesture
+                for index, gesture in enumerate(choices, 1):
+                    try:
+                        validate_recorded_gesture(gesture)
+                    except ValueError as exc:
+                        raise WorkflowError(
+                            f'Legacy gesture {index}: {exc}') from exc
                 if len(choices) != regions:
                     raise WorkflowError(
                         'Each detection region needs one legacy tap/drag. '
