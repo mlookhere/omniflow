@@ -888,6 +888,10 @@ class OmniStudio(RecorderDialog):
         if folder is None:
             QMessageBox.warning(self,'Test detection','Save a workflow first');return
         try:
+            # Refuse unsafe saved rules before attempting even a read-only ADB
+            # screenshot. Live inspection must not probe a device if startup
+            # validation would already reject the workflow.
+            detector = OmniDetector(folder)
             if self.serial:
                 screenshot=Device(serial=self.serial).screenshot()
             elif self.canvas.frame is not None:
@@ -895,7 +899,6 @@ class OmniStudio(RecorderDialog):
             else:
                 QMessageBox.warning(self,'Test detection','Connect an emulator or load a recorded screen')
                 return
-            detector = OmniDetector(folder)
             result, states = detector.inspect(screenshot)
             kind = 'WAIT · no action' if result.passive else 'ACTION' if result.key else 'UNKNOWN'
             lines = []
