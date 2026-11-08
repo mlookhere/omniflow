@@ -414,6 +414,94 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_screenshot_change_invalidates_old_recognition_verdicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('StaleScreenshot', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            another = image.copy()
+            another[220:270, 120:200] = (100, 30, 200)
+            import_file = root / 'new.png'
+            self.assertTrue(cv2.imwrite(str(import_file), another))
+            studio = OmniStudio('', 'StaleScreenshot', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                studio.extra_conditions = [{
+                    'type': 'color', 'rect': [100, 200, 230, 300],
+                    'bgr': [75, 75, 75], 'tolerance': 255}]
+                studio._refresh_extra()
+                studio._test_draft_conditions()
+                self.assertIn('MATCH with ALL', studio.rule_test_status.text())
+                with patch('omniflow.engine.OmniDetector._match_template',
+                           return_value=.96):
+                    studio._test_image_confidence()
+                self.assertIn('MATCH: Image similarity', studio.image_test_status.text())
+                studio.complete_test_status.setText('MATCH: selected (stale)')
+                studio.action_preview_status.setText('Draft-only action preview (stale)')
+                with (patch('omniflow.studio.QFileDialog.getOpenFileName',
+                            return_value=(str(import_file), '')),
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._import_screenshot()
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                for label in (studio.rule_test_status,
+                              studio.image_test_status,
+                              studio.complete_test_status,
+                              studio.action_preview_status):
+                    self.assertNotIn('MATCH', label.text())
+                    self.assertNotIn('Draft-only action preview', label.text())
+                self.assertIn('Screenshot changed', studio.rule_test_status.text())
+                self.assertIn('Screenshot changed', studio.image_test_status.text())
+                self.assertIn('Preview actions again',
+                              studio.action_preview_status.text())
+                self.assertTrue(studio._visual_dirty)
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+                self.assertIn(key, json.loads(
+                    (folder / 'manifest.json').read_text())['actions'])
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_draft_action_preview_is_invalidated_when_legacy_gesture_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('StaleActions', root)
+            studio = OmniStudio('', 'StaleActions', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                studio.canvas._set_gesture(
+                    0, {'kind': 'tap', 'point': [150, 250]})
+                studio._preview_draft_actions()
+                self.assertIn('Draft-only action preview',
+                              studio.action_preview_status.text())
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.canvas._set_gesture(
+                        0, {'kind': 'drag', 'start': [110, 220],
+                            'end': [150, 260], 'duration_ms': 700})
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Preview actions again',
+                              studio.action_preview_status.text())
+                self.assertNotIn('Draft-only action preview',
+                                 studio.action_preview_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_unsaved_studio_rule_preview_does_not_change_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

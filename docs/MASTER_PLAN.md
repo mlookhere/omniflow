@@ -1020,3 +1020,18 @@ images or states. Offscreen Qt regression tests cover region, tap,
 drag, undo/redo, screenshot-boundary reset and no premature writes or
 device input. Hardware acceptance and enforced required-check
 merge gates are unchanged.
+
+**Prevent stale Studio preview results (current iteration):** The Studio now
+invalidates previously successful read-only recognition results whenever
+its screenshot frame object changes, including imported file captures,
+saved screenshot reuse, live MuMu capture and older recorded-state
+loads. Per-rule, image-similarity and combined-draft verdicts no longer
+remain visibly matched for pixels that have been replaced. Changes to
+draft fields or legacy canvas gestures also reset the unsaved action
+preview and combined recognition verdict; existing rules/AND-OR edits
+continue invalidating their specific checks. No capture, ADB input or
+manifest write is performed by invalidation. Offscreen Qt regressions
+verify prior MATCH status disappears after offline screenshot replacement
+and unsaved action preview disappears after gesture edits. This is
+preview freshness, not multi-frame live-state confirmation; physical
+Windows/MuMu acceptance and protected CI remain release gates.

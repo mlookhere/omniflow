@@ -773,11 +773,16 @@ class OmniStudio(RecorderDialog):
         chain_col.addWidget(self.action_preview_status)
         self.tabs.addTab(chain,'THEN · Actions')
         self._load_extra()
+        self._preview_frame = self.canvas.frame
 
     def _field_changed(self, *args):
-        if hasattr(self, 'complete_test_status') and not self._loading:
-            self.complete_test_status.setText(
-                'Draft changed. Rerun the combined recognition test.')
+        if not self._loading:
+            if hasattr(self, 'complete_test_status'):
+                self.complete_test_status.setText(
+                    'Draft changed. Rerun the combined recognition test.')
+            if hasattr(self, 'action_preview_status'):
+                self.action_preview_status.setText(
+                    'Draft changed. Preview actions again before running.')
         super()._field_changed(*args)
 
     def _update_controls(self):
@@ -886,6 +891,21 @@ class OmniStudio(RecorderDialog):
         }
 
     def _canvas_changed(self):
+        # A new screenshot invalidates every measurement made on the old
+        # pixels, regardless of whether it came from MuMu, a file or a saved
+        # capture. Marker-only changes do not invalidate pixel observations.
+        if hasattr(self, '_preview_frame'):
+            if self.canvas.frame is not self._preview_frame:
+                if hasattr(self, 'rule_test_status'):
+                    self.rule_test_status.setText(
+                        'Screenshot changed. Test the current WHEN rules again.')
+                if hasattr(self, 'image_test_status'):
+                    self.image_test_status.setText(
+                        'Screenshot changed. Recheck saved image similarity.')
+                if hasattr(self, 'complete_test_status'):
+                    self.complete_test_status.setText(
+                        'Screenshot changed. Rerun the combined recognition test.')
+            self._preview_frame = self.canvas.frame
         # The base Recorder connects this slot before Studio builds its
         # history UI. Ignore programmatic state loads and undo restores.
         if hasattr(self, '_last_canvas_marks'):
