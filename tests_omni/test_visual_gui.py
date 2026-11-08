@@ -3719,6 +3719,73 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_malformed_draft_rule_is_visible_without_unsafe_canvas_overlay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('MalformedRuleOverlay', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'MalformedRuleOverlay', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                invalid = (
+                    None, ['ocr'],
+                    {'type': 'ocr', 'rect': None, 'text': 'READY'},
+                    {'type': 'ocr', 'rect': [100, 'bad', 230, 300],
+                     'text': 'READY'},
+                    {'type': 'color', 'rect': [100, 200, 99, 300],
+                     'bgr': [75, 75, 75]},
+                )
+                for bad in invalid:
+                    with self.subTest(rule=bad):
+                        studio.extra_conditions = [bad]
+                        studio._refresh_extra(rule_row=0)
+                        studio._field_changed()
+                        self.assertEqual(studio.rules_list.count(), 1)
+                        self.assertEqual(studio.canvas.extra_zones, [])
+                        studio.canvas.repaint()
+                        with (patch('omniflow.engine.OCREngine.read') as ocr,
+                              patch('omniflow.devices.Device.screenshot') as capture,
+                              patch('swordx.workflows._write_manifest') as write,
+                              patch('omniflow.studio.QMessageBox.warning') as warning):
+                            studio._test_draft_conditions()
+                            self.assertIn('Condition test failed: Condition 1:',
+                                          studio.rule_test_status.text())
+                            studio._save()
+                            self.assertEqual(warning.call_args.args[1], 'Rules')
+                            self.assertIn('Condition 1:', warning.call_args.args[2])
+                            ocr.assert_not_called()
+                            capture.assert_not_called()
+                            write.assert_not_called()
+                        self.assertEqual(
+                            {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()},
+                            before)
+
+                studio.extra_conditions = [None]
+                studio._refresh_extra(rule_row=0)
+                self.assertIn('Invalid condition', studio.rules_list.item(0).text())
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch.object(studio, '_editor_frame') as frame):
+                    studio._edit_rule()
+                    warning.assert_called_once()
+                    self.assertEqual(warning.call_args.args[1], 'Invalid rule')
+                    frame.assert_not_called()
+                studio._remove_rule()
+                self.assertEqual(studio.extra_conditions, [])
+                self.assertEqual(studio.rules_list.count(), 0)
+                self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                 before[Path('manifest.json')])
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_pixel_outside_zone_fails_before_unsaved_ocr_or_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
