@@ -380,6 +380,20 @@ and offscreen Qt regressions cover WAIT collisions, image rejection, conditions,
 selection and unavailable captures. This remains a **one-frame recognition
 inspection**, not a sequence/timing simulation or physical-device acceptance.
 
+**Offline replay directory containment (November 7, 2026):** The
+saved-screenshot replay originally compared capture paths to the resolved
+`captures` directory, but did not ensure that directory itself remained
+inside the workflow. A symlink replacing the whole directory could therefore
+redirect reads outside the saved workflow. Replay now uses the recorder's
+shared safe-image resolver and reports affected screenshots as **unavailable**
+before any screenshot read; invalid Windows-style capture filenames also fail
+closed. The detector separately refuses a redirected `anchors` directory
+*before* it reads any image template. Tests cover both directory redirects,
+no external OpenCV reads, original manifest integrity and the offline Qt
+replay status without emulator access. This extends the same previously
+implemented read/write/delete boundary; it does not relax recognition or
+represent physical MuMu validation.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
