@@ -607,14 +607,16 @@ class OmniStudio(RecorderDialog):
             'Unchecked: use the workflow default. Checked: require the '
             'selected screenshot template to reach the chosen similarity.')
         self.image_confidence = QDoubleSpinBox()
-        self.image_confidence.setRange(50.0, 100.0)
+        # Preserve valid thresholds from imported workflows, even below 50%.
+        self.image_confidence.setRange(0.0, 100.0)
         self.image_confidence.setDecimals(1)
         self.image_confidence.setSingleStep(1.0)
         self.image_confidence.setSuffix('%')
         self.image_confidence.setValue(82.0)
         self.image_confidence.setToolTip(
-            'Higher percentages are stricter. This affects image matching, '
-            'not OCR or color conditions. Start at the workflow default.')
+            'Higher percentages are stricter. Very low values can cause '
+            'false matches; begin near the workflow default. '
+            'OCR and color checks are unaffected.')
         self._last_image_custom = False
         self._last_image_percent = 82.0
         self.image_custom.toggled.connect(self._image_threshold_mode_changed)

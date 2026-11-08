@@ -889,3 +889,15 @@ Source-level writer tests reject NaN, Infinity, negative, >100%,
 boolean and string thresholds on new recording and settings updates
 without altering the previous manifest. Exact-head CI must verify
 the complete suite before declaring success.
+
+
+**Imported confidence compatibility follow-up (November 7, 2026):**
+the new percentage control accepts the engine's entire valid 0–100%
+range so older manifests with low custom image thresholds are not
+silently clamped when editing unrelated fields. A tooltip warns
+that low scores risk false positives. Settings-only callers that
+omit the new optional `threshold` field retain existing saved
+overrides, while the current Studio explicitly sends None to
+clear its override. Source and offscreen Qt tests verify a saved
+40% threshold survives name editing and legacy settings updates.
+No matching thresholds, validations, or CI gates are weakened.

@@ -1011,6 +1011,19 @@ class EngineTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, 'saved image size differs'):
             OmniDetector(self.folder)
 
+    def test_settings_update_without_optional_threshold_preserves_override(self):
+        manifest = self.folder / 'manifest.json'
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        data['actions'][self.key]['threshold'] = .4
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        update_step_settings(
+            self.folder, self.key, 'Renamed', end=False, retry=False,
+            studio={'action_chain': None, 'conditions': [],
+                    'skip_template': False, 'condition_match': 'all'})
+        action = json.loads(manifest.read_text())['actions'][self.key]
+        self.assertEqual(action['threshold'], .4)
+        self.assertEqual(action['label'], 'Renamed')
+
     def test_image_threshold_writers_reject_invalid_values_without_writes(self):
         manifest = self.folder / 'manifest.json'
         original = manifest.read_bytes()

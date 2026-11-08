@@ -359,10 +359,13 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
             action['condition_match'] = mode
         else:
             action.pop('condition_match', None)
-        if studio.get('threshold') is not None:
-            action['threshold'] = studio['threshold']
-        else:
-            action.pop('threshold', None)
+        if 'threshold' in studio:
+            # Older Studio integrations that omit this optional field must
+            # preserve a previously configured per-state threshold.
+            if studio['threshold'] is None:
+                action.pop('threshold', None)
+            else:
+                action['threshold'] = studio['threshold']
     if max_extra_taps:
         action['max_extra_taps'] = max_extra_taps
     else:

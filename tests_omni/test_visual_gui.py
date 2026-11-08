@@ -247,6 +247,31 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_imported_low_confidence_is_preserved_when_editing_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('LegacyLowConfidence', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Before', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)],
+                              image_threshold=.4)
+            studio = OmniStudio('', 'LegacyLowConfidence', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertTrue(studio.image_custom.isChecked())
+                self.assertEqual(studio.image_confidence.value(), 40.0)
+                studio.step_name.setText('After')
+                studio._save()
+                action = json.loads(
+                    (folder / 'manifest.json').read_text())['actions'][key]
+                self.assertEqual(action['threshold'], .4)
+                self.assertEqual(action['label'], 'After')
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_image_confidence_read_only_score_before_saving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
