@@ -263,6 +263,19 @@ the same startup preflight, warning without accepting a partial action
 plan. Python and offscreen Qt regressions verify zero emulator input,
 no manifest writes and preserved valid workflows.
 
+**Saved retry and timing preflight (current iteration):** A workflow loaded
+from external edits could previously contain string-valued `retry` or `end`
+flags, negative delays, fractional retry intervals, oversized repeat limits
+or an unsupported retry mode. Runtime coercion or clamping could silently
+change how often a game receives input or whether a run is counted. The
+detector now validates `retry` and `end` as real booleans, initial delay
+as 0–86400 whole seconds, retry interval as 1–86400 whole seconds, extra
+tap count as 0–20 and retry mode as `interval` or `on_return` before
+OCR, screenshot capture or input. Valid boundary values and legacy absent
+fields retain their existing meanings. Startup and offscreen Studio
+inspection tests assert precise warnings, no ADB activity and unchanged
+workflow files. This is metadata validation, not a change to retry policy.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
