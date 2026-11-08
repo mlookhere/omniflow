@@ -1193,3 +1193,13 @@ including negated rules. Existing string comparisons and regex behavior are
 unchanged. Regression cases assert that invalid values fail before any OCR
 call, and remain invalid when loaded from the saved workflow. This is not
 physical MuMu verification; the dev protection and hardware gates remain.
+
+**Malformed comparison labels in Studio (current safety increment):**
+The OCR condition list now handles an imported unsaved comparison value that
+is an array, object, null or number without throwing while displaying the
+rule. Invalid comparisons are explicitly labeled, and the unchanged shared
+recognition preflight still rejects them before a screenshot, OCR inference,
+Save or live execution. Source tests cover malformed and valid labels;
+offscreen Qt tests cover displaying/editing context, refusal to test/save,
+and unchanged workflow files/ADB input. This corrects the draft display
+path only, not matching semantics or physical MuMu acceptance.
