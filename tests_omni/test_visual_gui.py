@@ -384,6 +384,37 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_replay_warns_on_later_invalid_action_without_emulator_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeReplay', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            path = folder / 'manifest.json'
+            manifest = json.loads(path.read_text(encoding='utf-8'))
+            manifest['actions'][key]['action_chain'] = [
+                {'kind': 'tap', 'point': [150, 250]},
+                {'kind': 'unknown'},
+            ]
+            path.write_text(json.dumps(manifest), encoding='utf-8')
+            before = path.read_bytes()
+            studio = OmniStudio('', 'UnsafeReplay', base=root)
+            try:
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._replay_saved_screenshots()
+                    warning.assert_called_once()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('action 2: Unknown action',
+                              warning.call_args.args[2])
+                self.assertEqual(path.read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_replay_dialog_shows_overlaps_without_hiding_failing_states(self):
         rows = [
             {'expected': 'Waiting for match', 'status': 'matched',
