@@ -630,14 +630,16 @@ class VisualStudioGuiTests(unittest.TestCase):
                     outside.rename(captures)
                     self.skipTest('Directory symlinks not available')
                 before = (folder / 'manifest.json').read_bytes()
-                with (patch.object(ReplayResultsDialog, 'exec', autospec=True) as shown,
+                dialogs = []
+                with (patch.object(ReplayResultsDialog, 'exec',
+                                   new=lambda dialog: dialogs.append(dialog)),
                       patch('omniflow.devices.Device.screenshot') as capture,
                       patch('swordx.workflows._write_manifest') as write):
                     studio._replay_saved_screenshots()
-                    shown.assert_called_once()
                     capture.assert_not_called()
                     write.assert_not_called()
-                dialog = shown.call_args.args[0]
+                self.assertEqual(len(dialogs), 1)
+                dialog = dialogs[0]
                 self.assertEqual(dialog.table.item(0, 1).text(), 'UNAVAILABLE')
                 self.assertEqual(dialog.table.item(0, 4).text(),
                                  'Unsafe screenshot reference')
