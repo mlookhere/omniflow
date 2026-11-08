@@ -162,7 +162,7 @@ class SavedReplayTests(unittest.TestCase):
             describe_action_plan({'passive': True}, chain),
             ['WAIT — no input will be sent'])
 
-    def test_all_visual_action_kinds_reject_exclusive_pixel_edges(self):
+    def test_all_visual_actions_preserve_legacy_edges_and_reject_overshoot(self):
         valid = [539, 959]
         for kind in ('tap', 'double_tap', 'hold', 'drag', 'swipe', 'field_text'):
             def action(point):
@@ -177,24 +177,28 @@ class SavedReplayTests(unittest.TestCase):
 
             with self.subTest(kind=kind):
                 self.assertEqual(validate_action(action(valid)), kind)
-                for bad in ([540, 300], [150, 960], [540, 960]):
+                # Existing workflows intentionally allow the inclusive edge:
+                # _target safely clamps it to a physical pixel.
+                self.assertEqual(validate_action(action([540, 960])), kind)
+                for bad in ([541, 300], [150, 961], [541, 961]):
                     with self.subTest(point=bad):
                         with self.assertRaisesRegex(WorkflowError,
                                                     'outside 540×960'):
                             validate_action(action(bad))
         # Valid final pixels continue to map to device coordinates.
         self.assertEqual(_target([0, 0], (1080, 1920)), (0, 0))
+        self.assertEqual(_target([540, 960], (1080, 1920)), (1079, 1919))
         mapped = _target(valid, (1080, 1920))
         self.assertTrue(0 <= mapped[0] < 1080)
         self.assertTrue(0 <= mapped[1] < 1920)
 
-    def test_exclusive_boundary_fails_preflight_before_input_or_replay(self):
+    def test_overshoot_fails_preflight_before_input_or_replay(self):
         from omniflow.engine import OmniRunner
         key = self.record('Invalid boundary')
         manifest = self.manifest()
         content = json.loads(manifest.read_text(encoding='utf-8'))
         content['actions'][key]['action_chain'] = [
-            {'kind': 'tap', 'point': [540, 220]}]
+            {'kind': 'tap', 'point': [541, 220]}]
         manifest.write_text(json.dumps(content), encoding='utf-8')
         before = manifest.read_bytes()
         device = unittest.mock.Mock()
