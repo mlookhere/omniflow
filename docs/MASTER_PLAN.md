@@ -1290,3 +1290,19 @@ summary and offscreen Qt regressions check the visible labels, strict
 preview/Save failure, no OCR, screenshots, Android input or workflow-file
 changes. Valid action summaries and permitted durations are unchanged.
 Real Windows/MuMu acceptance and enforced `dev` checks are still required.
+
+**Malformed unsaved WHEN rules remain visible without unsafe overlays (current Studio increment):**
+Copied/imported unsaved rules that are not JSON objects can no longer crash
+the condition summary or Studio's canvas-overlay refresh. Rules with an
+invalid rectangle are also omitted from visual overlays, so the canvas
+painter never receives malformed geometry. The original invalid rule stays
+in the editable/removable rule list: a non-object rule explicitly requests
+removal/replacement instead of opening an editor that expects an object.
+Shared strict recognition preflight remains unchanged: testing and Save
+refuse invalid rules before OCR, device screenshot capture or manifest
+writes. Pure tests cover safe non-object condition summaries and
+fail-closed recognition; offscreen Qt tests cover malformed object/non-object
+rectangles, list visibility, canvas repaint, refusal to test/save, safe
+removal, and unchanged stored workflow bytes. This improves Studio
+resilience, not recognition semantics or real MuMu acceptance.
+Required `dev` status protection and physical hardware checks still block merge.
