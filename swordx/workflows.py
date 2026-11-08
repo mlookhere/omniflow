@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -122,6 +123,17 @@ def _unshared_step_images(folder: Path, content: dict, key: str) -> list[Path]:
                                        content['actions'][other].get('capture')):
             shared.add(path.resolve())
     return [path for path in images if path.resolve() not in shared]
+
+
+def _prune_old_images(images: list[Path]) -> None:
+    """Post-commit cleanup must not turn a persisted edit into a false failure."""
+    for image in images:
+        try:
+            image.unlink(missing_ok=True)
+        except OSError as exc:
+            # A leftover orphan is recoverable; the committed state is not
+            # rolled back by an unrelated file-permission failure.
+            logging.warning('Could not remove unused workflow image: %s', exc)
 
 
 def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, int]],
@@ -444,8 +456,7 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
         for path in created:
             path.unlink(missing_ok=True)
         raise
-    for image in old_images:
-        image.unlink(missing_ok=True)
+    _prune_old_images(old_images)
     return state_key
 
 
@@ -459,5 +470,4 @@ def remove_step(folder: Path, key: str) -> None:
     content['actions'].pop(key)
     content['order'] = step_order(content)
     _write_manifest(file, content)
-    for image in images:
-        image.unlink(missing_ok=True)
+    _prune_old_images(images)
