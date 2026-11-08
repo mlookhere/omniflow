@@ -300,6 +300,38 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_refuses_unsafe_state_capture_on_selection_without_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeCaptureEdit', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Recorded screen', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'UnsafeCaptureEdit', base=root)
+            try:
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['actions'][key]['capture'] = '../outside.png'
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                studio.steps.setCurrentRow(-1)
+                with (patch('swordx.recorder.QMessageBox.warning') as warning,
+                      patch('swordx.workflows.cv2.imread') as read,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.steps.setCurrentRow(0)
+                    warning.assert_called_once()
+                    read.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Unsafe saved captures',
+                              warning.call_args.args[2])
+                self.assertEqual(before, {
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
     def test_saved_inspection_validates_flags_before_live_emulator_access(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
