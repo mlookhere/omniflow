@@ -1699,6 +1699,13 @@ class OmniStudio(RecorderDialog):
             probes = detector.templates.get(self.editing_key, ())
             if not probes:
                 raise WorkflowError('This state has no saved image template')
+            saved_regions = [tuple(probe.rect) for probe in probes]
+            draft_regions = [tuple(box) for box in self.canvas.boxes
+                             if box is not None]
+            if draft_regions != saved_regions:
+                raise WorkflowError(
+                    'Detection regions differ from the saved image templates. '
+                    'Save the revised regions before testing their similarity')
             frame = self.canvas.frame
             image = frame if frame.shape == (SIZE[1], SIZE[0], 3) else normalize(frame)
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
