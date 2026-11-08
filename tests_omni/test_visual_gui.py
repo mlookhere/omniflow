@@ -332,6 +332,44 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_delete_retains_images_used_by_remaining_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('SharedStudioDelete', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = folder / 'manifest.json'
+            data = json.loads(manifest.read_text(encoding='utf-8'))
+            anchor_name = data['states'][first][0]['file']
+            capture_name = data['actions'][first]['capture']
+            data['states'][second][0]['file'] = anchor_name
+            data['actions'][second]['capture'] = capture_name
+            manifest.write_text(json.dumps(data), encoding='utf-8')
+            shared_anchor = folder / 'anchors' / anchor_name
+            shared_capture = folder / 'captures' / capture_name
+            original_anchor = shared_anchor.read_bytes()
+            original_capture = shared_capture.read_bytes()
+            studio = OmniStudio('', 'SharedStudioDelete', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                with (patch('swordx.recorder.QMessageBox.question',
+                            return_value=QMessageBox.Yes),
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._delete()
+                    warning.assert_not_called()
+                saved = json.loads(manifest.read_text(encoding='utf-8'))
+                self.assertNotIn(first, saved['states'])
+                self.assertEqual(saved['states'][second][0]['file'], anchor_name)
+                self.assertEqual(saved['actions'][second]['capture'], capture_name)
+                self.assertEqual(shared_anchor.read_bytes(), original_anchor)
+                self.assertEqual(shared_capture.read_bytes(), original_capture)
+            finally:
+                studio.close()
+
     def test_studio_delete_rejects_corrupt_image_cleanup_without_filesystem_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
