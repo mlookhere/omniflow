@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from swordx.adb import ADBError
-from swordx.workflows import create_workflow,record_step
+from swordx.workflows import create_workflow, record_step, update_step_retry
 from omniflow.engine import OmniDetector, OmniRunner,WorkflowError, Match
 
 
@@ -585,6 +585,32 @@ class EngineTests(unittest.TestCase):
         r=OmniRunner(device,self.folder,'com.game.demo')
         for t in (100,101,102,111,112,113,121,122,144,200):r.step(t)
         self.assertEqual(len(device.taps),3)
+
+    def test_saved_timed_retry_defaults_roundtrip_through_workflow_writer(self):
+        # The writer omits retry_mode for 'interval'; the runner must
+        # interpret the absent key using the *same* default.
+        update_step_retry(self.folder, self.key, True, 'interval', 10)
+        data = json.loads((self.folder / 'manifest.json').read_text())
+        action = data['actions'][self.key]
+        self.assertNotIn('retry_mode', action)
+        self.assertEqual(action['retry_interval_seconds'], 10)
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        for t in (100, 101, 102, 110, 111, 112, 121):
+            runner.step(float(t))
+        self.assertEqual(len(device.taps), 3)
+        self.assertEqual(runner.attempts, 3)
+
+        # Explicit 'on_return' must never re-tap an unchanged screen.
+        update_step_retry(self.folder, self.key, True, 'on_return', 10)
+        action = json.loads((self.folder / 'manifest.json').read_text())[
+            'actions'][self.key]
+        self.assertEqual(action['retry_mode'], 'on_return')
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        for t in (100, 101, 102, 110, 111, 112, 121, 200):
+            runner.step(float(t))
+        self.assertEqual(device.taps, [(290, 770)])
 
     def test_action_chain_tap_swipe_hold_key_text_and_count(self):
         chain=[{'kind':'tap','point':[200,400]}, {'kind':'swipe','start':[100,100],'end':[100,300],'duration_ms':650},
