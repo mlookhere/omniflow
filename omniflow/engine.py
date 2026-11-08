@@ -20,6 +20,7 @@ import numpy as np
 from swordx.adb import ADBError
 from .devices import MAX_CAPTURE_AGE_SECONDS, android_text_argument
 from swordx.detection import SIZE, ScreenDetector, capture_crop_top, normalize
+from .visual import MAX_SAVED_IMAGE_BYTES
 
 
 class WorkflowError(ValueError):
@@ -334,10 +335,21 @@ class OmniDetector:
         for key, probes in self.manifest['states'].items():
             for index, probe in enumerate(probes, 1):
                 path = self.folder / 'anchors' / probe['file']
+                label = self.actions[key].get('label', key)
                 if not path.resolve().is_relative_to(anchors_root):
                     raise WorkflowError(
-                        f'State {self.actions[key].get("label", key)!r}, '
-                        f'template {index}: anchor resolves outside workflow')
+                        f'State {label!r}, template {index}: '
+                        'anchor resolves outside workflow')
+                try:
+                    size = path.stat().st_size
+                except OSError as exc:
+                    raise WorkflowError(
+                        f'State {label!r}, template {index}: '
+                        'saved anchor is missing or inaccessible') from exc
+                if not 0 < size <= MAX_SAVED_IMAGE_BYTES:
+                    raise WorkflowError(
+                        f'State {label!r}, template {index}: '
+                        'saved anchor must be nonempty and at most 32 MiB')
         self.legacy = ScreenDetector(folder) if all(self.manifest['states'].values()) else None
         self.templates = {} if self.legacy is None else self.legacy.templates
         if self.legacy is None:
