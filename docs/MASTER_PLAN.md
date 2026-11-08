@@ -314,6 +314,20 @@ and legacy fallback; an offscreen Qt test verifies a readable warning
 without image access or manifest changes. No Android input or device
 permission is needed for this safety check.
 
+**Safe saved-state image cleanup (November 7, 2026):** Saving a recaptured
+state or deleting an old state still used untrusted manifest capture/anchor
+filenames when unlinking obsolete image files, even though loading images
+already enforced path containment. The editor now preflights *all* image
+references against the saved workflow before any replacement screenshot is
+written, any manifest is changed, or any old image is removed. Traversal,
+absolute/Windows drive names and symlink escapes fail closed; legacy blank or
+missing capture references remain valid. Python tests cover refusal of unsafe
+anchor/capture cleanup, unchanged manifest/external files, and valid recapture
+and deletion; offscreen Windows Qt covers the Studio Delete action warning
+without file changes. This is a narrow editor integrity guard, not physical
+workflow validation or a release/merge claim. Required CI and actual MuMu
+acceptance remain independent gates.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
