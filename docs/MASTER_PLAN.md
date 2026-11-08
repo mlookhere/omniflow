@@ -341,6 +341,19 @@ checks the real Studio Delete action. No user workflow data is migrated or
 rewritten just for this guard; real-device and enforced CI acceptance remain
 outstanding.
 
+**Safe screenshot creation for imported state keys (November 7, 2026):**
+Earlier integrity guards covered *reading and deleting* recorded images, but
+recapture still interpolated the manifest's state key into its new JPG/PNG
+filenames, and new states could write through externally symlinked image
+folders. Newly recorded files now use generated, state-key-independent leaf
+names; both destination roots and images pass the same in-workflow containment
+validation **before the first image write**. Existing state identifiers remain
+unchanged for legacy imports, and previously saved filenames still load.
+Python tests verify traversal-shaped imported keys cannot redirect writes and
+symlinked output folders are rejected before any manifest/image mutation;
+offscreen Windows Qt tests verify a visible Save warning and no writes. No
+real-device or required-CI-enforcement acceptance is inferred from these tests.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
