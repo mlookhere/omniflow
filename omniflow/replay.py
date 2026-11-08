@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 
 from swordx.workflows import step_order
-from .engine import OmniDetector, WorkflowError, resolve_action_chain, validate_action
+from .engine import (OmniDetector, WorkflowError, resolve_action_chain,
+                     validate_action, validate_saved_action_chains)
 from .visual import action_summary, condition_summary
 
 
@@ -52,6 +53,7 @@ def replay_saved_captures(folder: Path) -> list[dict]:
     successful matches. All candidates are inspected without sending actions.
     """
     detector = OmniDetector(folder)
+    validate_saved_action_chains(detector.manifest)
     capture_root = (detector.folder / 'captures').resolve()
     results = []
     for key in step_order(detector.manifest):
