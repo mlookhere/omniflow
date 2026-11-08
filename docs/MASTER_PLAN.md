@@ -776,3 +776,15 @@ before discarding a current draft. Engine, replay, persistence and
 offscreen Windows Qt regressions cover correctness and usability.
 Nested rule groups, OCR variables and advanced branching remain future
 incremental capabilities requiring their own tests and safe preview.
+
+
+**AND/OR CI test correction (November 7, 2026):** The initial feature
+head `0c7e156` ran the full Python and Windows Qt suites. A new replay
+assertion failed in each platform because it compared an unindented
+string against a list whose display lines deliberately start with two
+spaces; the actual replay evidence and condition match were correct.
+The test now checks for the expected phrase within the individual
+evidence lines, without changing production behavior or suppressing
+the original assertion. Added imported invalid `condition_match`
+coverage to the existing unsaved-draft preservation regression.
+The correction must pass all six exact-head CI checks independently.

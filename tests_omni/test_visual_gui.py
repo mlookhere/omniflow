@@ -806,6 +806,7 @@ class VisualStudioGuiTests(unittest.TestCase):
         invalid = [
             ('conditions', {'type': 'ocr'}, 'Invalid saved conditions'),
             ('conditions', [None], 'Invalid saved condition 1'),
+            ('condition_match', 'xor', 'Invalid saved condition match mode'),
             ('conditions', [{'type': 'ocr', 'rect': [10, 10, 120, 120],
                              'text': '(', 'regex': True}], 'Invalid saved condition 1'),
             ('action_chain', {'kind': 'tap'}, 'Invalid saved action chain'),

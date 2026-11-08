@@ -70,7 +70,9 @@ class SavedReplayTests(unittest.TestCase):
         result = replay_saved_captures(self.folder)[0]
         self.assertEqual(result['expected_key'], key)
         self.assertEqual(result['status'], 'matched')
-        self.assertIn('WHEN rules: any one may pass (OR)', result['evidence'])
+        self.assertTrue(any(
+            'WHEN rules: any one may pass (OR)' in line
+            for line in result['evidence']))
         self.assertIn('PASS', '\n'.join(result['evidence']))
         self.assertIn('FAIL', '\n'.join(result['evidence']))
 
