@@ -225,6 +225,23 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unavailable')
         self.assertEqual(result['reason'], 'Saved screenshot is unreadable')
 
+    def test_nonnormalized_capture_is_unavailable_without_detector_inspection(self):
+        key = self.record('Wrong capture geometry')
+        manifest = self.manifest()
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        capture = self.folder / 'captures' / data['actions'][key]['capture']
+        self.assertTrue(cv2.imwrite(str(capture), self.frame[:700, :500]))
+        before = manifest.read_bytes()
+        with patch('omniflow.replay.OmniDetector.inspect') as inspect:
+            result = replay_saved_captures(self.folder)[0]
+            inspect.assert_not_called()
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertIn('normalized 540×960', result['reason'])
+        self.assertEqual(result['actual_key'], '')
+        self.assertEqual(result['action_plan'], [])
+        self.assertEqual(result['evidence'], [])
+        self.assertEqual(manifest.read_bytes(), before)
+
     def test_redirected_capture_directory_is_unavailable_and_never_read(self):
         key = self.record('External capture')
         captures = self.folder / 'captures'
