@@ -1154,3 +1154,16 @@ redaction rules are preserved. New offscreen Qt regressions exercise
 old hold/swipe/drag variants, duration changes, kind switching and
 explicit repicks. No live Android input or workflow write is involved.
 Release acceptance and protected checks are unchanged.
+
+**Keep moving hold geometry intact on explicit repick (current Studio
+iteration):** In the previous legacy gesture editor enhancement, opening
+a hold with different saved start/end points correctly preserved it on
+an unchanged Save, but the picker still offered a *single point* on
+retarget, converting a moving Android swipe into a stationary hold.
+The editor now recognizes moving hold paths and chooses the full swipe
+selection UI, validates/preserves both endpoints and the hold kind even
+after switching action types away and back. Stationary holds continue
+to use a point picker, and only an accepted repick modernizes their
+coordinate representation. Existing cancellation, strict new target
+validation and file/device immutability are unchanged. Windows Qt
+regressions verify path versus point picker modes and both endpoints.

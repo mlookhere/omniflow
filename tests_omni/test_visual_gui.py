@@ -158,8 +158,9 @@ class VisualStudioGuiTests(unittest.TestCase):
         for old, selected, expected in (
             ({'kind': 'hold', 'start': [540, 960], 'end': [110, 220],
               'duration_ms': 700},
-             [220, 330],
-             {'kind': 'hold', 'point': [220, 330], 'duration_ms': 700}),
+             {'start': [220, 330], 'end': [230, 350]},
+             {'kind': 'hold', 'start': [220, 330], 'end': [230, 350],
+              'duration_ms': 700}),
             ({'kind': 'swipe', 'point': [540, 960], 'duration_ms': 700},
              {'start': [210, 320], 'end': [230, 350]},
              {'kind': 'swipe', 'start': [210, 320],
@@ -177,19 +178,59 @@ class VisualStudioGuiTests(unittest.TestCase):
                         picker.return_value.result_selection.return_value = selected
                         dialog._pick()
                         picker.assert_called_once()
-                        expected_initial = (
-                            [539, 959] if old['kind'] == 'hold' else
-                            {'start': [539, 959],
-                             'end': ([110, 220] if 'end' in old
-                                     else [539, 959])})
-                        # For the hold path, the point picker shows only
-                        # the original first touch and cannot silently
-                        # replace the full swipe without user approval.
+                        expected_initial = {
+                            'start': [539, 959],
+                            'end': ([110, 220] if 'end' in old
+                                    else [539, 959])}
+                        # A moving hold must use a swipe-path picker to
+                        # preserve both endpoints on an explicit repick.
                         self.assertEqual(picker.call_args.kwargs['initial'],
                                          expected_initial)
                     self.assertEqual(dialog.result_action(), expected)
                 finally:
                     dialog.close()
+
+    def test_moving_hold_requires_full_path_repick_and_preserves_it_after_mode_change(self):
+        old = {'kind': 'hold', 'start': [120, 230], 'end': [220, 350],
+               'duration_ms': 700}
+        dialog = ActionEditor(initial=old, frame=self.frame)
+        try:
+            self.assertEqual(dialog.selection, {
+                'start': [120, 230], 'end': [220, 350]})
+            self.assertEqual(dialog.result_action(), old)
+            with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                picker.return_value.exec.return_value = QDialog.Accepted
+                picker.return_value.result_selection.return_value = {
+                    'start': [180, 260], 'end': [280, 400]}
+                dialog._pick()
+                self.assertEqual(picker.call_args.args[1], 'swipe')
+            expected = {'kind': 'hold', 'start': [180, 260],
+                        'end': [280, 400], 'duration_ms': 700}
+            self.assertEqual(dialog.result_action(), expected)
+            dialog.kind.setCurrentIndex(dialog.kind.findData('wait'))
+            dialog.kind.setCurrentIndex(dialog.kind.findData('hold'))
+            self.assertEqual(dialog.result_action(), expected)
+            self.assertEqual(old['end'], [220, 350])
+        finally:
+            dialog.close()
+
+    def test_stationary_legacy_hold_uses_point_picker_on_repick(self):
+        old = {'kind': 'hold', 'start': [540, 960],
+               'end': [540, 960], 'duration_ms': 600}
+        dialog = ActionEditor(initial=old, frame=self.frame)
+        try:
+            self.assertEqual(dialog.result_action(), old)
+            with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                picker.return_value.exec.return_value = QDialog.Accepted
+                picker.return_value.result_selection.return_value = [110, 240]
+                dialog._pick()
+                self.assertEqual(picker.call_args.args[1], 'point')
+                self.assertEqual(picker.call_args.kwargs['initial'], [539, 959])
+            self.assertEqual(dialog.result_action(), {
+                'kind': 'hold', 'point': [110, 240],
+                'duration_ms': 600})
+        finally:
+            dialog.close()
 
     def test_actions_offer_no_manual_xy_fields(self):
         dialog = ActionEditor(frame=self.frame)

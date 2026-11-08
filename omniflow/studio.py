@@ -110,9 +110,19 @@ class ActionEditor(QDialog):
         self.selection = None
         self._retargeted = False
         kind = 'swipe' if self.initial.get('kind') == 'drag' else self.initial.get('kind', 'tap')
-        if kind == 'hold' and ('start' in self.initial or 'point' in self.initial):
-            self.selection = self._existing_point(
-                self.initial.get('start', self.initial.get('point')))
+        # A legacy moving hold is an Android swipe with a duration, not a
+        # stationary point press. Retarget its entire path, never just its
+        # first touch (which would silently change execution behavior).
+        hold_start = self.initial.get('start', self.initial.get('point'))
+        hold_end = self.initial.get('end', self.initial.get('point'))
+        self._hold_path = (kind == 'hold' and hold_start is not None
+                           and hold_end is not None and hold_start != hold_end)
+        if self._hold_path:
+            self.selection = {
+                'start': self._existing_point(hold_start),
+                'end': self._existing_point(hold_end)}
+        elif kind == 'hold' and ('start' in self.initial or 'point' in self.initial):
+            self.selection = self._existing_point(hold_start)
         elif kind in ('tap', 'double_tap', 'field_text') and 'point' in self.initial:
             self.selection = self._existing_point(self.initial['point'])
         elif kind in ('swipe', 'drag'):
@@ -126,8 +136,10 @@ class ActionEditor(QDialog):
                                  if isinstance(self.selection, list) else None)
         self._swipe_selection = (dict(self.selection)
                                  if isinstance(self.selection, dict) else None)
-        self._selection_mode = ('point' if kind in ('tap', 'double_tap', 'hold', 'field_text')
-                                else 'swipe' if kind in ('swipe', 'drag') else None)
+        self._selection_mode = ('swipe' if self._hold_path or kind in ('swipe', 'drag')
+                                else 'point' if kind in ('tap', 'double_tap',
+                                                        'hold', 'field_text')
+                                else None)
         layout = QVBoxLayout(self)
         guide = QLabel('1. Choose what OmniFlow should do.  2. Pick its target on the screenshot.  3. Save the action.')
         guide.setWordWrap(True)
@@ -173,8 +185,8 @@ class ActionEditor(QDialog):
 
     def _visibility(self, *_):
         kind = self.kind.currentData()
-        needs_point = kind in ('tap', 'double_tap', 'hold', 'field_text')
-        needs_swipe = kind in ('swipe', 'drag')
+        needs_swipe = kind in ('swipe', 'drag') or (kind == 'hold' and self._hold_path)
+        needs_point = kind in ('tap', 'double_tap', 'hold', 'field_text') and not needs_swipe
         for widget, visible in ((self.pick, needs_point or needs_swipe),
                                 (self.duration, kind in ('hold','swipe','drag')),
                                 (self.seconds, kind == 'wait'),
@@ -216,7 +228,8 @@ class ActionEditor(QDialog):
             QMessageBox.information(self, 'Screenshot required', 'Capture or open a saved screen in Studio first.')
             return
         kind = self.kind.currentData()
-        mode = 'swipe' if kind in ('swipe', 'drag') else 'point'
+        mode = ('swipe' if kind in ('swipe', 'drag') or
+                (kind == 'hold' and self._hold_path) else 'point')
         initial = self.selection if ((mode == 'swipe') == isinstance(self.selection, dict)) else None
         if initial is not None:
             # The visual picker requires on-image positions. Clamp legacy
@@ -261,6 +274,13 @@ class ActionEditor(QDialog):
         if kind == 'back':
             return {'kind': 'key', 'code': 4}
         if kind in ('tap','double_tap','hold'):
+            if kind == 'hold' and self._hold_path:
+                if not isinstance(self.selection, dict):
+                    raise ValueError('Draw the hold path on a screenshot before saving')
+                return {'kind': 'hold',
+                        'start': self._existing_point(self.selection['start']),
+                        'end': self._existing_point(self.selection['end']),
+                        'duration_ms': self.duration.value()}
             if not isinstance(self.selection, list):
                 raise ValueError('Select the tap/hold location on a screenshot before saving')
             result = {'kind': kind, 'point': self._existing_point(self.selection)}
