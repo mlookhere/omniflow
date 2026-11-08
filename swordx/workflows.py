@@ -70,28 +70,57 @@ def reorder_steps(folder: Path, keys: list[str]) -> None:
     _write_manifest(path, content)
 
 
+def _safe_saved_image(folder: Path, kind: str, name: str) -> Path:
+    """Resolve a recorded image without trusting externally edited manifests."""
+    if (not isinstance(name, str) or not name or name in ('.', '..') or
+            '/' in name or '\\' in name or ':' in name or '\x00' in name):
+        raise ValueError(f'Unsafe saved {kind} filename')
+    root = (folder / kind).resolve()
+    image = folder / kind / name
+    if not image.resolve().is_relative_to(root):
+        raise ValueError(f'Saved {kind} image resolves outside workflow')
+    return image
+
+
 def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, int]],
                                                 list[tuple[int, int] | None], np.ndarray | None]:
     """Load editable region/gesture pairs and saved screenshot (if available)."""
     folder = Path(folder)
     content = json.loads((folder / 'manifest.json').read_text(encoding='utf-8'))
     action = content['actions'][key].copy()
-    boxes = [tuple(probe['rect']) for probe in content['states'][key]]
+    # Check *all* image references before reading even the primary screenshot.
+    # Old captures may be missing, but unsafe references must never be opened.
+    probes = content['states'][key]
+    boxes = []
+    anchors = []
+    for index, probe in enumerate(probes, 1):
+        if not isinstance(probe, dict):
+            raise ValueError(f'Invalid saved template {index}')
+        rect = probe.get('rect')
+        if (not isinstance(rect, (list, tuple)) or len(rect) != 4 or
+                any(type(value) is not int for value in rect)):
+            raise ValueError(f'Invalid saved template {index} region')
+        x1, y1, x2, y2 = rect
+        if not (0 <= x1 < x2 <= SIZE[0] and 0 <= y1 < y2 <= SIZE[1]):
+            raise ValueError(f'Invalid saved template {index} region')
+        boxes.append(tuple(rect))
+        anchors.append(_safe_saved_image(folder, 'anchors', probe.get('file')))
+    capture = action.get('capture')
+    capture_path = (_safe_saved_image(folder, 'captures', capture)
+                    if capture is not None else None)
     taps = [tuple(tap) if tap is not None else None for tap in action.get('taps', [])]
     if 'gestures' in action:
         taps = [tuple(gesture['point']) if gesture['kind'] == 'tap' else None
                 for gesture in action['gestures']]
     if not taps and not action.get('passive') and not action.get('action_chain'):  # v1.1 compatibility.
         taps = [tuple(action['tap'])] + [None] * (len(boxes) - 1)
-    capture = action.get('capture')
-    frame = cv2.imread(str(folder / 'captures' / capture)) if capture else None
+    frame = cv2.imread(str(capture_path)) if capture_path else None
     if frame is None:
         # Older workflows only contain template crops. Render those in place
         # so users can still view the recorded regions before recapturing.
         frame = np.full((SIZE[1], SIZE[0], 3), 28, dtype=np.uint8)
-        for probe in content['states'][key]:
-            crop = cv2.imread(str(folder / 'anchors' / probe['file']))
-            x1, y1, x2, y2 = probe['rect']
+        for (x1, y1, x2, y2), anchor in zip(boxes, anchors):
+            crop = cv2.imread(str(anchor))
             if crop is not None:
                 frame[y1:y2, x1:x2] = cv2.resize(crop, (x2-x1, y2-y1))
         action['_needs_recapture'] = True
