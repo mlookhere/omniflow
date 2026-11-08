@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 
 from swordx.adb import ADBError
-from swordx.workflows import create_workflow, record_step, update_step_retry
+from swordx.workflows import (create_workflow, record_step,
+                              update_step_retry, update_step_settings)
 from omniflow.engine import OmniDetector, OmniRunner,WorkflowError, Match
 
 
@@ -1009,6 +1010,26 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(cv2.imwrite(str(original), image[:, :-1]))
         with self.assertRaisesRegex(WorkflowError, 'saved image size differs'):
             OmniDetector(self.folder)
+
+    def test_image_threshold_writers_reject_invalid_values_without_writes(self):
+        manifest = self.folder / 'manifest.json'
+        original = manifest.read_bytes()
+        for invalid in (float('nan'), float('inf'), -0.1, 1.01, True, '0.9'):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError,
+                                            'Image confidence threshold'):
+                    record_step(self.folder, 'New', self.match,
+                                [(150, 700, 440, 830)],
+                                taps=[(200, 750)], image_threshold=invalid)
+                self.assertEqual(manifest.read_bytes(), original)
+                with self.assertRaisesRegex(ValueError,
+                                            'Image confidence threshold'):
+                    update_step_settings(
+                        self.folder, self.key, 'Ready', end=False, retry=False,
+                        studio={'action_chain': None, 'conditions': [],
+                                'skip_template': False, 'condition_match': 'all',
+                                'threshold': invalid})
+                self.assertEqual(manifest.read_bytes(), original)
 
     def test_matcher_metadata_is_checked_before_screenshots_or_ocr(self):
         manifest = self.folder / 'manifest.json'

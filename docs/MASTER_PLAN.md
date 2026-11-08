@@ -876,3 +876,16 @@ including programmatic calls. Legacy and external workflows without
 a per-state threshold retain the original global default. Actual
 Windows/MuMu acceptance and protected-dev required-check enforcement
 remain separate release gates.
+
+
+**Confidence UI regression coverage (November 7, 2026):**
+offscreen Windows Qt tests exercise custom 94.5% threshold toggling,
+undo/redo, atomic settings-only save, restoration, removal of the
+override, and unchanged saved screenshot/template bytes. A separate
+read-only screenshot test injects a known 89% production template
+score, showing MATCH at the workflow's 82% default and NO MATCH at a
+draft 94% cutoff while proving no ADB capture or manifest writes.
+Source-level writer tests reject NaN, Infinity, negative, >100%,
+boolean and string thresholds on new recording and settings updates
+without altering the previous manifest. Exact-head CI must verify
+the complete suite before declaring success.

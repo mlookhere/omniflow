@@ -196,6 +196,103 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_image_confidence_override_undo_save_reload_and_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ConfidenceSettings', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            before_images = {
+                p.relative_to(folder): p.read_bytes()
+                for name in ('anchors', 'captures')
+                for p in (folder / name).iterdir() if p.is_file()}
+            studio = OmniStudio('', 'ConfidenceSettings', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertFalse(studio.image_custom.isChecked())
+                self.assertEqual(studio.image_confidence.value(), 82.0)
+                self.assertFalse(studio.image_confidence.isEnabled())
+                studio.image_custom.setChecked(True)
+                studio.image_confidence.setValue(94.5)
+                self.assertTrue(studio._dirty)
+                studio._undo_edit()
+                self.assertEqual(studio.image_confidence.value(), 82.0)
+                self.assertTrue(studio.image_custom.isChecked())
+                studio._redo_edit()
+                self.assertEqual(studio.image_confidence.value(), 94.5)
+                self.assertTrue(studio.image_confidence.isEnabled())
+                with patch('swordx.workflows._write_manifest',
+                           wraps=workflows._write_manifest) as write:
+                    studio._save()
+                    write.assert_called_once()
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(saved['actions'][key]['threshold'], .945)
+                self.assertFalse(studio._dirty)
+                self.assertTrue(studio.image_custom.isChecked())
+                self.assertEqual(studio.image_confidence.value(), 94.5)
+                studio.image_custom.setChecked(False)
+                studio._save()
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertNotIn('threshold', saved['actions'][key])
+                self.assertEqual({
+                    p.relative_to(folder): p.read_bytes()
+                    for name in ('anchors', 'captures')
+                    for p in (folder / name).iterdir() if p.is_file()},
+                    before_images)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_image_confidence_read_only_score_before_saving(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ConfidencePreview', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {
+                p.relative_to(folder): p.read_bytes()
+                for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('127.0.0.1:16384', 'ConfidencePreview', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.canvas.load(image)
+                studio.needs_recapture = False
+                with (patch('omniflow.engine.OmniDetector._match_template',
+                            return_value=.89) as matcher,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_image_confidence()
+                    self.assertIn('MATCH: Image similarity 89.0%; required 82.0%',
+                                  studio.image_test_status.text())
+                    studio.image_custom.setChecked(True)
+                    studio.image_confidence.setValue(94.0)
+                    studio._test_image_confidence()
+                    self.assertIn('NO MATCH: Image similarity 89.0%; required 94.0%',
+                                  studio.image_test_status.text())
+                    self.assertIn('WHEN conditions were not tested',
+                                  studio.image_test_status.text())
+                    self.assertEqual(matcher.call_count, 2)
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual({
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()}, before)
+                studio.needs_recapture = True
+                with patch('omniflow.devices.Device.screenshot') as capture:
+                    studio._test_image_confidence()
+                    capture.assert_not_called()
+                self.assertIn('Load or capture a real screenshot',
+                              studio.image_test_status.text())
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_condition_match_mode_is_previewed_undoable_and_saved(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
