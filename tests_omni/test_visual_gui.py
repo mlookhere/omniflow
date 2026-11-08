@@ -1976,6 +1976,72 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_draft_legacy_preview_uses_recorded_region_count_not_canvas_slots(self):
+        from omniflow.engine import resolve_action_chain
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('LegacyRegionPreview', root)
+            original = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'LegacyRegionPreview', base=root)
+            first = {'kind': 'tap', 'point': [150, 250]}
+            second = {'kind': 'tap', 'point': [290, 450]}
+            try:
+                studio.canvas.load(self.frame)
+                studio.canvas.boxes = [(100, 200, 230, 300), None]
+                studio.canvas.gestures = [first, second]
+                action, steps, targets, paired = studio._draft_action_plan()
+                self.assertFalse(paired)
+                self.assertEqual(targets, [first, second])
+                self.assertEqual(
+                    targets, resolve_action_chain(action, 1))
+                self.assertEqual(len(steps), 2)
+                studio._preview_draft_actions()
+                self.assertIn('2. Tap location selected',
+                              studio.action_preview_status.text())
+                self.assertNotIn('only the first alternative',
+                                 studio.action_preview_status.text())
+                with (patch('omniflow.studio.ActionMapDialog') as dialog,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._show_action_map()
+                    self.assertFalse(dialog.call_args.kwargs['alternatives'])
+                    self.assertEqual(dialog.call_args.args[1], [first, second])
+                    capture.assert_not_called()
+                    write.assert_not_called()
+
+                studio.canvas.boxes[1] = (260, 400, 370, 500)
+                action, steps, targets, paired = studio._draft_action_plan()
+                self.assertTrue(paired)
+                self.assertEqual(len(steps), 1)
+                self.assertEqual(targets, [first, second])
+                self.assertEqual(
+                    resolve_action_chain(action, 2, trigger=1), [second])
+                studio._preview_draft_actions()
+                self.assertIn('only the first alternative is shown',
+                              studio.action_preview_status.text())
+                with patch('omniflow.studio.ActionMapDialog') as dialog:
+                    studio._show_action_map()
+                    self.assertTrue(dialog.call_args.kwargs['alternatives'])
+
+                # Condition-only images have zero templates: the recorder
+                # cannot persist legacy touches as actions without a chain.
+                studio.rules_only.setChecked(True)
+                studio._preview_draft_actions()
+                self.assertIn('Condition-only actions need an explicit action sequence',
+                              studio.action_preview_status.text())
+                studio.extra_chain = [first, second]
+                _action, steps, targets, paired = studio._draft_action_plan()
+                self.assertFalse(paired)
+                self.assertEqual(targets, [first, second])
+                self.assertEqual(len(steps), 2)
+                self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                 original)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_draft_preview_checks_every_legacy_gesture_alternative(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1984,6 +2050,8 @@ class VisualStudioGuiTests(unittest.TestCase):
             before = manifest.read_bytes()
             studio = OmniStudio('', 'LegacyAlternativePreview', base=root)
             try:
+                studio.canvas.boxes = [(100, 200, 230, 300),
+                                       (260, 400, 370, 500)]
                 studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
                 studio.canvas.gestures[1] = {'kind': 'swipe',
                                              'start': [200, 300],
