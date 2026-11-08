@@ -1389,3 +1389,19 @@ confirms mismatched legacy counts cannot create files and a modern
 explicit two-command chain remains saveable with one image region.
 Real hardware acceptance and enforced `dev` required checks remain
 unverified; PR #2 stays draft/unmerged.
+
+**Saving visually recorded image states with explicit action chains (current increment):**
+The shared Recorder Save path now omits legacy gestures when Studio
+provides an explicit action sequence. Previously a valid visual state
+with Region 1 and an explicit THEN chain but no separate legacy tap
+would pass the Studio action preview, then fail `record_step` because
+the Recorder sent a `None` gesture inside a one-item list. The
+explicit chain now persists without a ghost gesture. This also allows
+visual re-recording of such states while retaining the ordered
+sequence; untouched legacy gestures without a chain still use their
+original path. The offscreen Windows Qt regression performs full
+new-state Save, recognition/action-chain startup validation, image
+recapture and another Save, checking that no emulator screenshot is
+requested and no legacy gestures are introduced. Independent hardware
+Windows/MuMu acceptance and enforced required checks on `dev` remain
+outstanding. PR #2 stays draft/unmerged.
