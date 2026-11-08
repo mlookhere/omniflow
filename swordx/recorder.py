@@ -793,15 +793,18 @@ class RecorderDialog(QDialog):
     def _select_step(self, current, _previous):
         if current is None or not self._folder():
             return
-        if not self._confirm_discard():
-            self._restore_step_selection(_previous)
-            return
         key = current.data(Qt.UserRole)
         try:
+            # Validate and decode the destination *before* offering to
+            # discard the current draft. Corrupt imported screenshots,
+            # gestures or settings must never cost unsaved work.
             action, boxes, taps, frame = load_step(self._folder(), key)
-        except (OSError, ValueError, KeyError) as exc:
+        except (OSError, ValueError, KeyError, TypeError) as exc:
             self._restore_step_selection(_previous)
             QMessageBox.warning(self, 'Could not load state', str(exc))
+            return
+        if not self._confirm_discard():
+            self._restore_step_selection(_previous)
             return
         self._loading = True
         try:

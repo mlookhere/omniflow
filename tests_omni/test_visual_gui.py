@@ -488,6 +488,89 @@ class VisualStudioGuiTests(unittest.TestCase):
                     finally:
                         studio.close()
 
+    def test_corrupt_saved_destination_never_prompts_to_discard_unsaved_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('GuardCorruptSwitch', root)
+            image = self.frame.copy()
+            image[200:300, 100:230] = np.random.default_rng(29).integers(
+                0, 256, (100, 130, 3), dtype=np.uint8)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'GuardCorruptSwitch', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, first)
+                rule = {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                        'text': 'unsaved'}
+                studio.extra_conditions = [rule]
+                studio.extra_chain = [{'kind': 'wait', 'seconds': 1}]
+                studio._refresh_extra()
+                studio.step_name.setText('Unsaved name')
+                studio._field_changed()
+                self.assertTrue(studio._dirty)
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['actions'][second]['capture'] = '../../invalid.png'
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = manifest.read_bytes()
+                with (patch.object(studio, '_confirm_discard') as discard,
+                      patch('swordx.recorder.QMessageBox.warning') as warning,
+                      patch('swordx.workflows.cv2.imread') as read,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.steps.setCurrentRow(1)
+                    discard.assert_not_called()
+                    read.assert_not_called()
+                    write.assert_not_called()
+                    warning.assert_called_once()
+                self.assertIn('Unsafe saved captures', warning.call_args.args[2])
+                self.assertEqual(studio.steps.currentRow(), 0)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.step_name.text(), 'Unsaved name')
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(studio.extra_chain, [{'kind': 'wait', 'seconds': 1}])
+                self.assertTrue(studio._dirty)
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_valid_state_switch_still_honors_discard_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('GuardValidSwitch', root)
+            image = self.frame.copy()
+            image[200:300, 100:230] = np.random.default_rng(29).integers(
+                0, 256, (100, 130, 3), dtype=np.uint8)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            record_step(folder, 'Second', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'GuardValidSwitch', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.step_name.setText('Unsaved name')
+                self.assertTrue(studio._dirty)
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('swordx.recorder.QMessageBox.question',
+                            return_value=QMessageBox.No) as ask,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.steps.setCurrentRow(1)
+                    ask.assert_called_once()
+                    write.assert_not_called()
+                self.assertEqual(studio.steps.currentRow(), 0)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.step_name.text(), 'Unsaved name')
+                self.assertTrue(studio._dirty)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_invalid_saved_studio_rules_and_actions_preserve_unsaved_editor(self):
         invalid = [
             ('conditions', {'type': 'ocr'}, 'Invalid saved conditions'),

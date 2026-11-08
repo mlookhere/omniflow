@@ -599,3 +599,16 @@ selection without changing editor rules/actions or writing workflow files.
 Valid imported condition/action chains remain editable; Windows offscreen Qt
 tests cover failure rollback, preservation of unsaved drafts and valid imports.
 This does not establish physical MuMu reliability or change merge gates.
+
+**Saved-state selection before draft discard (November 7, 2026):**
+The shared RecorderDialog now validates and decodes the target saved state
+*before* asking to discard edits to the current state. Previously the
+confirmation appeared first, so accepting could throw away unsaved Studio
+rules, actions or the label before a corrupt target screenshot, malformed
+import or unsafe capture path was detected. Failed destination loads now
+warn and restore selection without prompting to discard or mutating draft
+fields; valid targets still require explicit discard approval. Offscreen Qt
+regressions cover corrupt destination with retained draft, zero image reads
+for unsafe captures, and valid target with declined discard. This is a
+local authoring safeguard, not a change to runtime matching or a claim of
+physical Windows/MuMu acceptance.
