@@ -14,7 +14,7 @@ import numpy as np
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
-                               QDialogButtonBox, QFormLayout, QHeaderView,
+                               QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHeaderView,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
@@ -601,6 +601,35 @@ class OmniStudio(RecorderDialog):
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
         self.rules_only.toggled.connect(self._rule_mode_changed)
         rule_col.addWidget(self.rules_only)
+        image_row = QHBoxLayout()
+        self.image_custom = QCheckBox('Custom image confidence')
+        self.image_custom.setToolTip(
+            'Unchecked: use the workflow default. Checked: require the '
+            'selected screenshot template to reach the chosen similarity.')
+        self.image_confidence = QDoubleSpinBox()
+        self.image_confidence.setRange(50.0, 100.0)
+        self.image_confidence.setDecimals(1)
+        self.image_confidence.setSingleStep(1.0)
+        self.image_confidence.setSuffix('%')
+        self.image_confidence.setValue(82.0)
+        self.image_confidence.setToolTip(
+            'Higher percentages are stricter. This affects image matching, '
+            'not OCR or color conditions. Start at the workflow default.')
+        self._last_image_custom = False
+        self._last_image_percent = 82.0
+        self.image_custom.toggled.connect(self._image_threshold_mode_changed)
+        self.image_confidence.valueChanged.connect(self._image_threshold_changed)
+        image_row.addWidget(self.image_custom)
+        image_row.addWidget(self.image_confidence)
+        rule_col.addLayout(image_row)
+        image_tester = QPushButton('Check image similarity on loaded screenshot (no taps)')
+        image_tester.clicked.connect(self._test_image_confidence)
+        rule_col.addWidget(image_tester)
+        self.image_test_status = QLabel(
+            'Image confidence uses the saved template. Start with the workflow default.')
+        self.image_test_status.setWordWrap(True)
+        rule_col.addWidget(self.image_test_status)
+        self._sync_image_controls()
         draft_tester = QPushButton('Test current conditions on screenshot (no taps)')
         draft_tester.clicked.connect(self._test_draft_conditions)
         rule_col.addWidget(draft_tester)
@@ -705,6 +734,8 @@ class OmniStudio(RecorderDialog):
             'chain': deepcopy(self.extra_chain),
             'rules_only': self.rules_only.isChecked(),
             'condition_match': self.condition_logic.currentData(),
+            'image_custom': self.image_custom.isChecked(),
+            'image_percent': self.image_confidence.value(),
             'rule_row': self.rules_list.currentRow(),
             'action_row': self.actions_list.currentRow(),
         }
@@ -745,6 +776,20 @@ class OmniStudio(RecorderDialog):
                 self._last_condition_match = self.condition_logic.currentData()
             finally:
                 self.condition_logic.blockSignals(False)
+            for widget, value in (
+                    (self.image_custom, snapshot['image_custom']),
+                    (self.image_confidence, snapshot['image_percent'])):
+                widget.blockSignals(True)
+                try:
+                    if widget is self.image_custom:
+                        widget.setChecked(value)
+                    else:
+                        widget.setValue(value)
+                finally:
+                    widget.blockSignals(False)
+            self._last_image_custom = self.image_custom.isChecked()
+            self._last_image_percent = self.image_confidence.value()
+            self._sync_image_controls()
             self._refresh_extra(rule_row=snapshot['rule_row'],
                                 action_row=snapshot['action_row'])
         finally:
@@ -773,7 +818,37 @@ class OmniStudio(RecorderDialog):
         previous = self._edit_snapshot()
         previous['rules_only'] = not checked
         self._remember_edit(previous)
+        self._sync_image_controls()
         self._field_changed()
+
+    def _sync_image_controls(self):
+        self.image_confidence.setEnabled(
+            self.image_custom.isChecked() and not self.rules_only.isChecked())
+
+    def _image_threshold_mode_changed(self, checked):
+        if self._history_busy or checked == self._last_image_custom:
+            return
+        previous = self._edit_snapshot()
+        previous['image_custom'] = self._last_image_custom
+        self._remember_edit(previous)
+        self._last_image_custom = checked
+        self._sync_image_controls()
+        self.image_test_status.setText('Confidence changed. Recheck the screenshot.')
+        self._field_changed()
+
+    def _image_threshold_changed(self, value):
+        if self._history_busy or value == self._last_image_percent:
+            return
+        previous = self._edit_snapshot()
+        previous['image_percent'] = self._last_image_percent
+        self._remember_edit(previous)
+        self._last_image_percent = value
+        self.image_test_status.setText('Confidence changed. Recheck the screenshot.')
+        self._field_changed()
+
+    def _image_threshold_override(self):
+        return (round(self.image_confidence.value() / 100, 3)
+                if self.image_custom.isChecked() else None)
 
     def _condition_mode_changed(self, _index):
         mode = self.condition_logic.currentData()
@@ -791,9 +866,15 @@ class OmniStudio(RecorderDialog):
         self.extra_chain=None;self.extra_conditions=[]
         folder=self._folder()
         mode = 'all'
+        override = None
+        default_threshold = 0.82
+        if folder:
+            manifest = json.loads((folder/'manifest.json').read_text(encoding='utf-8'))
+            default_threshold = manifest.get('threshold', 0.82)
         if folder and self.editing_key:
-            action=json.loads((folder/'manifest.json').read_text(encoding='utf-8'))['actions'].get(self.editing_key,{})
+            action = manifest['actions'].get(self.editing_key, {})
             mode = action.get('condition_match', 'all')
+            override = action.get('threshold')
             self.extra_chain=action.get('action_chain')
             self.extra_conditions=action.get('conditions',[])
             self.rules_only.blockSignals(True)
@@ -809,6 +890,23 @@ class OmniStudio(RecorderDialog):
         finally:
             self.condition_logic.blockSignals(False)
         self._last_condition_match = mode
+        for widget, value in (
+                (self.image_custom, override is not None),
+                (self.image_confidence, round(
+                    100 * (override if override is not None else default_threshold), 1))):
+            widget.blockSignals(True)
+            try:
+                if widget is self.image_custom:
+                    widget.setChecked(value)
+                else:
+                    widget.setValue(value)
+            finally:
+                widget.blockSignals(False)
+        self._last_image_custom = self.image_custom.isChecked()
+        self._last_image_percent = self.image_confidence.value()
+        self._sync_image_controls()
+        self.image_test_status.setText(
+            'Image confidence uses the saved template. Start with the workflow default.')
         self._refresh_extra(rule_row=-1, action_row=-1)
         self._clear_edit_history()
 
@@ -1142,6 +1240,47 @@ class OmniStudio(RecorderDialog):
                 f'Action map unavailable: {exc}. Nothing saved or tapped.')
             return
         dialog.exec()
+
+    def _test_image_confidence(self):
+        """Compare a saved image template to the loaded screenshot, without ADB."""
+        from .engine import OmniDetector, WorkflowError
+        from swordx.detection import SIZE, normalize
+        if self.rules_only.isChecked():
+            self.image_test_status.setText(
+                'Condition-only mode: image matching is disabled for this draft.')
+            return
+        if not self.editing_key or self._folder() is None:
+            self.image_test_status.setText(
+                'Save or select a recorded state to compare its image template.')
+            return
+        if self.canvas.frame is None or self.needs_recapture:
+            self.image_test_status.setText(
+                'Load or capture a real screenshot before checking image similarity. '
+                'No emulator screenshot was requested.')
+            return
+        try:
+            detector = OmniDetector(self._folder())
+            probes = detector.templates.get(self.editing_key, ())
+            if not probes:
+                raise WorkflowError('This state has no saved image template')
+            frame = self.canvas.frame
+            image = frame if frame.shape == (SIZE[1], SIZE[0], 3) else normalize(frame)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            scores = [detector._match_template(gray, probe) for probe in probes]
+            mode = detector.actions[self.editing_key].get('match', 'all')
+            similarity = max(scores) if mode == 'any' else min(scores)
+            threshold = (self._image_threshold_override()
+                         if self.image_custom.isChecked()
+                         else detector.threshold)
+        except (WorkflowError, OSError, ValueError, TypeError,
+                KeyError, cv2.error) as exc:
+            self.image_test_status.setText(f'Image check unavailable: {exc}')
+            return
+        self.image_test_status.setText(
+            f'{"MATCH" if similarity >= threshold else "NO MATCH"}: '
+            f'Image similarity {similarity:.1%}; required {threshold:.1%}. '
+            'Read-only saved-template check; unsaved region changes and '
+            'WHEN conditions were not tested. Nothing was saved or tapped.')
 
     def _test_draft_conditions(self):
         """Inspect current WHEN rules without saving or sending game input."""

@@ -856,3 +856,23 @@ validation, zero screenshot/device writes and paired legacy mapping.
 The UI is a read-only guide, not simulated playback or hardware
 acceptance; merge gates remain enforced-check protection on dev and
 physical Windows/MuMu acceptance.
+
+
+**New beginner feature — per-state image confidence and read-only
+similarity tester (November 7, 2026):** Studio's WHEN tab now offers
+a simple optional custom image-confidence percentage (50–100%, one
+decimal), defaulting to the workflow's existing image threshold when
+not enabled. Higher values are stricter, without changing OCR/color
+condition semantics. A read-only check compares the currently loaded
+full screenshot to the **saved image template** through the same
+production matcher and reports numeric similarity, cutoff and
+MATCH/NO MATCH; it does not call MuMu or execute actions. Unsaved
+template region changes and WHEN rules are explicitly excluded from
+this one-frame result. The control participates in Studio undo/redo,
+state selection and atomic settings-only/new-capture saves; disabling
+the override removes the per-state threshold field. The shared
+workflow writer validates finite unit-interval values before writes,
+including programmatic calls. Legacy and external workflows without
+a per-state threshold retain the original global default. Actual
+Windows/MuMu acceptance and protected-dev required-check enforcement
+remain separate release gates.

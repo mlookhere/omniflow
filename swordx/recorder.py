@@ -904,6 +904,8 @@ class RecorderDialog(QDialog):
         have_conditions = bool(getattr(self, 'extra_conditions', []))
         condition_match = (self.condition_logic.currentData()
                            if hasattr(self, 'condition_logic') else 'all')
+        image_threshold = (self._image_threshold_override()
+                           if hasattr(self, '_image_threshold_override') else None)
         if visual_edit:
             if self.canvas.frame is None or self.needs_recapture:
                 QMessageBox.information(self, 'Screen capture',
@@ -938,7 +940,8 @@ class RecorderDialog(QDialog):
                                   action_chain=getattr(self, 'extra_chain', None),
                                   conditions=getattr(self, 'extra_conditions', []),
                                   condition_only=condition_only,
-                                  condition_match=condition_match)
+                                  condition_match=condition_match,
+                                  image_threshold=image_threshold)
             else:
                 key = self.editing_key
                 # Studio-only fields participate in the same atomic settings
@@ -948,6 +951,7 @@ class RecorderDialog(QDialog):
                     'conditions': self.extra_conditions,
                     'skip_template': condition_only,
                     'condition_match': condition_match,
+                    'threshold': image_threshold,
                 } if hasattr(self, 'extra_conditions') else None)
                 update_step_settings(folder, key, self.step_name.text(),
                                      end=self.terminal.isChecked(), retry=self.retry.isChecked(),

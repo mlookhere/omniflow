@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -294,6 +295,13 @@ def _validate_max_extra_taps(count: int) -> None:
         raise ValueError('Maximum extra taps must be between 0 (unlimited) and 20')
 
 
+def _validate_image_threshold(value: float | None) -> None:
+    if value is not None and (
+            type(value) not in (int, float) or not math.isfinite(value)
+            or not 0 <= value <= 1):
+        raise ValueError('Image confidence threshold must be a finite number from 0 to 1')
+
+
 def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
                          retry: bool, retry_mode: str = 'interval',
                          retry_interval_seconds: int = 25,
@@ -311,6 +319,8 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
     _validate_pre_tap_delay(pre_tap_delay_seconds)
     _validate_retry(retry_mode, retry_interval_seconds)
     _validate_max_extra_taps(max_extra_taps)
+    if studio is not None:
+        _validate_image_threshold(studio.get('threshold'))
     path = Path(folder) / 'manifest.json'
     content = json.loads(path.read_text(encoding='utf-8'))
     if key not in content['states'] or key not in content['actions']:
@@ -349,6 +359,10 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
             action['condition_match'] = mode
         else:
             action.pop('condition_match', None)
+        if studio.get('threshold') is not None:
+            action['threshold'] = studio['threshold']
+        else:
+            action.pop('threshold', None)
     if max_extra_taps:
         action['max_extra_taps'] = max_extra_taps
     else:
@@ -380,7 +394,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
                 passive: bool = False, max_extra_taps: int = 0,
                 action_chain: list[dict] | None = None,
                 conditions: list[dict] | None = None, condition_only: bool = False,
-                condition_match: str = 'all') -> str:
+                condition_match: str = 'all',
+                image_threshold: float | None = None) -> str:
     """Save 1–2 region/gesture pairs. Gesture can be tap or timed drag.
 
     ``click`` and ``taps`` retain the v1.2 API for old workflow clients.
@@ -400,6 +415,7 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
         raise ValueError('Condition-only states require a recognition condition')
     if condition_match not in ('all', 'any'):
         raise ValueError('Condition match mode must be all or any')
+    _validate_image_threshold(image_threshold)
     if condition_only and not passive and not action_chain and not gestures and not taps and not click:
         raise ValueError('An action state needs a gesture or an action sequence')
     if passive:
@@ -517,6 +533,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
             action['conditions'] = [dict(condition) for condition in conditions]
         if condition_match == 'any':
             action['condition_match'] = condition_match
+        if image_threshold is not None:
+            action['threshold'] = image_threshold
         if condition_only:
             action['skip_template'] = True
         if gestures is not None:
