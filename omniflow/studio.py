@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                               QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
                                QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -568,6 +568,17 @@ class OmniStudio(RecorderDialog):
             source_layout.indexOf(self.capture_button) + 1,
             self.import_screenshot_button)
         self.import_screenshot_button.setEnabled(self._folder() is not None)
+        self.reuse_screenshot_button = QPushButton('Reuse saved screenshot…')
+        self.reuse_screenshot_button.setObjectName('subtle')
+        self.reuse_screenshot_button.setToolTip(
+            'Choose a screenshot from a recorded state in this workflow. '
+            'Keep your draft zones/actions; no device input or file changes '
+            'occur before Save State.')
+        self.reuse_screenshot_button.clicked.connect(self._reuse_saved_screenshot)
+        source_layout.insertWidget(
+            source_layout.indexOf(self.import_screenshot_button) + 1,
+            self.reuse_screenshot_button)
+        self.reuse_screenshot_button.setEnabled(self._folder() is not None)
         self.extra_chain: list[dict] | None = None
         self.extra_conditions: list[dict] = []
         self._undo_edits: list[dict] = []
@@ -754,8 +765,70 @@ class OmniStudio(RecorderDialog):
 
     def _update_controls(self):
         super()._update_controls()
-        if hasattr(self, 'import_screenshot_button'):
-            self.import_screenshot_button.setEnabled(self._folder() is not None)
+        for name in ('import_screenshot_button', 'reuse_screenshot_button'):
+            button = getattr(self, name, None)
+            if button is not None:
+                button.setEnabled(self._folder() is not None)
+
+    def _load_editor_screenshot(self, frame, source: str):
+        """Adopt a validated image without changing unsaved rules or targets."""
+        if self.canvas.frame is not None:
+            self.canvas.replace_frame(frame)
+        else:
+            self.canvas.load(frame)
+        self.needs_recapture = False
+        self._visual_dirty = True
+        self._field_changed()
+        self._set_mode(0)
+        self._progress()
+        self.save_status.setText(
+            f'Screenshot loaded from {source}. Review targets and Save State; '
+            'offline captures are not live device verification.')
+
+    def _reuse_saved_screenshot(self):
+        """Pick an existing capture without navigating away from unsaved work."""
+        from swordx.workflows import _safe_saved_image, step_order
+
+        folder = self._folder()
+        if folder is None:
+            QMessageBox.information(
+                self, 'Saved screenshot', 'Select or create a workflow first.')
+            return
+        try:
+            manifest = json.loads(
+                (folder / 'manifest.json').read_text(encoding='utf-8'))
+            sources = []
+            for index, key in enumerate(step_order(manifest), 1):
+                action = manifest['actions'][key]
+                if isinstance(action, dict) and action.get('capture'):
+                    sources.append((f"{action.get('label', key)} (state {index})",
+                                    action['capture']))
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            QMessageBox.warning(self, 'Saved screenshot', str(exc))
+            return
+        if not sources:
+            QMessageBox.information(
+                self, 'Saved screenshot',
+                'Record a state with a screenshot before using this option.')
+            return
+        label, accepted = QInputDialog.getItem(
+            self, 'Reuse saved screenshot', 'Choose a source state:',
+            [item[0] for item in sources], 0, False)
+        if not accepted:
+            return
+        try:
+            name = next(name for title, name in sources if title == label)
+            path = _safe_saved_image(folder, 'captures', name)
+            frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if (not isinstance(frame, np.ndarray) or
+                    frame.shape != (960, 540, 3) or frame.dtype != np.uint8):
+                raise ValueError(
+                    'Saved screenshot is missing, damaged or not normalized '
+                    'to 540×960; select another source state')
+        except (ValueError, OSError, TypeError, StopIteration, cv2.error) as exc:
+            QMessageBox.warning(self, 'Cannot reuse screenshot', str(exc))
+            return
+        self._load_editor_screenshot(frame, 'saved state')
 
     def _import_screenshot(self):
         """Replace the editor capture, retaining existing draft zones/gestures."""
@@ -773,18 +846,7 @@ class OmniStudio(RecorderDialog):
         except (ValueError, OSError, cv2.error) as exc:
             QMessageBox.warning(self, 'Cannot load screenshot', str(exc))
             return
-        if self.canvas.frame is not None:
-            self.canvas.replace_frame(frame)
-        else:
-            self.canvas.load(frame)
-        self.needs_recapture = False
-        self._visual_dirty = True
-        self._field_changed()
-        self._set_mode(0)
-        self._progress()
-        self.save_status.setText(
-            'Screenshot loaded from file. Review targets and Save State; '
-            'offline capture is not live device verification.')
+        self._load_editor_screenshot(frame, 'file')
 
     def _update_selection_buttons(self, kind: str):
         widget = self.rules_list if kind == 'rule' else self.actions_list

@@ -971,3 +971,19 @@ cover decode/geometry rejection, cancellation, preserved unsaved edits,
 new-state offline saves, existing-state recapture and zero ADB input.
 Physical Windows/MuMu acceptance and enforced `dev` checks remain release
 requirements.
+
+**Reuse saved screenshots across states (current Studio iteration):** Alongside
+live capture and offline file import, Studio now offers **Reuse saved
+screenshot** to pick an existing recorded state's actual capture in the
+same workflow without switching the current draft. Selection keeps the
+draft state name, recognition zones and tap/swipe targets intact, marks
+the screenshot as unsaved, and requires the normal explicit Save State
+before generating any new files or replacing image templates. Sources
+use the recorder's path-containment guard and require a readable,
+normalized 540×960 color screenshot; missing, unsafe, corrupt,
+unrecorded and canceled inputs never replace an editor draft. No
+reconstructed legacy screenshot is represented as an actual capture.
+Offscreen Qt regressions verify new-state reuse, source independence,
+cancellation, unsafe paths, lack of ADB input and no premature writes.
+Physical Windows/MuMu acceptance and enforced required checks remain
+release gates.

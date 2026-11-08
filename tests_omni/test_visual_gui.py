@@ -452,6 +452,102 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_reuse_saved_screenshot_into_new_state_without_device_or_early_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ReuseCapture', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            source_key = record_step(
+                folder, 'Original state', image, [(100, 200, 230, 300)],
+                taps=[(150, 250)])
+            source_name = json.loads((folder / 'manifest.json').read_text())[
+                'actions'][source_key]['capture']
+            expected = cv2.imread(str(folder / 'captures' / source_name))
+            studio = OmniStudio('', 'ReuseCapture', base=root)
+            try:
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                with (patch('omniflow.studio.QInputDialog.getItem',
+                            side_effect=lambda *args: (args[3][0], True)) as picker,
+                      patch('omniflow.devices.Device.screenshot') as device,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.reuse_screenshot_button.click()
+                    picker.assert_called_once()
+                    device.assert_not_called()
+                    write.assert_not_called()
+                self.assertTrue(np.array_equal(studio.canvas.frame, expected))
+                self.assertTrue(studio._dirty)
+                self.assertTrue(studio._visual_dirty)
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+                studio.step_name.setText('Second state')
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                studio.canvas._set_gesture(
+                    0, {'kind': 'tap', 'point': [130, 240]})
+                with patch('omniflow.devices.Device.screenshot') as device:
+                    studio._save()
+                    device.assert_not_called()
+                data = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(len(data['states']), 2)
+                second = next(key for key in data['states'] if key != source_key)
+                self.assertEqual(data['actions'][second]['label'], 'Second state')
+                self.assertEqual(data['actions'][source_key]['capture'], source_name)
+                self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_reuse_saved_screenshot_invalid_source_and_cancel_keep_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ReuseInvalid', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Saved', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'ReuseInvalid', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.step_name.setText('Unsaved draft')
+                studio.canvas.boxes[0] = (110, 220, 240, 310)
+                before_frame = studio.canvas.frame.copy()
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.studio.QInputDialog.getItem',
+                            return_value=('', False)),
+                      patch('omniflow.devices.Device.screenshot') as device,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._reuse_saved_screenshot()
+                    device.assert_not_called()
+                    write.assert_not_called()
+                manifest = json.loads(before)
+                manifest['actions'][key]['capture'] = '../escape.jpg'
+                (folder / 'manifest.json').write_text(
+                    json.dumps(manifest), encoding='utf-8')
+                unsafe_bytes = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.studio.QInputDialog.getItem',
+                            side_effect=lambda *args: (args[3][0], True)),
+                      patch('omniflow.studio.cv2.imread') as read,
+                      patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device.screenshot') as device,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._reuse_saved_screenshot()
+                    warning.assert_called_once()
+                    read.assert_not_called()
+                    device.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual(studio.step_name.text(), 'Unsaved draft')
+                self.assertEqual(studio.canvas.boxes[0], (110, 220, 240, 310))
+                self.assertTrue(np.array_equal(studio.canvas.frame, before_frame))
+                self.assertEqual(
+                    (folder / 'manifest.json').read_bytes(), unsafe_bytes)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_image_confidence_override_undo_save_reload_and_clear(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
