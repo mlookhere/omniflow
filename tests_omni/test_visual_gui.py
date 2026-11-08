@@ -429,6 +429,46 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_delete_succeeds_after_old_image_unlink_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('LockedOldImage', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Before', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = folder / 'manifest.json'
+            saved = json.loads(manifest.read_text(encoding='utf-8'))
+            old_anchor = folder / 'anchors' / saved['states'][key][0]['file']
+            old_capture = folder / 'captures' / saved['actions'][key]['capture']
+            old_assets = {old_anchor, old_capture}
+            real_unlink = Path.unlink
+
+            def blocked_unlink(path, *args, **kwargs):
+                if path in old_assets:
+                    raise PermissionError('simulated locked image')
+                return real_unlink(path, *args, **kwargs)
+
+            studio = OmniStudio('', 'LockedOldImage', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                with (patch('swordx.recorder.QMessageBox.question',
+                            return_value=QMessageBox.Yes),
+                      patch('swordx.recorder.QMessageBox.warning') as warning,
+                      patch('swordx.workflows.Path.unlink', autospec=True,
+                            side_effect=blocked_unlink),
+                      self.assertLogs(level='WARNING') as logs):
+                    studio._delete()
+                    warning.assert_not_called()
+                self.assertIn('simulated locked image', '\n'.join(logs.output))
+                self.assertNotIn(key,
+                                 json.loads(manifest.read_text())['states'])
+                self.assertEqual(studio.steps.count(), 0)
+                self.assertTrue(old_anchor.exists())
+                self.assertTrue(old_capture.exists())
+            finally:
+                studio.close()
+
     def test_studio_delete_rejects_corrupt_image_cleanup_without_filesystem_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
