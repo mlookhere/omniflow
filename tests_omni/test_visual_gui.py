@@ -3786,6 +3786,75 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_invalid_draft_edit_dialogs_warn_before_capture_and_preserve_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('InvalidEditorEntries', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            original = {p.relative_to(folder): p.read_bytes()
+                        for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('127.0.0.1:16384', 'InvalidEditorEntries',
+                                base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                for rule in (None, {'type': 'ocr', 'rect': None,
+                                    'text': 'READY'},
+                             {'type': 'ocr',
+                              'rect': [100, 'bad', 230, 300],
+                              'text': 'READY'}):
+                    with self.subTest(rule=rule):
+                        studio.extra_conditions = [rule]
+                        studio._refresh_extra(rule_row=0)
+                        with (patch('omniflow.studio.RuleEditor') as editor,
+                              patch.object(studio, '_editor_frame') as frame,
+                              patch('omniflow.devices.Device.screenshot') as adb,
+                              patch('omniflow.studio.QMessageBox.warning') as warn):
+                            studio._edit_rule()
+                            self.assertEqual(warn.call_args.args[1],
+                                             'Invalid rule')
+                            self.assertIn('Remove this rule',
+                                          warn.call_args.args[2])
+                            editor.assert_not_called()
+                            frame.assert_not_called()
+                            adb.assert_not_called()
+                        self.assertEqual(studio.extra_conditions, [rule])
+                studio.extra_conditions = []
+                for action in (
+                    ['tap'],
+                    {'kind': 'hold', 'point': [150, 250],
+                     'duration_ms': {'ms': 650}},
+                    {'kind': 'swipe', 'start': [120, 230],
+                     'end': [160, 280], 'duration_ms': '700'},
+                ):
+                    with self.subTest(action=action):
+                        studio.extra_chain = [action]
+                        studio._refresh_extra(action_row=0)
+                        with (patch('omniflow.studio.ActionEditor') as editor,
+                              patch.object(studio, '_editor_frame') as frame,
+                              patch('omniflow.devices.Device.screenshot') as adb,
+                              patch('omniflow.studio.QMessageBox.warning') as warn):
+                            studio._edit_action()
+                            self.assertEqual(warn.call_args.args[1],
+                                             'Invalid action')
+                            self.assertIn('Remove this action',
+                                          warn.call_args.args[2])
+                            editor.assert_not_called()
+                            frame.assert_not_called()
+                            adb.assert_not_called()
+                        self.assertEqual(studio.extra_chain, [action])
+                self.assertEqual(
+                    {p.relative_to(folder): p.read_bytes()
+                     for p in folder.rglob('*') if p.is_file()},
+                    original)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_pixel_outside_zone_fails_before_unsaved_ocr_or_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
