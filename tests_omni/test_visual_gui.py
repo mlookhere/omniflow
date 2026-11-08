@@ -1296,7 +1296,11 @@ class VisualStudioGuiTests(unittest.TestCase):
             studio = OmniStudio('127.0.0.1:16384', 'ConfidencePreview', base=root)
             try:
                 studio.steps.setCurrentRow(0)
-                studio.canvas.load(image)
+                # Production screenshot replacement preserves the selected
+                # state's recorded anchor geometry; plain load() resets it.
+                studio.canvas.replace_frame(image)
+                self.assertEqual(studio.canvas.boxes[0],
+                                 (100, 200, 230, 300))
                 studio.needs_recapture = False
                 with (patch('omniflow.engine.OmniDetector._match_template',
                             return_value=.89) as matcher,
