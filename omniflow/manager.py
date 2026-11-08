@@ -20,6 +20,7 @@ from swordx.adb import ADBError
 from swordx.stats import SessionStats
 from swordx.detection import normalize
 from .devices import Device
+from .emulator_recovery import launch_instance, instance_offline
 from .engine import OmniRunner, Match, InputPaused
 from .schedule import LEASE_SECONDS, MAX_INSTANCES, ScheduleStore
 
@@ -119,12 +120,13 @@ class Session:
 class InstanceManager:
     def __init__(self, db: ScheduleStore, *, device_factory=Device,
                  poll_seconds: float = 0.9, auto_relaunch: bool = True, dry_run: bool = False,
-                 lease_interval: float = 8.0):
+                 lease_interval: float = 8.0, instance_launcher=launch_instance):
         self.db = db
         self.device_factory = device_factory
         self.poll_seconds = max(0.35, float(poll_seconds))
         self.auto_relaunch = auto_relaunch
         self.dry_run = dry_run
+        self.instance_launcher = instance_launcher
         self.lease_interval = max(0.05, min(float(lease_interval), LEASE_SECONDS / 3))
         self.sessions: dict[str, Session] = {}
         self.completed_sessions: deque[Session] = deque(maxlen=50)
@@ -209,6 +211,7 @@ class InstanceManager:
                                 is_paused=session.pause_event.is_set)
             session.status = 'Running'
             paused_at = None
+            recovery_requested = False
             while not session.stop_event.is_set():
                 now = time.monotonic()
                 if session.max_minutes and now - session.stats.started >= session.max_minutes * 60:
@@ -233,6 +236,10 @@ class InstanceManager:
                     session.status = 'Running'
                 try:
                     runner.step(now)
+                    if recovery_requested:
+                        recovery_requested = False
+                        session.log('MuMu connected; game recovery active')
+                        session.status = 'Running'
                     session.failures = 0
                 except InputPaused:
                     # An in-flight screenshot/OCR finished after the user
@@ -248,6 +255,22 @@ class InstanceManager:
                     if session.failures % 3 == 0 and hasattr(device,'ensure_connected'):
                         try:device.ensure_connected()
                         except ADBError:pass
+                    # Reboot only a confirmed offline MuMu index, never a flaky
+                    # screenshot or missing Android application.
+                    if (session.failures == 3 and self.auto_relaunch and
+                            not self.dry_run and not session.stop_event.is_set() and
+                            not session.pause_event.is_set() and
+                            instance_offline(device)):
+                        try:
+                            if self.instance_launcher(session.serial):
+                                recovery_requested = True
+                                runner.resume_after_pause(time.monotonic())
+                                session.status = 'Recovering emulator'
+                                session.log('MuMu instance launch requested; waiting for ADB')
+                            else:
+                                session.log('MuMu auto-start unavailable for this device/installation')
+                        except (ADBError, OSError) as launch_exc:
+                            session.log(f'MuMu auto-start failed: {launch_exc}')
                     if session.failures >= 20:
                         reason = 'connection_unavailable'
                         break
