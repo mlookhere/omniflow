@@ -221,6 +221,61 @@ class VisualCaptureTests(unittest.TestCase):
                             item.relative_to(folder): item.read_bytes()
                             for item in folder.rglob('*') if item.is_file()})
 
+    def test_cleanup_preserves_image_references_shared_by_another_state(self):
+        # Imported manifests may legitimately reuse the same saved image.
+        for operation in ('recapture', 'remove'):
+            with self.subTest(operation=operation):
+                with tempfile.TemporaryDirectory() as root:
+                    folder = create_workflow('Shared images', Path(root))
+                    rect = (80, 100, 220, 170)
+                    first = record_step(folder, 'First', self.frame, [rect],
+                                        taps=[(130, 140)])
+                    second = record_step(folder, 'Second', self.frame, [rect],
+                                         taps=[(130, 140)])
+                    manifest = folder / 'manifest.json'
+                    data = json.loads(manifest.read_text(encoding='utf-8'))
+                    anchor_name = data['states'][first][0]['file']
+                    capture_name = data['actions'][first]['capture']
+                    data['states'][second][0]['file'] = anchor_name
+                    data['actions'][second]['capture'] = capture_name
+                    manifest.write_text(json.dumps(data), encoding='utf-8')
+                    shared_anchor = folder / 'anchors' / anchor_name
+                    shared_capture = folder / 'captures' / capture_name
+                    expected_anchor = shared_anchor.read_bytes()
+                    expected_capture = shared_capture.read_bytes()
+                    if operation == 'recapture':
+                        record_step(folder, 'First updated', self.frame, [rect],
+                                    taps=[(130, 140)], key=first)
+                    else:
+                        remove_step(folder, first)
+                    saved = json.loads(manifest.read_text(encoding='utf-8'))
+                    self.assertEqual(saved['states'][second][0]['file'], anchor_name)
+                    self.assertEqual(saved['actions'][second]['capture'], capture_name)
+                    self.assertEqual(shared_anchor.read_bytes(), expected_anchor)
+                    self.assertEqual(shared_capture.read_bytes(), expected_capture)
+
+    def test_other_state_with_unsafe_image_reference_blocks_cleanup(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Bad sibling', Path(root))
+            rect = (80, 100, 220, 170)
+            first = record_step(folder, 'First', self.frame, [rect],
+                                taps=[(130, 140)])
+            second = record_step(folder, 'Second', self.frame, [rect],
+                                 taps=[(130, 140)])
+            manifest = folder / 'manifest.json'
+            data = json.loads(manifest.read_text(encoding='utf-8'))
+            data['states'][second][0]['file'] = '../../outside.png'
+            manifest.write_text(json.dumps(data), encoding='utf-8')
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            with patch('swordx.workflows.cv2.imwrite') as write:
+                with self.assertRaisesRegex(ValueError, 'Unsafe saved anchors'):
+                    record_step(folder, 'First updated', self.frame, [rect],
+                                taps=[(130, 140)], key=first)
+                write.assert_not_called()
+            self.assertEqual(before, {p.relative_to(folder): p.read_bytes()
+                                      for p in folder.rglob('*') if p.is_file()})
+
     def test_readable_editor_summaries_do_not_expose_coordinates(self):
         self.assertIn('Swipe',action_summary({'kind':'swipe','start':[20,20],
                                                'end':[120,180],'duration_ms':450}))
