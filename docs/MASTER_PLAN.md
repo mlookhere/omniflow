@@ -1276,3 +1276,17 @@ OCR, ADB or workflow writes, and leaves manifest bytes unchanged.
 Neither normalization policy for valid screenshots nor live action
 authorization changed. Actual Windows/MuMu acceptance and enforced
 required `dev` checks remain outstanding; PR #2 stays draft.
+
+**Malformed unsaved action labels remain editable (current Studio increment):**
+The unsaved action-list summary no longer casts an imported/copy-pasted
+hold, swipe, or drag duration without validating its type first. Invalid
+string, list, object, null, boolean and fractional values now display
+an explicit invalid-duration label rather than crashing the Studio list;
+non-object action entries also receive a safe invalid-action label.
+This is presentation hardening only: the existing action validator still
+rejects these commands before dry-run previews, saved action maps, actual
+Save or device input, without silently converting their values. Pure
+summary and offscreen Qt regressions check the visible labels, strict
+preview/Save failure, no OCR, screenshots, Android input or workflow-file
+changes. Valid action summaries and permitted durations are unchanged.
+Real Windows/MuMu acceptance and enforced `dev` checks are still required.
