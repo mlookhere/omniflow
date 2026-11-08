@@ -1164,8 +1164,14 @@ class VisualStudioGuiTests(unittest.TestCase):
                 for invalid in (
                         {'kind': 'unknown'},
                         {'kind': 'tap', 'point': [700, 200]},
+                        {'kind': 'tap', 'point': [540, 200]},
+                        {'kind': 'double_tap', 'point': [150, 960]},
                         {'kind': 'swipe', 'start': [120, 200],
                          'end': [180, 240], 'duration_ms': 1},
+                        {'kind': 'swipe', 'start': [540, 120],
+                         'end': [180, 240], 'duration_ms': 600},
+                        {'kind': 'field_text', 'point': [150, 960],
+                         'text': 'READY'},
                         {'kind': 'field_text', 'point': [150, 250],
                          'text': 'unsafe;command'}):
                     with self.subTest(action=invalid):
