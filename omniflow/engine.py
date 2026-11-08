@@ -219,7 +219,7 @@ def validate_recognition_manifest(manifest: dict) -> None:
                     raise WorkflowError(
                         f'{prefix}: {field} must be a whole number '
                         f'between {minimum} and {maximum}')
-        if action.get('retry_mode', 'on_return') not in ('interval', 'on_return'):
+        if action.get('retry_mode', 'interval') not in ('interval', 'on_return'):
             raise WorkflowError(
                 f'{prefix}: retry_mode must be interval or on_return')
         mode = action.get('match', 'all')
@@ -842,7 +842,7 @@ class OmniRunner:
         if not chain:
             return observation
         retry = bool(action.get('retry', False))
-        retry_mode = action.get('retry_mode', 'on_return')
+        retry_mode = action.get('retry_mode', 'interval')
         max_attempts = 1 + (int(action.get('max_extra_taps', 0)) if retry else 0)
         if retry and retry_mode == 'interval' and max_attempts == 1 and 'max_extra_taps' not in action:
             # Legacy unlimited retries remain bounded per visit as a safety
