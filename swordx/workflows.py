@@ -136,6 +136,15 @@ def _prune_old_images(images: list[Path]) -> None:
             logging.warning('Could not remove unused workflow image: %s', exc)
 
 
+def _saved_point(point, description: str) -> tuple[int, int]:
+    """Validate imported touch coordinates before a saved state enters the editor."""
+    if (not isinstance(point, (list, tuple)) or len(point) != 2 or
+            any(type(value) is not int for value in point) or
+            not (0 <= point[0] < SIZE[0] and 0 <= point[1] < SIZE[1])):
+        raise ValueError(f'Invalid saved {description} point')
+    return tuple(point)
+
+
 def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, int]],
                                                 list[tuple[int, int] | None], np.ndarray | None]:
     """Load editable region/gesture pairs and saved screenshot (if available)."""
@@ -162,12 +171,34 @@ def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, i
     capture = action.get('capture')
     capture_path = (_safe_saved_image(folder, 'captures', capture)
                     if capture else None)
-    taps = [tuple(tap) if tap is not None else None for tap in action.get('taps', [])]
     if 'gestures' in action:
-        taps = [tuple(gesture['point']) if gesture['kind'] == 'tap' else None
-                for gesture in action['gestures']]
+        saved_gestures = action['gestures']
+        if not isinstance(saved_gestures, list):
+            raise ValueError('Invalid saved gesture list')
+        taps = []
+        for index, gesture in enumerate(saved_gestures, 1):
+            description = f'gesture {index}'
+            if not isinstance(gesture, dict):
+                raise ValueError(f'Invalid saved {description}')
+            if gesture.get('kind') == 'tap':
+                taps.append(_saved_point(gesture.get('point'), description))
+            elif gesture.get('kind') == 'drag':
+                _saved_point(gesture.get('start'), f'{description} start')
+                _saved_point(gesture.get('end'), f'{description} end')
+                duration = gesture.get('duration_ms')
+                if type(duration) is not int or not 100 <= duration <= 10000:
+                    raise ValueError(f'Invalid saved {description} duration')
+                taps.append(None)
+            else:
+                raise ValueError(f'Invalid saved {description} kind')
+    else:
+        saved_taps = action.get('taps', [])
+        if not isinstance(saved_taps, list):
+            raise ValueError('Invalid saved tap list')
+        taps = [_saved_point(tap, 'tap') if tap is not None else None
+                for tap in saved_taps]
     if not taps and not action.get('passive') and not action.get('action_chain'):  # v1.1 compatibility.
-        taps = [tuple(action['tap'])] + [None] * (len(boxes) - 1)
+        taps = [_saved_point(action.get('tap'), 'legacy tap')] + [None] * (len(boxes) - 1)
     frame = None
     if capture_path and capture_path.is_file():
         try:
