@@ -1405,3 +1405,23 @@ recapture and another Save, checking that no emulator screenshot is
 requested and no legacy gestures are introduced. Independent hardware
 Windows/MuMu acceptance and enforced required checks on `dev` remain
 outstanding. PR #2 stays draft/unmerged.
+
+**Legacy preview and Recorder gesture-format parity (current increment):**
+A valid *runtime* action is not necessarily a saveable legacy gesture:
+the live engine permits double taps, holds, swipes and drag durations
+starting at 50 ms, while Recorder's historical region-paired format
+only persists a single `tap` or an explicit 100–10000 ms `drag` per
+region. Previously Studio could show these unrecordable legacy drafts
+as ready, only for Recorder Save to reject them. A pure
+`validate_recorded_gesture` helper now owns Recorder's precise legacy
+kind, duration and coordinate checks and is reused by both `record_step`
+and Studio's new/re-recorded legacy draft preview. Modern explicit
+THEN sequences retain their broader action choices (including short
+swipes and holds); unchanged imported legacy workflow playback stays
+compatible. Source-level regression verifies rejected gestures leave
+captures, anchors and manifest unchanged, and accepted duration edges
+still persist. Windows Qt tests verify that unsafe drafts never open
+a target map or request ADB/manifest writes, while modern sequences
+still preview successfully. Required `dev` status enforcement and
+physical Windows/MuMu acceptance remain outstanding, so PR #2
+stays draft and unmerged.
