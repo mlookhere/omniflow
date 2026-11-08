@@ -497,6 +497,21 @@ with unsaved rules/actions; a source-level regression checks atomic write
 failure preserves the state, images and original manifest. This does not
 make state deletion reversible after both confirmations are accepted.
 
+**Successful drag-reorder selection integrity (November 7, 2026):**
+A successful Qt list drag can select the moved row while the Studio editor
+still targets another saved state (or is editing a new unsaved state). This
+mismatch made the highlighted selection misleading even though the reordered
+manifest itself was correct. The list now suppresses transient selection
+signals during the drop; after either a successful drag or failed reorder
+recovery, it aligns the visible selection with `editing_key` without changing
+the editor, confirming draft discard, or clearing undo history. New-state
+drafts remain unselected. The saved manifest still changes only presentation
+`order`, never runtime recognition precedence. Python regression verifies
+that state definitions, actions and image bytes survive reordering and invalid
+key sets fail closed; offscreen Qt regressions cover selected-state drafts,
+new-state drafts, later Save, and a successful drag followed by a failed one.
+This does not replace hardware/GUI acceptance of real mouse dragging.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
