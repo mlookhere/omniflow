@@ -528,6 +528,22 @@ survives legacy loading; offscreen Qt covers both rule and action editor entry,
 a cancelled editor dialog, exact retained overlays and a subsequent successful
 recapture Save. Physical MuMu capture/coordinate accuracy is still unverified.
 
+**Unified read-only recognition diagnostics (November 7, 2026):**
+The Studio's single-screenshot “Test detection” previously duplicated the
+per-state recognition explanations already exposed by offline replay.
+Differences in labeling, PASS/FAIL formatting and unevaluated condition
+reporting could make identical saved conditions appear to behave differently
+depending on which inspection button was used. Live/saved one-frame testing
+now calls the same `describe_recognition_evidence` formatter as offline
+replay, including selected vs overridden passive WAIT states, per-rule
+outcomes and threshold evidence. The read-only test also catches OpenCV
+inspection and malformed imported state exceptions as a visible warning
+instead of allowing a Qt slot exception to escape; neither path sends
+input or writes workflow data. Offscreen Qt regression compares the complete
+dialog evidence to the production detector's shared formatter and verifies
+no Android actions, save or manifest changes on failed OpenCV inspection.
+This remains a single-frame test, not a live run or MuMu acceptance.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
