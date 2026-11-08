@@ -544,6 +544,21 @@ dialog evidence to the production detector's shared formatter and verifies
 no Android actions, save or manifest changes on failed OpenCV inspection.
 This remains a single-frame test, not a live run or MuMu acceptance.
 
+**Malformed imported gesture guard (November 7, 2026):** Saved Studio
+states can be imported or edited outside the application. Previously a
+missing or malformed `taps`, `tap` or `gestures` field could raise an
+unhandled `TypeError` when switching states, leaving Qt highlighting the
+new row while the editor still targeted the previous state. Saved touch
+coordinates and gesture dictionaries now receive explicit type, normalized
+bounds, kind and duration validation before any saved screenshot is read.
+Invalid inputs raise a contextual `ValueError`, allowing the existing
+selection rollback and warning path to preserve editor/manifest state.
+Current recorded tap/drag pairs and legacy v1 single-tap fallback remain
+supported. Python regressions cover malformed imported fields plus normal
+tap/drag metadata; offscreen Qt verifies failure warnings, no image reads,
+no manifest writes, unchanged editor target and restored selection. This
+is authoring-time input safety, not physical Android input validation.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
