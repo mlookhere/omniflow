@@ -236,7 +236,7 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unknown')
         self.assertIn('conditions failed', result['reason'])
         self.assertIn('zone average color', result['reason'])
-        self.assertIn('FAIL — zone average color', '\n'.join(result['evidence']))
+        self.assertIn('FAIL — When zone average color', '\n'.join(result['evidence']))
 
     def test_replay_explains_pass_and_fail_rules_without_raw_ocr_text(self):
         record_step(
@@ -257,7 +257,7 @@ class SavedReplayTests(unittest.TestCase):
         evidence = '\n'.join(result['evidence'])
         self.assertIn('OCR expected [ACTION]: conditions failed', evidence)
         self.assertIn('PASS', evidence)
-        self.assertIn('FAIL — zone average color', evidence)
+        self.assertIn('FAIL — When zone average color', evidence)
         self.assertNotIn('private-ocr-output', repr(result))
         self.assertEqual(ocr.call_count, 1)
 
