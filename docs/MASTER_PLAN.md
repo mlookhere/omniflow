@@ -1323,3 +1323,18 @@ Offscreen Qt regressions check both editors and invariants; all
 original strict preview, Save and runtime validation remain enforced.
 Real Windows/MuMu acceptance and `dev` required-check protection
 are still outstanding.
+
+**Validated emulator screenshots before Studio recapture (current increment):**
+The shared visual-authoring frame helper now requires a nonempty, three-
+channel uint8 screenshot before normalization. Studio's on-demand MuMu
+capture for rule/action editing uses that helper instead of normalizing
+unvalidated device frames. Empty, grayscale, four-channel or floating-
+point frames now produce a capture warning without replacing the saved
+screen, detection boxes, gestures or unsaved editor state. This is the
+authoring/Qt fallback path; the live Runner already checks screenshot
+pixels separately. Pure tests verify rejection occurs before resize,
+and Windows offscreen Qt tests verify invalid recaptures leave the
+existing workflow files and canvas untouched, while a subsequent valid
+capture preserves the selected zones/gestures. Real Windows/MuMu capture
+acceptance and enforced required checks on `dev` remain outstanding;
+PR #2 stays draft/unmerged.
