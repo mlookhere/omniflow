@@ -920,6 +920,24 @@ class EngineTests(unittest.TestCase):
                 passive='false'), 'passive must be true or false'),
             ('truthy skip flag', lambda d: d['actions'][self.key].update(
                 skip_template='false'), 'skip_template must be true or false'),
+            ('truthy retry string', lambda d: d['actions'][self.key].update(
+                retry='false'), 'retry must be true or false'),
+            ('truthy end string', lambda d: d['actions'][self.key].update(
+                end='false'), 'end must be true or false'),
+            ('negative action delay', lambda d: d['actions'][self.key].update(
+                pre_tap_delay_seconds=-1), 'pre_tap_delay_seconds must be a whole number'),
+            ('fractional action delay', lambda d: d['actions'][self.key].update(
+                pre_tap_delay_seconds=0.5), 'pre_tap_delay_seconds must be a whole number'),
+            ('invalid retry interval', lambda d: d['actions'][self.key].update(
+                retry_interval_seconds=0), 'retry_interval_seconds must be a whole number'),
+            ('nan retry interval', lambda d: d['actions'][self.key].update(
+                retry_interval_seconds=float('nan')), 'retry_interval_seconds must be a whole number'),
+            ('retry limit too high', lambda d: d['actions'][self.key].update(
+                max_extra_taps=21), 'max_extra_taps must be a whole number'),
+            ('retry limit boolean', lambda d: d['actions'][self.key].update(
+                max_extra_taps=True), 'max_extra_taps must be a whole number'),
+            ('unsupported retry mode', lambda d: d['actions'][self.key].update(
+                retry_mode='immediate'), 'retry_mode must be interval or on_return'),
             ('non-list conditions', lambda d: d['actions'][self.key].update(
                 conditions={}), 'recognition conditions must be a list'),
             ('unrecorded image template', lambda d: d['states'].update(
@@ -944,6 +962,25 @@ class EngineTests(unittest.TestCase):
                 self.assertEqual(device.taps, [])
         manifest.write_text(json.dumps(base), encoding='utf-8')
         self.assertEqual(OmniDetector(self.folder).detect(self.match).key, self.key)
+
+    def test_saved_retry_timing_boundaries_keep_workflows_compatible(self):
+        manifest = self.folder / 'manifest.json'
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        data['actions'][self.key].update(
+            retry=True, retry_mode='interval', retry_interval_seconds=86400,
+            pre_tap_delay_seconds=86400, max_extra_taps=20, end=True)
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        device = Device(self.match)
+        runner = OmniRunner(device, self.folder, 'com.game.demo')
+        self.assertEqual(runner.detector.actions[self.key]['max_extra_taps'], 20)
+        self.assertEqual(device.taps, [])
+        # Legacy absent timing fields are valid; no migration is required.
+        data['actions'][self.key].update(retry=False, end=False)
+        for field in ('pre_tap_delay_seconds', 'retry_interval_seconds',
+                      'max_extra_taps', 'retry_mode'):
+            data['actions'][self.key].pop(field, None)
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        self.assertIsNotNone(OmniRunner(device, self.folder, 'com.game.demo'))
 
     def test_condition_only_requires_explicit_mode_and_keeps_valid_mixed_states(self):
         manifest = self.folder / 'manifest.json'
