@@ -301,6 +301,71 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_legacy_rule_or_action_editor_recapture_keeps_existing_overlays(self):
+        for edit_kind in ('rule', 'action'):
+            with self.subTest(edit_kind=edit_kind):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    folder = create_workflow('LegacyEditorCapture', root)
+                    image = self.frame.copy()
+                    image[220:270, 120:200] = (10, 230, 30)
+                    image[415:450, 275:350] = (12, 210, 25)
+                    boxes = [(100, 200, 230, 300), (250, 400, 390, 490)]
+                    gestures = [
+                        {'kind': 'tap', 'point': [150, 250]},
+                        {'kind': 'drag', 'start': [290, 430],
+                         'end': [340, 460], 'duration_ms': 900},
+                    ]
+                    key = record_step(folder, 'Legacy', image, boxes,
+                                      gestures=gestures)
+                    manifest = folder / 'manifest.json'
+                    saved = json.loads(manifest.read_text(encoding='utf-8'))
+                    (folder / 'captures' / saved['actions'][key]['capture']).unlink()
+                    before = manifest.read_bytes()
+                    studio = OmniStudio('127.0.0.1:16384',
+                                       'LegacyEditorCapture', base=root)
+                    try:
+                        studio.steps.setCurrentRow(0)
+                        self.assertEqual(studio.editing_key, key)
+                        self.assertTrue(studio.needs_recapture)
+                        self.assertEqual(studio.canvas.boxes, boxes)
+                        self.assertEqual(studio.canvas.gestures, gestures)
+
+                        updated_image = image.copy()
+                        updated_image[230:260, 130:170] = (15, 210, 35)
+                        editor_name = ('RuleEditor' if edit_kind == 'rule'
+                                       else 'ActionEditor')
+                        edit = studio._add_rule if edit_kind == 'rule' else studio._add_action
+                        with (patch('omniflow.devices.Device.screenshot',
+                                    return_value=updated_image) as capture,
+                              patch(f'omniflow.studio.{editor_name}') as dialog,
+                              patch('swordx.workflows._write_manifest') as write):
+                            dialog.return_value.exec.return_value = QDialog.Rejected
+                            edit()
+                            capture.assert_called_once()
+                            write.assert_not_called()
+                        self.assertFalse(studio.needs_recapture)
+                        self.assertEqual(studio.canvas.boxes, boxes)
+                        self.assertEqual(studio.canvas.gestures, gestures)
+                        self.assertEqual(studio.canvas.drag_durations, [700, 900])
+                        np.testing.assert_array_equal(studio.canvas.frame, updated_image)
+                        self.assertTrue(studio._visual_dirty)
+                        self.assertTrue(studio._dirty)
+                        self.assertEqual(manifest.read_bytes(), before)
+
+                        studio._save()
+                        updated = json.loads(manifest.read_text(encoding='utf-8'))
+                        self.assertEqual(updated['states'][key][0]['rect'], list(boxes[0]))
+                        self.assertEqual(updated['states'][key][1]['rect'], list(boxes[1]))
+                        self.assertEqual(updated['actions'][key]['gestures'], gestures)
+                        self.assertTrue((folder / 'captures' /
+                                         updated['actions'][key]['capture']).is_file())
+                        self.assertFalse(studio._dirty)
+                    finally:
+                        with patch('swordx.recorder.QMessageBox.question',
+                                   return_value=QMessageBox.Yes):
+                            studio.close()
+
     def test_studio_refuses_unsafe_state_capture_on_selection_without_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
