@@ -33,6 +33,18 @@ class VisualCaptureTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 validate_point(bad)
 
+    def test_nonobject_draft_condition_has_safe_removal_label(self):
+        from omniflow.engine import WorkflowError, preview_conditions
+
+        for bad in (None, ['ocr'], 'ocr', 42):
+            with self.subTest(rule=bad):
+                self.assertIn('Invalid condition', condition_summary(bad))
+                with patch('omniflow.engine.OCREngine.read') as ocr:
+                    with self.assertRaisesRegex(
+                            WorkflowError, 'Recognition condition must be an object'):
+                        preview_conditions(self.frame, [bad])
+                    ocr.assert_not_called()
+
     def test_malformed_ocr_comparison_has_safe_editor_summary(self):
         # Imported/copy-pasted unsaved rules may be invalid, but the rule
         # list must remain readable so Save can reject them explicitly.
