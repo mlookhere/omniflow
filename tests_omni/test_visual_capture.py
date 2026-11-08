@@ -46,6 +46,23 @@ class VisualCaptureTests(unittest.TestCase):
         self.assertIn('matches pattern', condition_summary(
             {'type': 'ocr', 'text': '^READY', 'regex': True}))
 
+    def test_malformed_actions_have_safe_editor_summaries(self):
+        # Invalid copied/imported draft actions must remain visible; actual
+        # preview and Save still validate the complete command separately.
+        for kind in ('hold', 'swipe', 'drag'):
+            for bad in (None, '650', ['650'], {'ms': 650}, True, 650.5):
+                with self.subTest(kind=kind, duration=bad):
+                    label = action_summary(
+                        {'kind': kind, 'duration_ms': bad})
+                    self.assertIn('Invalid gesture duration', label)
+        self.assertIn('Invalid action', action_summary(['tap']))
+        self.assertIn('Invalid action', action_summary(None))
+        self.assertIn('650 ms', action_summary(
+            {'kind': 'hold', 'point': [120, 180], 'duration_ms': 650}))
+        self.assertIn('700 ms', action_summary(
+            {'kind': 'swipe', 'start': [10, 20], 'end': [30, 40],
+             'duration_ms': 700}))
+
     def test_color_sampling_uses_selected_image_without_manual_bgr(self):
         self.assertEqual(sample_color(self.frame, [120, 160]), [200, 100, 10])
         self.assertEqual(sample_average(self.frame, [110, 150, 140, 168]), [200, 100, 10])
