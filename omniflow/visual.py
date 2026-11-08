@@ -87,15 +87,20 @@ def sample_average(frame: np.ndarray, rect: Sequence[int]) -> list[int]:
 
 
 def action_summary(action: dict) -> str:
+    if not isinstance(action, dict):
+        return 'Invalid action — review required'
     kind = action.get('kind', 'unknown')
     if kind == 'tap':
         return 'Tap location selected on screen'
     if kind == 'double_tap':
         return 'Double-tap location selected on screen'
-    if kind == 'hold':
-        return f'Press and hold for {int(action.get("duration_ms", 650))} ms'
-    if kind in ('drag', 'swipe'):
-        return f'Swipe along recorded path · {int(action.get("duration_ms", 650))} ms'
+    if kind in ('hold', 'drag', 'swipe'):
+        duration = action.get('duration_ms', 650)
+        if type(duration) is not int:
+            return 'Invalid gesture duration — review required'
+        if kind == 'hold':
+            return f'Press and hold for {duration} ms'
+        return f'Swipe along recorded path · {duration} ms'
     if kind == 'wait':
         return f'Wait {action.get("seconds", 0)} seconds'
     if kind == 'key':
