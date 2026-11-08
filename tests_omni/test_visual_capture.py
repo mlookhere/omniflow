@@ -338,6 +338,64 @@ class VisualCaptureTests(unittest.TestCase):
                         read.assert_not_called()
                     self.assertEqual(manifest.read_bytes(), before)
 
+    def test_imported_state_settings_fail_before_editor_image_reads(self):
+        from swordx.workflows import load_step
+        invalid = [
+            ('label', None),
+            ('label', 42),
+            ('label', '  '),
+            ('retry', 'false'),
+            ('passive', 1),
+            ('end', []),
+            ('skip_template', 0),
+            ('pre_tap_delay_seconds', '60'),
+            ('pre_tap_delay_seconds', 86401),
+            ('retry_mode', 'unknown'),
+            ('retry_interval_seconds', '25'),
+            ('retry_interval_seconds', 0),
+            ('max_extra_taps', None),
+            ('max_extra_taps', 21),
+        ]
+        for field, value in invalid:
+            with self.subTest(field=field, value=value):
+                with tempfile.TemporaryDirectory() as root:
+                    folder = create_workflow('Invalid state controls', Path(root))
+                    key = record_step(folder, 'Ready', self.frame,
+                                      [(80, 100, 220, 170)], taps=[(130, 140)])
+                    manifest = folder / 'manifest.json'
+                    data = json.loads(manifest.read_text(encoding='utf-8'))
+                    data['actions'][key][field] = value
+                    manifest.write_text(json.dumps(data), encoding='utf-8')
+                    before = manifest.read_bytes()
+                    with (patch('swordx.workflows.cv2.imread') as read,
+                          patch('swordx.workflows._write_manifest') as write):
+                        with self.assertRaisesRegex(ValueError, 'Invalid saved'):
+                            load_step(folder, key)
+                        read.assert_not_called()
+                        write.assert_not_called()
+                    self.assertEqual(manifest.read_bytes(), before)
+
+    def test_valid_imported_state_timing_bounds_remain_editable(self):
+        from swordx.workflows import load_step
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Valid state controls', Path(root))
+            key = record_step(folder, 'Ready', self.frame,
+                              [(80, 100, 220, 170)], taps=[(130, 140)],
+                              pre_tap_delay_seconds=86400,
+                              retry=True, retry_mode='on_return',
+                              retry_interval_seconds=86400, max_extra_taps=20)
+            manifest = folder / 'manifest.json'
+            before = manifest.read_bytes()
+            action, regions, taps, frame = load_step(folder, key)
+            self.assertEqual(regions, [(80, 100, 220, 170)])
+            self.assertEqual(taps, [(130, 140)])
+            self.assertEqual(frame.shape, (960, 540, 3))
+            self.assertEqual(action['pre_tap_delay_seconds'], 86400)
+            self.assertEqual(action['retry_interval_seconds'], 86400)
+            self.assertEqual(action['retry_mode'], 'on_return')
+            self.assertEqual(action['max_extra_taps'], 20)
+            self.assertEqual(manifest.read_bytes(), before)
+
     def test_imported_invalid_touch_data_fails_before_image_reads(self):
         from swordx.workflows import load_step
         invalid = [
