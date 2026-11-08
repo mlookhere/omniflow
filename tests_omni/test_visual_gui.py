@@ -527,6 +527,78 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_delete_requires_discard_of_unsaved_rules_and_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('GuardDeleteDraft', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = folder / 'manifest.json'
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'GuardDeleteDraft', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.step_name.setText('Draft name')
+                rule = {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                        'text': 'READY'}
+                studio.extra_conditions = [rule]
+                studio.extra_chain = [{'kind': 'tap', 'point': [150, 250]}]
+                studio._refresh_extra()
+                studio._field_changed()
+                self.assertTrue(studio._dirty)
+                with (patch('swordx.recorder.QMessageBox.question',
+                            side_effect=[QMessageBox.Yes, QMessageBox.No]) as ask,
+                      patch('swordx.recorder.remove_step') as remove):
+                    studio._delete()
+                    self.assertEqual(ask.call_count, 2)
+                    self.assertEqual(ask.call_args_list[0].args[1], 'Delete state')
+                    self.assertEqual(ask.call_args_list[1].args[1], 'Unsaved state')
+                    remove.assert_not_called()
+                self.assertEqual(
+                    {p.relative_to(folder): p.read_bytes()
+                     for p in folder.rglob('*') if p.is_file()}, before)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.steps.currentRow(), 0)
+                self.assertEqual(studio.step_name.text(), 'Draft name')
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(studio.extra_chain[0]['point'], [150, 250])
+                self.assertTrue(studio._dirty)
+
+                # A failed deletion must also retain the unsaved draft.
+                with (patch('swordx.recorder.QMessageBox.question',
+                            side_effect=[QMessageBox.Yes, QMessageBox.Yes]),
+                      patch('swordx.recorder.remove_step',
+                            side_effect=OSError('simulated deletion failure')),
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._delete()
+                    warning.assert_called_once()
+                self.assertEqual(
+                    {p.relative_to(folder): p.read_bytes()
+                     for p in folder.rglob('*') if p.is_file()}, before)
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertTrue(studio._dirty)
+
+                with patch('swordx.recorder.QMessageBox.question',
+                           side_effect=[QMessageBox.Yes, QMessageBox.Yes]) as ask:
+                    studio._delete()
+                    self.assertEqual(ask.call_count, 2)
+                content = json.loads(manifest.read_text(encoding='utf-8'))
+                self.assertNotIn(first, content['states'])
+                self.assertEqual(list(content['states']), [second])
+                self.assertEqual(studio.steps.count(), 1)
+                self.assertIsNone(studio.editing_key)
+                self.assertFalse(studio._dirty)
+                self.assertFalse(studio.extra_conditions)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_studio_delete_retains_images_used_by_remaining_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
