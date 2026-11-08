@@ -350,6 +350,11 @@ class VisualStudioGuiTests(unittest.TestCase):
                 self.assertIn('Nothing saved or tapped',
                               studio.action_preview_status.text())
 
+                studio.extra_chain = []
+                studio._preview_draft_actions()
+                self.assertIn('Actionable state needs at least one action',
+                              studio.action_preview_status.text())
+
                 studio.passive.setChecked(True)
                 studio._preview_draft_actions()
                 self.assertIn('WAIT — no input will be sent',
@@ -673,6 +678,7 @@ class VisualStudioGuiTests(unittest.TestCase):
             ('conditions', [{'type': 'ocr', 'rect': [10, 10, 120, 120],
                              'text': '(', 'regex': True}], 'Invalid saved condition 1'),
             ('action_chain', {'kind': 'tap'}, 'Invalid saved action chain'),
+            ('action_chain', [], 'Invalid saved action chain'),
             ('action_chain', [{'kind': 'tap', 'point': [-1, 200]}],
              'Invalid saved action 1'),
             ('action_chain', [None], 'Invalid saved action 1'),

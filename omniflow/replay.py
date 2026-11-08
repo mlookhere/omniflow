@@ -24,10 +24,12 @@ def describe_action_plan(action: dict, chain: list[dict]) -> list[str]:
     delay = int(action.get('pre_tap_delay_seconds', 0))
     if delay:
         steps.append(f'Initial delay {delay}s after stable recognition')
+    if not chain:
+        raise WorkflowError('Actionable state needs at least one action')
     for item in chain:
         validate_action(item)
         steps.append(action_summary(item))
-    return steps or ['No configured action']
+    return steps
 
 
 def describe_selected_actions(detector: OmniDetector, key: str,

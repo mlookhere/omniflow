@@ -161,6 +161,11 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(
             describe_action_plan({'passive': True}, chain),
             ['WAIT — no input will be sent'])
+        with self.assertRaisesRegex(WorkflowError, 'at least one action'):
+            describe_action_plan({}, [])
+        self.assertEqual(
+            describe_action_plan({'passive': True}, []),
+            ['WAIT — no input will be sent'])
 
     def test_all_visual_actions_preserve_legacy_edges_and_reject_overshoot(self):
         valid = [539, 959]
@@ -221,6 +226,19 @@ class SavedReplayTests(unittest.TestCase):
             with self.assertRaisesRegex(WorkflowError, 'action 1: Point'):
                 replay_saved_captures(self.folder)
             ocr.assert_not_called()
+        self.assertEqual(manifest.read_bytes(), before)
+
+    def test_replay_rejects_empty_active_chain_before_matching_screenshots(self):
+        key = self.record('Empty imported action')
+        manifest = self.manifest()
+        content = json.loads(manifest.read_text(encoding='utf-8'))
+        content['actions'][key]['action_chain'] = []
+        manifest.write_text(json.dumps(content), encoding='utf-8')
+        before = manifest.read_bytes()
+        with patch('omniflow.replay.OmniDetector.inspect') as inspect:
+            with self.assertRaisesRegex(WorkflowError, 'at least one action'):
+                replay_saved_captures(self.folder)
+            inspect.assert_not_called()
         self.assertEqual(manifest.read_bytes(), before)
 
     def test_replay_checks_nonwinning_states_before_inspecting_screenshots(self):

@@ -659,3 +659,20 @@ regressions cover invalid OCR before capture, failed screenshot after
 a prior match status, malformed action chains, no Android input, no
 workflow writes and unchanged draft state. Live hardware acceptance and
 protected dev required-check enforcement remain separate blockers.
+
+
+**Empty active action chain preflight (November 7, 2026):** An
+externally imported active state with `action_chain: []` used to
+pass runtime startup validation and recognize its screen without
+performing an action, yielding a confusing apparently stalled
+workflow. The engine now rejects any non-passive state whose
+resolved chain has no steps before device input; saved screenshot
+replay rejects it before matching, Studio rejects the imported
+saved state without discarding a current draft, and the unsaved
+THEN preview shows an actionable error instead of "No configured
+action." Passive WAIT states continue to accept empty or dormant
+action data, and the established legacy gesture/tap alternatives
+remain supported. Source-level startup/replay and offscreen Qt
+regressions cover these paths; no gate was weakened. Physical
+Windows/MuMu acceptance and protected dev CI enforcement remain
+release blockers.

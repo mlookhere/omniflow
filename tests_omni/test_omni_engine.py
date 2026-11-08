@@ -637,6 +637,7 @@ class EngineTests(unittest.TestCase):
             ([{'kind': 'tap', 'point': [200, 400]},
               {'kind': 'teleport'}], 'action 2'),
             ({'kind': 'tap', 'point': [200, 400]}, 'action steps must be a list'),
+            ([], 'actionable state needs at least one action'),
         ]
         for chain, expected in bad_chains:
             with self.subTest(chain=chain):
@@ -682,6 +683,9 @@ class EngineTests(unittest.TestCase):
         self.change(self.wait, action_chain=[{'kind': 'unused-old-command'}])
         runner = OmniRunner(Device(self.match), self.folder, 'com.game.demo')
         self.assertEqual(runner._chain(self.wait, 0), [])
+        self.change(self.wait, action_chain=[])
+        self.assertEqual(OmniRunner(
+            Device(self.match), self.folder, 'com.game.demo')._chain(self.wait, 0), [])
 
     def test_dry_run_rejects_unsupported_and_malformed_actions_without_io(self):
         device = Device(self.match)

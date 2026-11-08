@@ -687,6 +687,9 @@ class OmniStudio(RecorderDialog):
         if chain is not None:
             if not isinstance(chain, list):
                 raise WorkflowError('Invalid saved action chain: expected a list')
+            if not chain and not action.get('passive'):
+                raise WorkflowError(
+                    'Invalid saved action chain: active states need an action')
             for index, step in enumerate(chain, 1):
                 try:
                     validate_action(step)

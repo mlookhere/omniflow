@@ -524,6 +524,9 @@ def validate_saved_action_chains(manifest: dict) -> None:
             steps = resolve_action_chain(action, 1)
         except (KeyError, TypeError, ValueError) as exc:
             raise WorkflowError(f'State {label!r}: invalid action steps: {exc}') from exc
+        if not steps:
+            raise WorkflowError(
+                f'State {label!r}: actionable state needs at least one action')
         for index, step in enumerate(steps, 1):
             try:
                 validate_action(step)
