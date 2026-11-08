@@ -611,6 +611,43 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_replay_shows_unavailable_when_capture_directory_redirected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('RedirectedReplay', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image, [(100, 200, 230, 300)],
+                        taps=[(150, 250)])
+            studio = OmniStudio('127.0.0.1:16384', 'RedirectedReplay', base=root)
+            try:
+                captures = folder / 'captures'
+                outside = root / 'external_captures'
+                captures.rename(outside)
+                try:
+                    captures.symlink_to(outside, target_is_directory=True)
+                except (OSError, NotImplementedError):
+                    outside.rename(captures)
+                    self.skipTest('Directory symlinks not available')
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch.object(ReplayResultsDialog, 'exec', autospec=True) as shown,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._replay_saved_screenshots()
+                    shown.assert_called_once()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                dialog = shown.call_args.args[0]
+                self.assertEqual(dialog.table.item(0, 1).text(), 'UNAVAILABLE')
+                self.assertEqual(dialog.table.item(0, 4).text(),
+                                 'Unsafe screenshot reference')
+                self.assertEqual(dialog.table.item(0, 5).text(), '—')
+                self.assertIn('Unsafe screenshot reference',
+                              dialog.evidence.toPlainText())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_replay_warns_on_later_invalid_action_without_emulator_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
