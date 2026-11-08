@@ -373,6 +373,50 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_draft_preview_checks_every_legacy_gesture_alternative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('LegacyAlternativePreview', root)
+            manifest = folder / 'manifest.json'
+            before = manifest.read_bytes()
+            studio = OmniStudio('', 'LegacyAlternativePreview', base=root)
+            try:
+                studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
+                studio.canvas.gestures[1] = {'kind': 'swipe',
+                                             'start': [200, 300],
+                                             'end': [900, 400],
+                                             'duration_ms': 650}
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._preview_draft_actions()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                status = studio.action_preview_status.text()
+                self.assertIn('Draft action invalid: Legacy alternative 2:', status)
+                self.assertIn('outside 540', status)
+                self.assertIn('Nothing saved or tapped', status)
+
+                studio.canvas.gestures[1]['end'] = [250, 400]
+                studio._preview_draft_actions()
+                status = studio.action_preview_status.text()
+                self.assertIn('1. Tap location selected on screen', status)
+                self.assertIn('only the first alternative is shown', status)
+                self.assertNotIn('Draft action invalid', status)
+
+                # Passive WAIT never sends either dormant touch alternative.
+                studio.passive.setChecked(True)
+                studio.canvas.gestures[1]['end'] = [900, 400]
+                studio._preview_draft_actions()
+                self.assertIn('WAIT — no input will be sent',
+                              studio.action_preview_status.text())
+                self.assertNotIn('Draft action invalid',
+                                 studio.action_preview_status.text())
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_saved_studio_inspection_explains_states_without_input_or_save(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

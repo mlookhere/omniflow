@@ -889,7 +889,7 @@ class OmniStudio(RecorderDialog):
 
     def _preview_draft_actions(self):
         """Check unsaved THEN steps without any screenshot, save or Android I/O."""
-        from .engine import WorkflowError, resolve_action_chain
+        from .engine import WorkflowError, resolve_action_chain, validate_action
         from .replay import describe_action_plan
 
         action = {
@@ -903,6 +903,17 @@ class OmniStudio(RecorderDialog):
                                   if step]
         try:
             regions = len(self.canvas.boxes)
+            if self.extra_chain is None and not action['passive']:
+                # Paired legacy gestures are alternatives, not a sequence.
+                # Validate every alternative, including targets hidden by
+                # the first-region-only preview, as runner startup does.
+                for index, alternative in enumerate(
+                        resolve_action_chain(action, 1), 1):
+                    try:
+                        validate_action(alternative)
+                    except WorkflowError as exc:
+                        raise WorkflowError(
+                            f'Legacy alternative {index}: {exc}') from exc
             chain = resolve_action_chain(action, regions)
             steps = describe_action_plan(action, chain)
         except (WorkflowError, ValueError, TypeError, KeyError) as exc:

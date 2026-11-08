@@ -676,3 +676,18 @@ remain supported. Source-level startup/replay and offscreen Qt
 regressions cover these paths; no gate was weakened. Physical
 Windows/MuMu acceptance and protected dev CI enforcement remain
 release blockers.
+
+
+**All legacy THEN alternatives preflight in unsaved preview
+(November 7, 2026):** The draft-only THEN preview previously validated
+only the first legacy gesture when two paired image regions were configured.
+A malformed second target or swipe duration could therefore be overlooked
+in the preview even though the runner's saved startup preflight correctly
+rejects every alternative. The preview now checks all legacy alternatives
+using the same production action validator before showing its first-region
+example; error feedback includes the failing alternative's number. Explicit
+sequential action chains retain their existing behavior, and passive WAIT
+states continue to skip dormant actions. Offscreen Qt regressions cover an
+invalid second gesture, repair and successful preview, passive WAIT, and
+zero screenshot/manifest I/O. Real Windows/MuMu acceptance and enforced
+required checks on dev remain outstanding.
