@@ -1230,3 +1230,18 @@ This is an input file-size guard, not a guarantee against every compressed
 image decompression hazard; normalized 540×960 frame checks still apply after
 decoding. Live capture, matching thresholds and hardware acceptance remain
 unchanged; dev required-status enforcement must still be enabled before merge.
+
+**Bounded saved-anchor decoding before engine startup (current Studio increment):**
+The shared 32-MiB image-file ceiling now also protects recorded image
+anchors, before either the legacy all-template ScreenDetector loader or
+the mixed image/condition-only OmniDetector loader invokes OpenCV.
+Empty, inaccessible, or oversized anchors are rejected as WorkflowErrors
+during preflight, before a Runner or device can execute input. The guard
+follows existing safe filename and symlink-containment checks and keeps
+saved region/anchor shape checks in place. The existing screenshot import
+and read-only saved-capture replay paths use the same shared size constant
+to prevent limits drifting. Regression coverage exercises both loader
+routes with zero-byte and sparse oversized files, verifies no image decode,
+OCR or device commands, and confirms normal anchors still recognize.
+Physical Windows/MuMu acceptance and enforced required dev checks remain
+unverified; the PR stays draft/unmerged.
