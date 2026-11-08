@@ -1009,6 +1009,10 @@ class RecorderDialog(QDialog):
                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                 != QMessageBox.Yes):
             return
+        # Deletion clears the editor after the manifest is committed. Ask
+        # separately before discarding any unsaved WHEN/THEN draft edits.
+        if not self._confirm_discard():
+            return
         try:
             remove_step(folder, item.data(Qt.UserRole))
         except (ValueError, OSError, KeyError) as exc:
