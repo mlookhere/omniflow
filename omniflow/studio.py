@@ -94,6 +94,13 @@ class ActionEditor(QDialog):
              ('Tap field and type text', 'field_text'),
              ('Launch app', 'launch'), ('Count run', 'count_run')]
 
+    @staticmethod
+    def _existing_point(point):
+        """Retain valid legacy inclusive coordinates until explicitly repicked."""
+        from .engine import SIZE, _target
+        _target(point, SIZE)
+        return list(point)
+
     def __init__(self, initial=None, parent=None, frame=None):
         super().__init__(parent)
         self.setWindowTitle('Add an action')
@@ -103,10 +110,10 @@ class ActionEditor(QDialog):
         self.selection = None
         kind = 'swipe' if self.initial.get('kind') == 'drag' else self.initial.get('kind', 'tap')
         if kind in ('tap','double_tap','hold','field_text') and 'point' in self.initial:
-            self.selection = list(validate_point(self.initial['point']))
+            self.selection = self._existing_point(self.initial['point'])
         if kind in ('swipe','drag') and 'start' in self.initial and 'end' in self.initial:
-            self.selection = {'start': list(validate_point(self.initial['start'])),
-                              'end': list(validate_point(self.initial['end']))}
+            self.selection = {'start': self._existing_point(self.initial['start']),
+                              'end': self._existing_point(self.initial['end'])}
         self._point_selection = (list(self.selection)
                                  if isinstance(self.selection, list) else None)
         self._swipe_selection = (dict(self.selection)
@@ -203,6 +210,17 @@ class ActionEditor(QDialog):
         kind = self.kind.currentData()
         mode = 'swipe' if kind in ('swipe', 'drag') else 'point'
         initial = self.selection if ((mode == 'swipe') == isinstance(self.selection, dict)) else None
+        if initial is not None:
+            # The visual picker requires on-image positions. Clamp legacy
+            # inclusive edges only for the picker preview; Cancel and an
+            # unchanged editor Save preserve the original stored target.
+            from .engine import SIZE, _target
+            if mode == 'point':
+                initial = list(_target(initial, SIZE))
+            else:
+                initial = {
+                    'start': list(_target(initial['start'], SIZE)),
+                    'end': list(_target(initial['end'], SIZE))}
         dialog = ZoneCaptureDialog(self.frame, mode, initial=initial, parent=self)
         if dialog.exec() == QDialog.Accepted:
             self.selection = dialog.result_selection()
@@ -215,15 +233,15 @@ class ActionEditor(QDialog):
         if kind in ('tap','double_tap','hold'):
             if not isinstance(self.selection, list):
                 raise ValueError('Select the tap/hold location on a screenshot before saving')
-            result = {'kind': kind, 'point': list(validate_point(self.selection))}
+            result = {'kind': kind, 'point': self._existing_point(self.selection)}
             if kind == 'hold':
                 result['duration_ms'] = self.duration.value()
             return result
         if kind in ('swipe','drag'):
             if not isinstance(self.selection, dict):
                 raise ValueError('Draw the swipe path on the screenshot before saving')
-            return {'kind': 'swipe', 'start': list(validate_point(self.selection['start'])),
-                    'end': list(validate_point(self.selection['end'])),
+            return {'kind': 'swipe', 'start': self._existing_point(self.selection['start']),
+                    'end': self._existing_point(self.selection['end']),
                     'duration_ms': self.duration.value()}
         if kind == 'wait':
             return {'kind': 'wait','seconds': self.seconds.value()}
@@ -235,7 +253,7 @@ class ActionEditor(QDialog):
                 if not isinstance(self.selection, list):
                     raise ValueError('Select the input field on a screenshot first')
                 return {'kind': 'field_text',
-                        'point': list(validate_point(self.selection)),
+                        'point': self._existing_point(self.selection),
                         'text': self.text.text()}
             return {'kind': 'text', 'text': self.text.text()}
         return {'kind':kind}

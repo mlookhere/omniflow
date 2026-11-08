@@ -1105,3 +1105,19 @@ changes. Source/Windows Qt tests cover saved-edge replay, tap,
 double-tap, swipe and field touch targets, redacted content, out-of-
 range rejection and absence of device input. Physical Windows/MuMu
 acceptance and enforced `dev` status checks remain release gates.
+
+**Edit legacy inclusive-edge actions without corrupting targets (current
+Studio iteration):** The visual action editor now accepts old saved tap,
+double-tap, hold, field-text, swipe and drag endpoints at the inclusive
+540×960 normalized corner, using the same production target validator
+as replay and the live runner. Opening, switching action kinds, canceling
+the picker, or saving an unchanged action preserves the exact stored
+legacy endpoints instead of rejecting or silently modifying them.
+Only the visual picker *preview* clamps inclusive endpoints into the
+drawable 539×959 corner; actively repicking records the newly selected
+strictly in-screen coordinates. Out-of-range legacy targets still fail
+closed. No additional coordinate entry UI is introduced and no Android
+input or workflow write happens in the editor. Offscreen Qt tests cover
+all supported point and swipe kinds, picker cancel, mode switching,
+repicking, preservation, and invalid point rejection. The runner and
+release gates are unchanged.

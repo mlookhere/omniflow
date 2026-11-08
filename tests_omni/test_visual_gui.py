@@ -43,6 +43,80 @@ class VisualStudioGuiTests(unittest.TestCase):
         self.assertLess(abs(selected[1] - 480), 5)
         dialog.close()
 
+    def test_existing_legacy_edge_targets_open_and_save_without_coordinate_changes(self):
+        from omniflow.engine import WorkflowError
+
+        for kind in ('tap', 'double_tap', 'hold', 'field_text'):
+            with self.subTest(kind=kind):
+                initial = {'kind': kind, 'point': [540, 960]}
+                if kind == 'hold':
+                    initial['duration_ms'] = 850
+                if kind == 'field_text':
+                    initial['text'] = 'hidden-value'
+                dialog = ActionEditor(initial=initial, frame=self.frame)
+                try:
+                    self.assertEqual(dialog.selection, [540, 960])
+                    saved = dialog.result_action()
+                    self.assertEqual(saved['point'], [540, 960])
+                    self.assertEqual(saved['kind'], kind)
+                    if kind == 'field_text':
+                        self.assertEqual(saved['text'], 'hidden-value')
+                    dialog.kind.setCurrentIndex(
+                        dialog.kind.findData('wait'))
+                    dialog.kind.setCurrentIndex(
+                        dialog.kind.findData(kind))
+                    self.assertEqual(dialog.result_action()['point'], [540, 960])
+                    with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                        picker.return_value.exec.return_value = QDialog.Rejected
+                        dialog._pick()
+                        self.assertEqual(picker.call_args.kwargs['initial'],
+                                         [539, 959])
+                    self.assertEqual(dialog.result_action()['point'], [540, 960])
+                finally:
+                    dialog.close()
+
+        for kind in ('swipe', 'drag'):
+            with self.subTest(kind=kind):
+                dialog = ActionEditor(
+                    initial={'kind': kind, 'start': [540, 960],
+                             'end': [0, 0], 'duration_ms': 700},
+                    frame=self.frame)
+                try:
+                    self.assertEqual(dialog.selection['start'], [540, 960])
+                    self.assertEqual(dialog.result_action()['start'], [540, 960])
+                    with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                        picker.return_value.exec.return_value = QDialog.Rejected
+                        dialog._pick()
+                        self.assertEqual(
+                            picker.call_args.kwargs['initial'],
+                            {'start': [539, 959], 'end': [0, 0]})
+                    self.assertEqual(dialog.result_action()['start'], [540, 960])
+                finally:
+                    dialog.close()
+        with self.assertRaisesRegex(WorkflowError, 'outside'):
+            ActionEditor(initial={'kind': 'tap', 'point': [541, 960]},
+                         frame=self.frame)
+
+    def test_legacy_edge_target_is_replaced_only_after_visual_repick(self):
+        dialog = ActionEditor(
+            initial={'kind': 'swipe', 'start': [540, 960],
+                     'end': [540, 960], 'duration_ms': 650}, frame=self.frame)
+        try:
+            with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                picker.return_value.exec.return_value = QDialog.Accepted
+                picker.return_value.result_selection.return_value = {
+                    'start': [210, 330], 'end': [230, 360]}
+                dialog._pick()
+                picker.assert_called_once()
+                self.assertEqual(
+                    picker.call_args.kwargs['initial'],
+                    {'start': [539, 959], 'end': [539, 959]})
+            self.assertEqual(dialog.result_action(), {
+                'kind': 'swipe', 'start': [210, 330], 'end': [230, 360],
+                'duration_ms': 650})
+        finally:
+            dialog.close()
+
     def test_actions_offer_no_manual_xy_fields(self):
         dialog = ActionEditor(frame=self.frame)
         self.assertEqual(dialog.kind.currentData(), 'tap')
