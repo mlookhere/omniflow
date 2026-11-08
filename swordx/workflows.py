@@ -426,14 +426,17 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
             filename = anchor_names[index]
             image = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
             path = anchor_paths[index]
+            # A failed encoder may leave partial bytes before returning false
+            # or raising. Register the fresh target before attempting the write
+            # so rollback removes those bytes as well as completed new assets.
+            created.append(path)
             if not cv2.imwrite(str(path), image):
                 raise OSError(f'Cannot save region image: {filename}')
-            created.append(path)
             probes.append({'file': filename, 'rect': [x1, y1, x2, y2]})
         path = capture_path
+        created.append(path)
         if not cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 89]):
             raise OSError('Cannot save state screenshot')
-        created.append(path)
         content['states'][state_key] = probes
         action = {'label': label, 'match': 'all' if legacy_and else 'any',
                   'capture': capture_name, 'end': bool(end), 'retry': bool(retry),
