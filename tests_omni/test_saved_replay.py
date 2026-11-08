@@ -49,6 +49,8 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(results[0]['actual_key'], key)
         self.assertEqual(results[0]['status'], 'matched')
         self.assertEqual(results[0]['action_plan'], ['Tap location selected on screen'])
+        self.assertTrue(any('Ready [ACTION]: selected' in line
+                            for line in results[0]['evidence']))
         self.assertEqual(
             before, {file.relative_to(self.folder): file.read_bytes()
                      for file in self.folder.rglob('*') if file.is_file()})
@@ -62,6 +64,9 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(results[0]['status'], 'different')
         self.assertEqual(results[0]['actual_key'], wait_key)
         self.assertEqual(results[0]['reason'], 'overridden by WAIT')
+        evidence = '\n'.join(results[0]['evidence'])
+        self.assertIn('Wait [WAIT]: selected', evidence)
+        self.assertIn('Tap [ACTION]: overridden by WAIT', evidence)
         self.assertEqual(results[1]['status'], 'matched')
         self.assertEqual(results[0]['action_plan'], ['WAIT — no input will be sent'])
         self.assertEqual(results[1]['action_plan'], ['WAIT — no input will be sent'])
@@ -129,6 +134,8 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unknown')
         self.assertIn('image 13%', result['reason'])
         self.assertIn('minimum 82%', result['reason'])
+        self.assertIn('image 13% (minimum 82%)', '\n'.join(result['evidence']))
+        self.assertIn('template below threshold', '\n'.join(result['evidence']))
         self.assertEqual(result['overlaps'], [])
 
     def test_unsaved_action_plan_is_validated_and_redacted(self):
@@ -229,6 +236,30 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unknown')
         self.assertIn('conditions failed', result['reason'])
         self.assertIn('zone average color', result['reason'])
+        self.assertIn('FAIL — zone average color', '\n'.join(result['evidence']))
+
+    def test_replay_explains_pass_and_fail_rules_without_raw_ocr_text(self):
+        record_step(
+            self.folder, 'OCR expected', self.frame, [], condition_only=True,
+            conditions=[
+                {'type': 'ocr', 'rect': [90, 130, 240, 255],
+                 'text': 'READY'},
+                {'type': 'ocr', 'rect': [90, 130, 240, 255],
+                 'text': 'CANCEL', 'negate': True},
+                {'type': 'color', 'rect': [90, 130, 240, 255],
+                 'bgr': [0, 0, 0], 'tolerance': 0},
+            ],
+            action_chain=[{'kind': 'tap', 'point': [150, 210]}])
+        with patch('omniflow.engine.OCREngine.read',
+                   return_value='READY private-ocr-output') as ocr:
+            result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['status'], 'unknown')
+        evidence = '\n'.join(result['evidence'])
+        self.assertIn('OCR expected [ACTION]: conditions failed', evidence)
+        self.assertIn('PASS', evidence)
+        self.assertIn('FAIL — zone average color', evidence)
+        self.assertNotIn('private-ocr-output', repr(result))
+        self.assertEqual(ocr.call_count, 1)
 
     def test_ocr_error_is_reported_not_as_a_match(self):
         record_step(
