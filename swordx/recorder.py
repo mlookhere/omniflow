@@ -317,6 +317,7 @@ class RecorderDialog(QDialog):
         self._visual_dirty = False
         self._dirty = False
         self._workflow_index = 0
+        self._persisted_step_order: list[str] = []
         self.setWindowTitle('Workflow Studio · Sword x Staff')
         self.resize(1080, 900)
         self.setMinimumSize(850, 760)
@@ -716,6 +717,7 @@ class RecorderDialog(QDialog):
         self.steps.blockSignals(True)
         self.steps.clear()
         self.steps.blockSignals(False)
+        self._persisted_step_order = []
         # A workflow switch must not leave another workflow's screenshot visible.
         self.canvas.frame = None
         self.canvas.picture = None
@@ -724,8 +726,9 @@ class RecorderDialog(QDialog):
         folder = self._folder()
         if folder:
             data = json.loads((folder / 'manifest.json').read_text(encoding='utf-8'))
+            self._persisted_step_order = step_order(data)
             self.steps.blockSignals(True)
-            for key in step_order(data):
+            for key in self._persisted_step_order:
                 action = data['actions'][key]
                 row = QListWidgetItem(self._step_label(action, len(data['states'][key])))
                 row.setData(Qt.UserRole, key)
@@ -958,6 +961,29 @@ class RecorderDialog(QDialog):
         self.save_status.setText('State saved. Restart automation to apply changes.')
         self._update_controls()
 
+    def _restore_state_order(self) -> bool:
+        """Undo a failed drag without touching unsaved editor fields/history."""
+        keys = self._persisted_step_order
+        current = self.steps.keys()
+        if len(keys) != len(current) or set(keys) != set(current):
+            return False
+        blocked = self.steps.blockSignals(True)
+        try:
+            items = {}
+            while self.steps.count():
+                item = self.steps.takeItem(0)
+                items[item.data(Qt.UserRole)] = item
+            for key in keys:
+                self.steps.addItem(items[key])
+            # A drag may have moved the visual selection while the editor
+            # still targets its previous state. Restore the editor's target.
+            selected = next((index for index, key in enumerate(keys)
+                             if key == self.editing_key), -1)
+            self.steps.setCurrentRow(selected)
+        finally:
+            self.steps.blockSignals(blocked)
+        return True
+
     def _reordered(self, keys: list[str]):
         folder = self._folder()
         if folder is None:
@@ -965,8 +991,13 @@ class RecorderDialog(QDialog):
         try:
             reorder_steps(folder, keys)
         except (ValueError, OSError) as exc:
-            QMessageBox.warning(self, 'Could not reorder states', str(exc))
-            self._load_steps()
+            restored = self._restore_state_order()
+            message = str(exc)
+            if not restored:
+                message += '\nThe state list changed; save your draft before reloading.'
+            QMessageBox.warning(self, 'Could not reorder states', message)
+            return
+        self._persisted_step_order = list(keys)
 
     def _delete(self):
         item = self.steps.currentItem()
