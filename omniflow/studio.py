@@ -14,15 +14,16 @@ import numpy as np
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
-                               QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHeaderView,
+                               QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from swordx.recorder import CaptureCanvas, RecorderDialog
 from .devices import android_text_argument
-from .visual import (action_summary, condition_summary, require_frame,
-                     sample_average, sample_color, validate_point, validate_zone)
+from .visual import (action_summary, condition_summary, load_screenshot_file,
+                     require_frame, sample_average, sample_color,
+                     validate_point, validate_zone)
 
 
 class ZoneCaptureDialog(QDialog):
@@ -555,6 +556,18 @@ class OmniStudio(RecorderDialog):
     def __init__(self, serial='', selected_workflow='', parent=None, base=None):
         super().__init__(serial, selected_workflow, parent, base=base)
         self.setWindowTitle('OmniFlow · Visual Workflow Studio')
+        self.import_screenshot_button = QPushButton('Load screenshot from file…')
+        self.import_screenshot_button.setObjectName('subtle')
+        self.import_screenshot_button.setToolTip(
+            'Use an existing 9:16 portrait screenshot without connecting '
+            'an emulator. Review its zones and tap targets before running '
+            'on a real device; nothing is imported until Save State.')
+        self.import_screenshot_button.clicked.connect(self._import_screenshot)
+        source_layout = self.capture_button.parentWidget().layout()
+        source_layout.insertWidget(
+            source_layout.indexOf(self.capture_button) + 1,
+            self.import_screenshot_button)
+        self.import_screenshot_button.setEnabled(self._folder() is not None)
         self.extra_chain: list[dict] | None = None
         self.extra_conditions: list[dict] = []
         self._undo_edits: list[dict] = []
@@ -738,6 +751,40 @@ class OmniStudio(RecorderDialog):
         chain_col.addWidget(self.action_preview_status)
         self.tabs.addTab(chain,'THEN · Actions')
         self._load_extra()
+
+    def _update_controls(self):
+        super()._update_controls()
+        if hasattr(self, 'import_screenshot_button'):
+            self.import_screenshot_button.setEnabled(self._folder() is not None)
+
+    def _import_screenshot(self):
+        """Replace the editor capture, retaining existing draft zones/gestures."""
+        if self._folder() is None:
+            QMessageBox.information(
+                self, 'Screenshot file', 'Select or create a workflow first.')
+            return
+        filename, _ = QFileDialog.getOpenFileName(
+            self, 'Choose a portrait game screenshot', '',
+            'Game screenshots (*.png *.jpg *.jpeg *.bmp)')
+        if not filename:
+            return
+        try:
+            frame = load_screenshot_file(filename)
+        except (ValueError, OSError, cv2.error) as exc:
+            QMessageBox.warning(self, 'Cannot load screenshot', str(exc))
+            return
+        if self.canvas.frame is not None:
+            self.canvas.replace_frame(frame)
+        else:
+            self.canvas.load(frame)
+        self.needs_recapture = False
+        self._visual_dirty = True
+        self._field_changed()
+        self._set_mode(0)
+        self._progress()
+        self.save_status.setText(
+            'Screenshot loaded from file. Review targets and Save State; '
+            'offline capture is not live device verification.')
 
     def _update_selection_buttons(self, kind: str):
         widget = self.rules_list if kind == 'rule' else self.actions_list

@@ -5,12 +5,41 @@ pointing at a screenshot. This module deliberately does not depend on Qt.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Sequence
 
 import cv2
 import numpy as np
 
 from swordx.detection import SIZE, normalize
+
+
+def load_screenshot_file(path: Path) -> np.ndarray:
+    """Load an explicit user-selected portrait capture; never touch a device.
+
+    A screenshot with a different aspect ratio would silently shift the
+    visually chosen tap targets after normalization, so reject it first.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.bmp'):
+        raise ValueError('Choose a PNG, JPG or BMP screenshot')
+    if not 0 < path.stat().st_size <= 32 * 1024 * 1024:
+        raise ValueError('Screenshot file must be smaller than 32 MiB')
+    data = path.read_bytes()
+    if not 0 < len(data) <= 32 * 1024 * 1024:
+        raise ValueError('Screenshot file must be smaller than 32 MiB')
+    frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    if (frame is None or frame.ndim != 3 or frame.shape[2] != 3
+            or frame.dtype != np.uint8):
+        raise ValueError('Screenshot must contain a normal 8-bit color image')
+    height, width = frame.shape[:2]
+    if (width * height > 16_000_000 or
+            ((width, height) != (749, 1369) and
+             (height <= width or abs(height / width - 16 / 9) > 0.02 * 16 / 9))):
+        raise ValueError(
+            'Choose a 9:16 portrait screenshot (or legacy 749×1369); '
+            'other proportions would misalign touch targets')
+    return normalize(frame)
 
 
 def require_frame(frame: np.ndarray) -> np.ndarray:

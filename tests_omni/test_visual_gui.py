@@ -350,6 +350,108 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_offline_file_screenshot_creates_visual_state_without_emulator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('OfflineAuthor', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            source = root / 'offline.png'
+            self.assertTrue(cv2.imwrite(str(source), image))
+            studio = OmniStudio('', 'OfflineAuthor', base=root)
+            try:
+                self.assertTrue(studio.import_screenshot_button.isEnabled())
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.studio.QFileDialog.getOpenFileName',
+                            return_value=(str(source), 'PNG')) as choose,
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.import_screenshot_button.click()
+                    choose.assert_called_once()
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertTrue(studio._dirty)
+                self.assertTrue(studio._visual_dirty)
+                self.assertFalse(studio.needs_recapture)
+                self.assertEqual(studio.canvas.frame.shape, (960, 540, 3))
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+                studio.step_name.setText('Ready')
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                studio.canvas._set_gesture(
+                    0, {'kind': 'tap', 'point': [150, 250]})
+                with patch('omniflow.devices.Device.screenshot') as adb:
+                    studio._save()
+                    adb.assert_not_called()
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(len(saved['states']), 1)
+                key = next(iter(saved['states']))
+                self.assertEqual(saved['actions'][key]['label'], 'Ready')
+                self.assertTrue(
+                    (folder / 'captures' / saved['actions'][key]['capture']).is_file())
+                self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_offline_file_import_invalid_or_cancel_retains_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('OfflineReplace', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(
+                folder, 'Before', image, [(100, 200, 230, 300)],
+                taps=[(150, 250)])
+            studio = OmniStudio('', 'OfflineReplace', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                studio.step_name.setText('Unsaved name')
+                original = studio.canvas.frame.copy()
+                boxes = studio.canvas.boxes.copy()
+                gestures = [dict(g) if g else None for g in studio.canvas.gestures]
+                before = (folder / 'manifest.json').read_bytes()
+                invalid = root / 'landscape.png'
+                self.assertTrue(cv2.imwrite(str(invalid), image.transpose(1, 0, 2)))
+                for selected in ('', str(invalid)):
+                    with (patch('omniflow.studio.QFileDialog.getOpenFileName',
+                                return_value=(selected, '')) as choose,
+                          patch('omniflow.studio.QMessageBox.warning') as warning,
+                          patch('omniflow.devices.Device.screenshot') as adb,
+                          patch('swordx.workflows._write_manifest') as write):
+                        studio._import_screenshot()
+                        choose.assert_called_once()
+                        adb.assert_not_called()
+                        write.assert_not_called()
+                        self.assertEqual(warning.call_count, int(bool(selected)))
+                    self.assertEqual(studio.step_name.text(), 'Unsaved name')
+                    self.assertTrue(np.array_equal(studio.canvas.frame, original))
+                    self.assertEqual(studio.canvas.boxes, boxes)
+                    self.assertEqual(studio.canvas.gestures, gestures)
+                    self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+                newer = image.copy()
+                newer[110:160, 120:180] = (200, 80, 30)
+                source = root / 'new.png'
+                self.assertTrue(cv2.imwrite(str(source), newer))
+                with patch('omniflow.studio.QFileDialog.getOpenFileName',
+                           return_value=(str(source), '')):
+                    studio._import_screenshot()
+                self.assertTrue(studio._visual_dirty)
+                self.assertEqual(studio.canvas.boxes, boxes)
+                self.assertEqual(studio.canvas.gestures, gestures)
+                self.assertTrue(np.array_equal(studio.canvas.frame, newer))
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+                studio._save()
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(saved['actions'][key]['label'], 'Unsaved name')
+                self.assertEqual(saved['states'][key][0]['rect'],
+                                 [100, 200, 230, 300])
+                self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_image_confidence_override_undo_save_reload_and_clear(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

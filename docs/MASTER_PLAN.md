@@ -954,3 +954,20 @@ atomic workflow writers; legacy settings editors that do not specify a
 priority preserve it. Regression coverage checks round-tripping, undo,
 invalid inputs, image stability and no Android input. No detector ordering,
 required CI gate, or physical hardware acceptance threshold is changed.
+
+**Offline screenshot authoring in Studio (current core-Studio iteration):**
+Users can now choose **Load screenshot from file** immediately beside the
+MuMu capture control and draw the same recognition regions and tap/swipe
+targets without connecting an emulator. Only explicitly selected PNG/JPG/BMP
+8-bit color portrait captures with compatible 9:16 geometry (or supported
+749×1369 legacy format) are accepted; unsupported ratios, alpha/grayscale,
+invalid bytes and oversized files fail before touching the editor. Selected
+images are normalized with the production screenshot transform; replacing
+a screenshot preserves existing unsaved region and gesture targets. The
+editor is marked unsaved and does not persist images or touch an emulator
+until the user explicitly saves, and the UI states that imported captures
+do not establish live-device correctness. Source and offscreen Qt tests
+cover decode/geometry rejection, cancellation, preserved unsaved edits,
+new-state offline saves, existing-state recapture and zero ADB input.
+Physical Windows/MuMu acceptance and enforced `dev` checks remain release
+requirements.

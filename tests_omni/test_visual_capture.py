@@ -75,6 +75,44 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertNotIn(
                 'priority', json.loads(path.read_text())['actions'][key])
 
+    def test_offline_screenshot_decoding_guards_format_geometry_and_pixels(self):
+        from omniflow.visual import load_screenshot_file
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = np.full((1920, 1080, 3), (10, 45, 90), dtype=np.uint8)
+            png = root / 'portrait.png'
+            self.assertTrue(cv2.imwrite(str(png), source))
+            frame = load_screenshot_file(png)
+            self.assertEqual(frame.shape, (960, 540, 3))
+            self.assertEqual(frame[250, 200].tolist(), [10, 45, 90])
+            self.assertEqual(source[500, 400].tolist(), [10, 45, 90])
+
+            landscape = root / 'landscape.png'
+            self.assertTrue(cv2.imwrite(str(landscape), source.transpose(1, 0, 2)))
+            with self.assertRaisesRegex(ValueError, '9:16 portrait'):
+                load_screenshot_file(landscape)
+            tall = root / 'tall.png'
+            self.assertTrue(cv2.imwrite(str(tall), source[:1800, :700]))
+            with self.assertRaisesRegex(ValueError, '9:16 portrait'):
+                load_screenshot_file(tall)
+            alpha = root / 'alpha.png'
+            self.assertTrue(cv2.imwrite(
+                str(alpha), np.zeros((960, 540, 4), dtype=np.uint8)))
+            with self.assertRaisesRegex(ValueError, '8-bit color'):
+                load_screenshot_file(alpha)
+            garbage = root / 'garbage.png'
+            garbage.write_bytes(b'not a screenshot')
+            with self.assertRaisesRegex(ValueError, '8-bit color'):
+                load_screenshot_file(garbage)
+            with self.assertRaisesRegex(ValueError, 'PNG, JPG or BMP'):
+                load_screenshot_file(root / 'text.txt')
+            with patch.object(Path, 'stat') as stat, patch.object(
+                    Path, 'read_bytes') as read:
+                stat.return_value.st_size = 33 * 1024 * 1024
+                with self.assertRaisesRegex(ValueError, '32 MiB'):
+                    load_screenshot_file(png)
+                read.assert_not_called()
+
     def test_no_manual_coordinates_required_to_author_condition_only_ocr(self):
         with tempfile.TemporaryDirectory() as root:
             folder = create_workflow('OCR-only', Path(root))
