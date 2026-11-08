@@ -973,7 +973,7 @@ class OmniStudio(RecorderDialog):
 
     def _test_detection(self):
         from .devices import Device
-        from .engine import OmniDetector, WorkflowError
+        from .engine import OmniDetector, WorkflowError, validate_saved_action_chains
         from .replay import describe_recognition_evidence
         from swordx.adb import ADBError
         folder=self._folder()
@@ -984,6 +984,10 @@ class OmniStudio(RecorderDialog):
             # screenshot. Live inspection must not probe a device if startup
             # validation would already reject the workflow.
             detector = OmniDetector(folder)
+            # Recognition-only diagnostics must not label an unsafe workflow
+            # ready when the live runner would fail action startup preflight.
+            # Check nonwinning states too, before asking MuMu for a frame.
+            validate_saved_action_chains(detector.manifest)
             if self.serial:
                 screenshot=Device(serial=self.serial).screenshot()
             elif self.canvas.frame is not None:

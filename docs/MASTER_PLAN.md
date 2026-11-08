@@ -708,3 +708,22 @@ startup and offscreen Windows Qt regressions cover malformed secondary
 entries, unchanged manifest, stale-preview cleanup and successful
 repair. Protected dev required checks and actual MuMu hardware
 acceptance remain open release gates.
+
+
+**Saved one-frame detection preflights THEN actions (November 7,
+2026):** Studio's read-only "Test detection" previously used
+`OmniDetector` and correctly checked recognition rules, but did not
+run the saved-action startup validator used by `OmniRunner` and
+offline screenshot replay. As a result, it could display an ACTION
+match for a workflow that would refuse to start due to a malformed
+later command or a nonwinning state's unsafe action. Test detection
+now preflights *all* saved action chains using the same shared
+validator before acquiring a MuMu screenshot or inspecting the frame.
+An invalid command produces a contextual recognition warning instead
+of an apparently ready state. Offscreen Windows Qt regression verifies
+a nonwinning state's second invalid field-text target is caught before
+ADB capture, detector inspection, Android input or workflow writes;
+valid saved detection remains covered by its existing read-only test.
+This is one-frame diagnostic parity, not live hardware acceptance.
+Required-check enforcement on protected dev and real Windows/MuMu
+validation remain outstanding.

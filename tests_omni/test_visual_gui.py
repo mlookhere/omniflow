@@ -1328,6 +1328,52 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_saved_detection_rejects_nonwinning_invalid_action_before_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('InspectActionPreflight', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'First', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Secondary', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('127.0.0.1:16384',
+                                'InspectActionPreflight', base=root)
+            try:
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                # The first action is valid. A second, nonwinning state's
+                # later command would nevertheless stop the real runner.
+                data['actions'][second]['action_chain'] = [
+                    {'kind': 'tap', 'point': [150, 250]},
+                    {'kind': 'field_text', 'point': [900, 250],
+                     'text': 'PRIVATE'},
+                ]
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('omniflow.engine.OmniDetector.inspect') as inspect,
+                      patch('omniflow.devices.Device.tap') as tap,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_detection()
+                    warning.assert_called_once()
+                    capture.assert_not_called()
+                    inspect.assert_not_called()
+                    tap.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual(warning.call_args.args[1], 'Recognition test')
+                self.assertIn("Secondary", warning.call_args.args[2])
+                self.assertIn('action 2: Point', warning.call_args.args[2])
+                self.assertNotIn('PRIVATE', warning.call_args.args[2])
+                self.assertEqual(before, {
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
     def test_saved_inspection_rejects_unsafe_retry_without_device_or_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
