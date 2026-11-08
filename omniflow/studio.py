@@ -1455,9 +1455,8 @@ class OmniStudio(RecorderDialog):
             return self.canvas.frame
         if self.serial:
             from .devices import Device
-            from swordx.detection import normalize
             try:
-                image = normalize(Device(serial=self.serial).screenshot())
+                image = require_frame(Device(serial=self.serial).screenshot())
             except Exception as exc:
                 QMessageBox.warning(self, 'Capture game screen', f'Could not capture MuMu: {exc}')
                 return None
