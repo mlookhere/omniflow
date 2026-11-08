@@ -422,6 +422,22 @@ Offscreen Qt regression verifies both selection contexts, an actionable
 warning, unchanged editor fields/target and no false dirty status. This is UI state consistency,
 not a claim that the invalid saved state was repaired.
 
+**Saved screenshot geometry safety (November 7, 2026):** Studio's
+canvas draws recorded screenshots and overlays on a fixed normalized 540×960
+coordinate grid. A present but corrupt or differently sized imported JPEG
+previously reached the editor (or could be tested during offline replay)
+without verifying its native dimensions, risking misleading touch markers
+and recognition results. Saved captures now must decode as 540×960 BGR color
+frames before Studio loads them. Invalid geometry or unreadable saved files
+produce a visible load failure and restore the previous selected state;
+offline replay reports such captures as **unavailable** without calling the
+recognition engine or creating an action preview. Missing full-screen captures
+from older workflows still render from safe region templates and require
+recapture before visual editing. Python tests verify normalized geometry,
+corruption and legacy fallback; offscreen Qt checks both selected-state
+rollback and read-only replay warnings. This is file-level geometry safety,
+not proof of correct real-device touch scaling or MuMu acceptance.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
