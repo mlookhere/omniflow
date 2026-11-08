@@ -1015,6 +1015,14 @@ class VisualStudioGuiTests(unittest.TestCase):
                 reverse_visible_order()
                 studio._reordered(studio.steps.keys())
                 self.assertEqual(studio.steps.keys(), [second, first])
+                # Qt may select the dragged item even though the editor still
+                # targets a different state; a successful reorder must repair it.
+                self.assertEqual(studio.steps.currentItem().data(Qt.UserRole), first)
+                self.assertEqual(studio.editing_key, first)
+                self.assertEqual(studio.step_name.text(), 'First edited but unsaved')
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(len(studio._undo_edits), history)
+                self.assertTrue(studio._dirty)
                 self.assertEqual(studio._persisted_step_order, [second, first])
                 self.assertEqual(json.loads(manifest.read_text())['order'],
                                  [second, first])
@@ -1047,6 +1055,46 @@ class VisualStudioGuiTests(unittest.TestCase):
                                  'First edited but unsaved')
                 self.assertEqual(saved['actions'][first]['conditions'], [rule])
                 self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_reorder_without_selected_state_keeps_new_draft_unselected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('NewStateReorder', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Second', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'NewStateReorder', base=root)
+            try:
+                studio.step_name.setText('Unsaved new state')
+                self.assertIsNone(studio.editing_key)
+                self.assertTrue(studio._dirty)
+                previous = (folder / 'manifest.json').read_bytes()
+                blocked = studio.steps.blockSignals(True)
+                try:
+                    moved = studio.steps.takeItem(0)
+                    studio.steps.addItem(moved)
+                    studio.steps.setCurrentRow(0)
+                finally:
+                    studio.steps.blockSignals(blocked)
+                studio._reordered(studio.steps.keys())
+                self.assertEqual(studio.steps.keys(), [second, first])
+                self.assertEqual(studio.steps.currentRow(), -1)
+                self.assertIsNone(studio.editing_key)
+                self.assertEqual(studio.step_name.text(), 'Unsaved new state')
+                self.assertTrue(studio._dirty)
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(saved['order'], [second, first])
+                self.assertEqual(saved['actions'][first]['label'], 'First')
+                self.assertEqual(saved['actions'][second]['label'], 'Second')
+                self.assertNotEqual((folder / 'manifest.json').read_bytes(),
+                                    previous)
             finally:
                 with patch('swordx.recorder.QMessageBox.question',
                            return_value=QMessageBox.Yes):
