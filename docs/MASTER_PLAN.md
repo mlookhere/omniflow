@@ -1260,3 +1260,19 @@ tests cover positive boundary behavior, default full-screen rules and
 fail-closed invalid/negated imports; offscreen Qt regressions verify the
 invalid rule is rejected without OCR, emulator capture or manifest edits.
 Real MuMu acceptance and enforced required `dev` checks remain outstanding.
+
+**Fail-closed direct detector screenshots (current Studio increment):**
+The production detector's shared `detect`/`inspect` evaluator now checks
+that every direct-caller frame is a nonempty uint8 three-channel color
+image before normalization, image template matching, or OCR. The live
+runner already validates captured device pixels; this closes the
+read-only Studio / external caller gap where an invalid direct image
+could raise an unrelated OpenCV error or accept an unintended alpha/float
+format. Source regressions cover missing, empty, grayscale, four-channel
+and floating-point frames for both interfaces and still verify normal
+matching. Offscreen Qt regression verifies a malformed combined-draft
+screenshot clears stale MATCH status, does not call the template matcher,
+OCR, ADB or workflow writes, and leaves manifest bytes unchanged.
+Neither normalization policy for valid screenshots nor live action
+authorization changed. Actual Windows/MuMu acceptance and enforced
+required `dev` checks remain outstanding; PR #2 stays draft.
