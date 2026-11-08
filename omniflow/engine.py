@@ -204,9 +204,24 @@ def validate_recognition_manifest(manifest: dict) -> None:
             raise WorkflowError(f'State {key!r} must define action and image probe data')
         label = action.get('label', key)
         prefix = f'State {label!r}'
-        for flag in ('passive', 'skip_template'):
+        for flag in ('passive', 'skip_template', 'retry', 'end'):
             if flag in action and type(action[flag]) is not bool:
                 raise WorkflowError(f'{prefix}: {flag} must be true or false')
+        timing_limits = (
+            ('pre_tap_delay_seconds', 0, 86400),
+            ('retry_interval_seconds', 1, 86400),
+            ('max_extra_taps', 0, 20),
+        )
+        for field, minimum, maximum in timing_limits:
+            if field in action:
+                value = action[field]
+                if type(value) is not int or not minimum <= value <= maximum:
+                    raise WorkflowError(
+                        f'{prefix}: {field} must be a whole number '
+                        f'between {minimum} and {maximum}')
+        if action.get('retry_mode', 'on_return') not in ('interval', 'on_return'):
+            raise WorkflowError(
+                f'{prefix}: retry_mode must be interval or on_return')
         mode = action.get('match', 'all')
         if mode not in ('all', 'any'):
             raise WorkflowError(f'{prefix}: image match mode must be all or any')
