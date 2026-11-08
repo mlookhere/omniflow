@@ -46,8 +46,9 @@ def load_screenshot_file(path: Path) -> np.ndarray:
 
 
 def require_frame(frame: np.ndarray) -> np.ndarray:
-    if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
-        raise ValueError('Capture a color game screenshot before selecting a zone')
+    if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
+            frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
+        raise ValueError('Capture a nonempty 8-bit color game screenshot before selecting a zone')
     return normalize(frame)
 
 
