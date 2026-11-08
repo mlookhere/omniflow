@@ -470,6 +470,40 @@ def validate_action(action: dict) -> str:
     return kind
 
 
+def validate_saved_action_chains(manifest: dict) -> None:
+    """Preflight every executable step before any workflow touches the device.
+
+    Validate every legacy alternative, not just the trigger selected on the
+    first screenshot. Keep per-step checks during execution for defense in depth.
+    """
+    for key, action in manifest['actions'].items():
+        if action.get('passive'):
+            continue
+        label = action.get('label', key)
+        if 'action_chain' in action:
+            configured = action['action_chain']
+        elif action.get('gestures') is not None:
+            configured = action['gestures']
+        elif action.get('taps') is not None:
+            configured = action['taps']
+        else:
+            configured = None
+        if configured is not None and not isinstance(configured, list):
+            raise WorkflowError(f'State {label!r}: action steps must be a list')
+        # Supplying one region yields the complete legacy gesture list instead
+        # of one selected alternative, while explicit chains remain sequential.
+        try:
+            steps = resolve_action_chain(action, 1)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise WorkflowError(f'State {label!r}: invalid action steps: {exc}') from exc
+        for index, step in enumerate(steps, 1):
+            try:
+                validate_action(step)
+            except WorkflowError as exc:
+                raise WorkflowError(
+                    f'State {label!r}, action {index}: {exc}') from exc
+
+
 class OmniRunner:
     """One emulator, one state machine. Doesn't know about other sessions."""
     def __init__(self, device, folder: Path, package: str, *, log=lambda _: None,
@@ -477,8 +511,9 @@ class OmniRunner:
                  auto_relaunch: bool = True, dry_run: bool = False,
                  can_act: Callable[[], bool] = lambda: True,
                  is_paused: Callable[[], bool] = lambda: False):
-        self.device = device
         self.detector = OmniDetector(folder)
+        validate_saved_action_chains(self.detector.manifest)
+        self.device = device
         self.package = package
         self.log, self.on_completed, self.on_image = log, completed, image
         self.auto_relaunch = auto_relaunch
