@@ -33,6 +33,19 @@ class VisualCaptureTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 validate_point(bad)
 
+    def test_malformed_ocr_comparison_has_safe_editor_summary(self):
+        # Imported/copy-pasted unsaved rules may be invalid, but the rule
+        # list must remain readable so Save can reject them explicitly.
+        for bad in (['equals'], {'mode': 'equals'}, None, 17):
+            with self.subTest(mode=bad):
+                rule = {'type': 'ocr', 'text': 'READY',
+                        'text_match': bad, 'rect': [80, 100, 220, 170]}
+                self.assertIn('has invalid comparison', condition_summary(rule))
+        self.assertIn('ends with', condition_summary(
+            {'type': 'ocr', 'text': 'READY', 'text_match': 'ends_with'}))
+        self.assertIn('matches pattern', condition_summary(
+            {'type': 'ocr', 'text': '^READY', 'regex': True}))
+
     def test_color_sampling_uses_selected_image_without_manual_bgr(self):
         self.assertEqual(sample_color(self.frame, [120, 160]), [200, 100, 10])
         self.assertEqual(sample_average(self.frame, [110, 150, 140, 168]), [200, 100, 10])
