@@ -1546,6 +1546,66 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_invalid_mumu_editor_capture_preserves_saved_canvas_and_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('BadMuMuCapture', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('127.0.0.1:16384', 'BadMuMuCapture', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                boxes = list(studio.canvas.boxes)
+                gestures = list(studio.canvas.gestures)
+                original_frame = studio.canvas.frame.copy()
+                studio.needs_recapture = True
+                invalid = (
+                    None,
+                    np.zeros((0, 0, 3), dtype=np.uint8),
+                    np.zeros((960, 540), dtype=np.uint8),
+                    np.zeros((960, 540, 4), dtype=np.uint8),
+                    np.zeros((960, 540, 3), dtype=np.float32),
+                )
+                for bad in invalid:
+                    with self.subTest(shape=getattr(bad, 'shape', bad)):
+                        with (patch('omniflow.devices.Device.screenshot',
+                                    return_value=bad) as capture,
+                              patch('omniflow.studio.QMessageBox.warning') as warn,
+                              patch('swordx.workflows._write_manifest') as write):
+                            self.assertIsNone(studio._editor_frame())
+                            capture.assert_called_once()
+                            warn.assert_called_once()
+                            self.assertIn('Could not capture MuMu',
+                                          warn.call_args.args[2])
+                            write.assert_not_called()
+                        self.assertTrue(studio.needs_recapture)
+                        self.assertEqual(studio.canvas.boxes, boxes)
+                        self.assertEqual(studio.canvas.gestures, gestures)
+                        np.testing.assert_array_equal(studio.canvas.frame,
+                                                      original_frame)
+                        self.assertFalse(studio._dirty)
+                with patch('omniflow.devices.Device.screenshot',
+                           return_value=image) as capture:
+                    valid = studio._editor_frame()
+                    capture.assert_called_once()
+                np.testing.assert_array_equal(valid, image)
+                self.assertFalse(studio.needs_recapture)
+                self.assertEqual(studio.canvas.boxes, boxes)
+                self.assertEqual(studio.canvas.gestures, gestures)
+                self.assertEqual(
+                    {p.relative_to(folder): p.read_bytes()
+                     for p in folder.rglob('*') if p.is_file()},
+                    before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_draft_condition_preflight_rejects_bad_regex_before_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
