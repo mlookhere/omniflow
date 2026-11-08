@@ -181,7 +181,12 @@ class SavedReplayTests(unittest.TestCase):
             frame, steps, passive, label = replay_saved_action_map(
                 self.folder, tap_key)
             device.assert_not_called()
-        self.assertTrue(np.array_equal(frame, self.frame))
+        saved_name = json.loads(self.manifest().read_text())[
+            'actions'][tap_key]['capture']
+        saved_frame = cv2.imread(str(self.folder / 'captures' / saved_name))
+        # Recorder captures are stored as JPEG. Compare the actual saved
+        # pixels, not the uncompressed source fixture.
+        self.assertTrue(np.array_equal(frame, saved_frame))
         self.assertEqual(steps, [])
         self.assertTrue(passive)
         self.assertEqual(label, 'Wait for queue')
