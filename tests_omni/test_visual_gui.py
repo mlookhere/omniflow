@@ -527,6 +527,48 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_combined_draft_rejects_invalid_image_before_any_matching_or_ocr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('InvalidInspectionFrame', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'InvalidInspectionFrame', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                for frame in (
+                    None, np.zeros((960, 540), np.uint8),
+                    np.zeros((960, 540, 4), np.uint8),
+                    np.zeros((960, 540, 3), np.float32),
+                ):
+                    with self.subTest(shape=getattr(frame, 'shape', None)):
+                        studio.complete_test_status.setText('MATCH: stale')
+                        with (patch.object(studio, '_editor_frame', return_value=frame),
+                              patch('omniflow.engine.OmniDetector._match_template') as matcher,
+                              patch('omniflow.engine.OCREngine.read') as ocr,
+                              patch('omniflow.devices.Device.screenshot') as adb,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio._test_complete_draft()
+                            matcher.assert_not_called()
+                            ocr.assert_not_called()
+                            adb.assert_not_called()
+                            write.assert_not_called()
+                        self.assertNotIn('MATCH: stale',
+                                         studio.complete_test_status.text())
+                        self.assertIn('Combined draft test unavailable'
+                                      if frame is None
+                                      else 'Combined draft test failed',
+                                      studio.complete_test_status.text())
+                        if frame is not None:
+                            self.assertIn('nonempty 8-bit color screenshot',
+                                          studio.complete_test_status.text())
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_combined_draft_new_condition_only_and_bad_inputs_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
