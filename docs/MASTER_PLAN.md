@@ -409,6 +409,18 @@ an offscreen Qt test confirms the real Studio Delete flow reflects the
 persisted result. This is not a successful cleanup claim; the remaining old
 files are explicitly verified to persist in the failure regression.
 
+**Failed saved-state selection rollback (November 7, 2026):** An
+externally edited or corrupted saved state can fail validation while being
+selected in the Studio. Previously the list kept that failed row highlighted,
+while the editor retained the earlier state's data and `editing_key`, making
+a subsequent Save misleading. Both the original recorder and OmniFlow Studio
+now restore the previous list selection on a failed load, or clear it if the
+user was editing a new state. The existing unsaved-discard rollback shares
+this same signal-safe helper. Offscreen Qt regression verifies both contexts,
+an actionable warning, unchanged editor fields/target, no image reads or
+manifest writes, and no false dirty status. This is UI state consistency,
+not a claim that the invalid saved state was repaired.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
