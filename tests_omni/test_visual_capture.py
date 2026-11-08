@@ -276,6 +276,54 @@ class VisualCaptureTests(unittest.TestCase):
             self.assertEqual(before, {p.relative_to(folder): p.read_bytes()
                                       for p in folder.rglob('*') if p.is_file()})
 
+    def test_recapture_with_imported_traversal_key_writes_only_generated_assets(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Imported keys', Path(root))
+            rect = (80, 100, 220, 170)
+            original = record_step(folder, 'Saved', self.frame, [rect],
+                                   taps=[(130, 140)])
+            manifest = folder / 'manifest.json'
+            content = json.loads(manifest.read_text(encoding='utf-8'))
+            imported = '../../escaped'
+            content['states'][imported] = content['states'].pop(original)
+            content['actions'][imported] = content['actions'].pop(original)
+            content['order'] = [imported]
+            manifest.write_text(json.dumps(content), encoding='utf-8')
+            self.assertEqual(record_step(folder, 'Updated', self.frame, [rect],
+                                         taps=[(130, 140)], key=imported), imported)
+            saved = json.loads(manifest.read_text(encoding='utf-8'))
+            self.assertEqual(saved['order'], [imported])
+            for kind, name in (('captures', saved['actions'][imported]['capture']),
+                               ('anchors', saved['states'][imported][0]['file'])):
+                self.assertNotIn('/', name)
+                self.assertNotIn('..', name)
+                self.assertTrue((folder / kind / name).is_file())
+            self.assertFalse(list(folder.parent.glob('escaped*')))
+
+    def test_symlinked_output_directories_fail_before_writing_images(self):
+        for kind in ('captures', 'anchors'):
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as root:
+                    folder = create_workflow('Unsafe output', Path(root))
+                    manifest = folder / 'manifest.json'
+                    before = manifest.read_bytes()
+                    outside = Path(root) / 'outside'
+                    outside.mkdir()
+                    (folder / kind).rmdir()
+                    try:
+                        (folder / kind).symlink_to(outside, target_is_directory=True)
+                    except (OSError, NotImplementedError):
+                        # Windows environments can disallow creating symlinks.
+                        continue
+                    with patch('swordx.workflows.cv2.imwrite') as write:
+                        with self.assertRaisesRegex(ValueError,
+                                                    'directory resolves outside workflow'):
+                            record_step(folder, 'New', self.frame,
+                                        [(80, 100, 220, 170)], taps=[(130, 140)])
+                        write.assert_not_called()
+                    self.assertEqual(manifest.read_bytes(), before)
+                    self.assertEqual(list(outside.iterdir()), [])
+
     def test_readable_editor_summaries_do_not_expose_coordinates(self):
         self.assertIn('Swipe',action_summary({'kind':'swipe','start':[20,20],
                                                'end':[120,180],'duration_ms':450}))
