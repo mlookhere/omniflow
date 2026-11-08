@@ -63,6 +63,32 @@ class EngineTests(unittest.TestCase):
         screen[100:120, 100:120] = 120
         self.assertLess(OmniDetector._match_template(screen, anchor), .82)
 
+    def test_direct_detection_and_inspection_reject_malformed_screenshots(self):
+        detector = OmniDetector(self.folder)
+        malformed = (
+            None, b'not an image',
+            np.zeros((0, 0, 3), np.uint8),
+            np.zeros((960, 540), np.uint8),
+            np.zeros((960, 540, 4), np.uint8),
+            np.zeros((960, 540, 3), np.float32),
+        )
+        with (patch('omniflow.engine.normalize') as resize,
+              patch('omniflow.engine.cv2.cvtColor') as convert,
+              patch('omniflow.engine.OCREngine.read') as ocr):
+            for bad in malformed:
+                with self.subTest(frame=repr(getattr(bad, 'shape', bad))):
+                    for action in (detector.detect, detector.inspect):
+                        with self.assertRaisesRegex(
+                                WorkflowError, 'nonempty 8-bit color screenshot'):
+                            action(bad)
+            resize.assert_not_called()
+            convert.assert_not_called()
+            ocr.assert_not_called()
+
+        # Valid direct calls retain the same state and normalized frame path.
+        self.assertEqual(detector.detect(self.match).key, self.key)
+        self.assertEqual(detector.inspect(self.match)[0].key, self.key)
+
     def test_already_normalized_frame_skips_duplicate_resize(self):
         from swordx.detection import normalize
         detector = OmniDetector(self.folder)
