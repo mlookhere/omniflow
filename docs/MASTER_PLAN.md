@@ -249,6 +249,20 @@ regressions cover path/geometry corruption, symlink escapes, image-size
 mismatch and no device input or manifest writes. Normal legacy anchors and
 explicit condition-only states are unchanged.
 
+**Whole-chain action preflight (November 7, 2026):** Validating each step
+only when it executes can still permit a valid first tap before an invalid
+later step from an externally modified manifest is discovered. The runner
+now validates *all* executable action steps before any screenshots or
+Android input, including modern sequential chains and **every** legacy
+multi-anchor alternative, using the existing `validate_action` checker.
+Malformed action collections, unsafe text/targets and unsupported later
+steps fail closed with a state and step index; per-step runtime checks
+remain in place. Passive WAIT states do not execute retained legacy gesture
+data and preserve compatibility. Offline saved-screenshot replay applies
+the same startup preflight, warning without accepting a partial action
+plan. Python and offscreen Qt regressions verify zero emulator input,
+no manifest writes and preserved valid workflows.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
