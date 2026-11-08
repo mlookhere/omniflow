@@ -332,6 +332,40 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_studio_delete_rejects_corrupt_image_cleanup_without_filesystem_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeDelete', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Recorded screen', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'UnsafeDelete', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['actions'][key]['capture'] = '../../outside.txt'
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                outside = folder.parent / 'outside.txt'
+                outside.write_text('preserve me', encoding='utf-8')
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                with (patch('swordx.recorder.QMessageBox.question',
+                            return_value=QMessageBox.Yes),
+                      patch('swordx.recorder.QMessageBox.warning') as warning,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._delete()
+                    warning.assert_called_once()
+                    write.assert_not_called()
+                self.assertIn('Unsafe saved captures', warning.call_args.args[2])
+                self.assertEqual(outside.read_text(encoding='utf-8'), 'preserve me')
+                self.assertEqual(before, {
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
     def test_saved_inspection_validates_flags_before_live_emulator_access(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
