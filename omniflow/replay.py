@@ -15,7 +15,7 @@ from swordx.workflows import _safe_saved_image, step_order
 from .engine import (OmniDetector, WorkflowError, resolve_action_chain,
                      validate_action, validate_recognition_manifest,
                      validate_saved_action_chains)
-from .visual import action_summary, condition_summary
+from .visual import MAX_SAVED_IMAGE_BYTES, action_summary, condition_summary
 
 
 def draft_recognition_inspector(
@@ -247,7 +247,7 @@ def _read_saved_capture(folder: Path, name: str | None) -> tuple[np.ndarray | No
         return None, 'Saved screenshot is inaccessible'
     # Match the offline image-import limit before allowing OpenCV to decode
     # an externally modified capture. Recorded 540×960 frames are far smaller.
-    if not 0 < size <= 32 * 1024 * 1024:
+    if not 0 < size <= MAX_SAVED_IMAGE_BYTES:
         return None, 'Saved screenshot must be nonempty and at most 32 MiB'
     try:
         frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
