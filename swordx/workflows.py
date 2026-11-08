@@ -145,12 +145,33 @@ def _saved_point(point, description: str) -> tuple[int, int]:
     return tuple(point)
 
 
+def _validate_saved_editor_settings(action: dict) -> None:
+    """Reject imported fields that Qt would otherwise coerce or fail to set."""
+    label = action.get('label')
+    if not isinstance(label, str) or not 1 <= len(label.strip()) <= 48:
+        raise ValueError('Invalid saved state label')
+    for field in ('retry', 'passive', 'end', 'skip_template'):
+        if field in action and type(action[field]) is not bool:
+            raise ValueError(f'Invalid saved {field} flag')
+    try:
+        _validate_pre_tap_delay(action.get('pre_tap_delay_seconds', 0))
+        _validate_retry(action.get('retry_mode', 'interval'),
+                        action.get('retry_interval_seconds', 25))
+        _validate_max_extra_taps(action.get('max_extra_taps', 0))
+    except ValueError as exc:
+        raise ValueError(f'Invalid saved state settings: {exc}') from exc
+
+
 def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, int]],
                                                 list[tuple[int, int] | None], np.ndarray | None]:
     """Load editable region/gesture pairs and saved screenshot (if available)."""
     folder = Path(folder)
     content = json.loads((folder / 'manifest.json').read_text(encoding='utf-8'))
-    action = content['actions'][key].copy()
+    saved_action = content['actions'][key]
+    if not isinstance(saved_action, dict):
+        raise ValueError('Invalid saved state action')
+    action = saved_action.copy()
+    _validate_saved_editor_settings(action)
     # Check *all* image references before reading even the primary screenshot.
     # Old captures may be missing, but unsafe references must never be opened.
     probes = content['states'][key]
