@@ -46,6 +46,26 @@ def describe_selected_actions(detector: OmniDetector, key: str,
     return describe_action_plan(action, chain)
 
 
+def describe_recognition_evidence(detector: OmniDetector,
+                                  details: list[dict]) -> list[str]:
+    """Summarize every state decision without raw OCR output or device input."""
+    lines = []
+    for state in details:
+        kind = 'WAIT' if state['passive'] else 'ACTION'
+        image = (f"image {state['template_confidence']:.0%} "
+                 f"(minimum {state['threshold']:.0%})"
+                 if state['has_template'] else 'condition-only')
+        lines.append(f"{state['label']} [{kind}]: {state['status']} — {image}")
+        rules = detector.actions[state['key']].get('conditions', [])
+        outcomes = state['condition_results']
+        if rules and outcomes is None:
+            lines.append('  Conditions not evaluated: image threshold failed')
+        elif outcomes is not None:
+            for passed, rule in zip(outcomes, rules):
+                lines.append(f"  {'PASS' if passed else 'FAIL'} — {condition_summary(rule)}")
+    return lines
+
+
 def replay_saved_captures(folder: Path) -> list[dict]:
     """Check every recorded state against the same matcher used during runs.
 
@@ -67,6 +87,7 @@ def replay_saved_captures(folder: Path) -> list[dict]:
             'reason': '',
             'overlaps': [],
             'action_plan': [],
+            'evidence': [],
         }
         results.append(item)
         name = action.get('capture')
@@ -104,6 +125,7 @@ def replay_saved_captures(folder: Path) -> list[dict]:
         item['actual_key'] = winner.key
         item['actual'] = winner.label
         item['action_plan'] = plan
+        item['evidence'] = describe_recognition_evidence(detector, details)
         # A selected state can still be ambiguous. Expose other candidates
         # that passed recognition, even when the expected state won.
         item['overlaps'] = [
