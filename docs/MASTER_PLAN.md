@@ -1136,3 +1136,21 @@ or stored workflow data. Source and Windows Qt regressions cover
 legacy gesture field variants, inclusive edge coordinates, redacted
 trace details, immutability and fail-closed invalid targets. Actual
 MuMu touch acceptance and protected status checks remain outstanding.
+
+**Preserve uncommon legacy gesture formats in ActionEditor (current Studio
+iteration):** The production runner and saved replay accept hold gestures
+with start/end paths, swipes with only point, mixed point/end paths and
+the legacy drag kind. The visual action editor previously required
+hold.point and swipe.start/end to prepopulate, so an unchanged edit
+could fail, erase a valid target or silently turn an old drag into swipe.
+The editor now displays the runner's effective target on the screenshot
+for each supported shape while retaining the original serialized kind
+and target fields when a user changes only duration, switches kind away
+and back, cancels the picker or saves unchanged. A successful explicit
+visual repick converts the selection to the modern point or swipe
+encoding, as appropriate; this is never done on a canceled picker.
+The existing strict new-target picker, invalid-target rejection and
+redaction rules are preserved. New offscreen Qt regressions exercise
+old hold/swipe/drag variants, duration changes, kind switching and
+explicit repicks. No live Android input or workflow write is involved.
+Release acceptance and protected checks are unchanged.

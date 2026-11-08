@@ -117,6 +117,80 @@ class VisualStudioGuiTests(unittest.TestCase):
         finally:
             dialog.close()
 
+    def test_legacy_gesture_action_editor_round_trips_without_changing_target_shape(self):
+        variants = [
+            {'kind': 'hold', 'start': [120, 240], 'end': [180, 300],
+             'duration_ms': 850},
+            {'kind': 'hold', 'start': [540, 960], 'end': [540, 960],
+             'duration_ms': 750},
+            {'kind': 'swipe', 'point': [230, 340], 'duration_ms': 650},
+            {'kind': 'drag', 'point': [540, 960], 'end': [150, 260],
+             'duration_ms': 850},
+            {'kind': 'drag', 'start': [140, 250], 'end': [210, 310],
+             'duration_ms': 660},
+        ]
+        for initial in variants:
+            with self.subTest(initial=initial):
+                dialog = ActionEditor(initial=initial, frame=self.frame)
+                try:
+                    self.assertEqual(dialog.result_action(), initial)
+                    dialog.duration.setValue(900)
+                    expected = {**initial, 'duration_ms': 900}
+                    self.assertEqual(dialog.result_action(), expected)
+                    other = dialog.kind.findData('wait')
+                    dialog.kind.setCurrentIndex(other)
+                    dialog.kind.setCurrentIndex(
+                        dialog.kind.findData(
+                            'swipe' if initial['kind'] == 'drag'
+                            else initial['kind']))
+                    self.assertEqual(dialog.result_action(), expected)
+                    with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                        picker.return_value.exec.return_value = QDialog.Rejected
+                        dialog._pick()
+                        picker.assert_called_once()
+                        self.assertEqual(dialog.result_action(), expected)
+                    # The authored source action remains untouched.
+                    self.assertNotEqual(initial['duration_ms'], 900)
+                finally:
+                    dialog.close()
+
+    def test_legacy_gesture_repicking_explicitly_upgrades_to_visual_target(self):
+        for old, selected, expected in (
+            ({'kind': 'hold', 'start': [540, 960], 'end': [110, 220],
+              'duration_ms': 700},
+             [220, 330],
+             {'kind': 'hold', 'point': [220, 330], 'duration_ms': 700}),
+            ({'kind': 'swipe', 'point': [540, 960], 'duration_ms': 700},
+             {'start': [210, 320], 'end': [230, 350]},
+             {'kind': 'swipe', 'start': [210, 320],
+              'end': [230, 350], 'duration_ms': 700}),
+            ({'kind': 'drag', 'point': [540, 960], 'duration_ms': 700},
+             {'start': [210, 320], 'end': [230, 350]},
+             {'kind': 'swipe', 'start': [210, 320],
+              'end': [230, 350], 'duration_ms': 700}),
+        ):
+            with self.subTest(old=old):
+                dialog = ActionEditor(initial=old, frame=self.frame)
+                try:
+                    with patch('omniflow.studio.ZoneCaptureDialog') as picker:
+                        picker.return_value.exec.return_value = QDialog.Accepted
+                        picker.return_value.result_selection.return_value = selected
+                        dialog._pick()
+                        picker.assert_called_once()
+                        expected_initial = (
+                            [539, 959] if old['kind'] == 'hold' else
+                            {'start': [539, 959],
+                             'end': ([110, 220] if 'end' in old
+                                     else [539, 959])})
+                        # For the hold path, the point picker shows only
+                        # the original first touch and cannot silently
+                        # replace the full swipe without user approval.
+                        self.assertEqual(picker.call_args.kwargs['initial'],
+                                         expected_initial)
+                    self.assertEqual(dialog.result_action(), expected)
+                finally:
+                    dialog.close()
+
     def test_actions_offer_no_manual_xy_fields(self):
         dialog = ActionEditor(frame=self.frame)
         self.assertEqual(dialog.kind.currentData(), 'tap')

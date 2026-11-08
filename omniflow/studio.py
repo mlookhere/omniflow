@@ -108,12 +108,20 @@ class ActionEditor(QDialog):
         self.frame = require_frame(frame) if frame is not None else None
         self.initial = dict(initial or {})
         self.selection = None
+        self._retargeted = False
         kind = 'swipe' if self.initial.get('kind') == 'drag' else self.initial.get('kind', 'tap')
-        if kind in ('tap','double_tap','hold','field_text') and 'point' in self.initial:
+        if kind == 'hold' and ('start' in self.initial or 'point' in self.initial):
+            self.selection = self._existing_point(
+                self.initial.get('start', self.initial.get('point')))
+        elif kind in ('tap', 'double_tap', 'field_text') and 'point' in self.initial:
             self.selection = self._existing_point(self.initial['point'])
-        if kind in ('swipe','drag') and 'start' in self.initial and 'end' in self.initial:
-            self.selection = {'start': self._existing_point(self.initial['start']),
-                              'end': self._existing_point(self.initial['end'])}
+        elif kind in ('swipe', 'drag'):
+            start = self.initial.get('start', self.initial.get('point'))
+            end = self.initial.get('end', self.initial.get('point'))
+            if start is not None and end is not None:
+                self.selection = {
+                    'start': self._existing_point(start),
+                    'end': self._existing_point(end)}
         self._point_selection = (list(self.selection)
                                  if isinstance(self.selection, list) else None)
         self._swipe_selection = (dict(self.selection)
@@ -224,10 +232,32 @@ class ActionEditor(QDialog):
         dialog = ZoneCaptureDialog(self.frame, mode, initial=initial, parent=self)
         if dialog.exec() == QDialog.Accepted:
             self.selection = dialog.result_selection()
+            self._retargeted = True
             self._refresh_summary()
 
     def result_action(self):
         kind = self.kind.currentData()
+        original_kind = self.initial.get('kind')
+        original_variant = (
+            original_kind == 'drag' or
+            (original_kind == 'hold' and
+             ('start' in self.initial or 'end' in self.initial)) or
+            (original_kind == 'swipe' and
+             ('start' not in self.initial or 'end' not in self.initial)))
+        if (original_variant and not self._retargeted
+                and (kind == original_kind or
+                     (kind == 'swipe' and original_kind == 'drag'))):
+            # Time changes do not imply a change of touch target. Preserve
+            # old runner-supported coordinate shapes and the 'drag' alias
+            # unless the user actually chooses new targets in the picker.
+            from .engine import WorkflowError, validate_action
+            original = dict(self.initial)
+            original['duration_ms'] = self.duration.value()
+            try:
+                validate_action(original)
+            except WorkflowError as exc:
+                raise ValueError(str(exc)) from exc
+            return original
         if kind == 'back':
             return {'kind': 'key', 'code': 4}
         if kind in ('tap','double_tap','hold'):
