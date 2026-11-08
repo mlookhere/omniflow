@@ -638,6 +638,52 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(result['status'], 'unavailable')
         self.assertEqual(result['reason'], 'Saved screenshot is unreadable')
 
+    def test_saved_capture_size_preflight_skips_decode_in_all_replay_paths(self):
+        from omniflow.replay import (
+            audit_draft_saved_captures, replay_saved_action_map)
+
+        key = self.record('Oversized screenshot')
+        manifest = self.manifest()
+        original = manifest.read_bytes()
+        name = json.loads(original)['actions'][key]['capture']
+        capture = self.folder / 'captures' / name
+        rules = [{'type': 'color', 'rect': [95, 125, 245, 260],
+                  'bgr': [15, 225, 20], 'tolerance': 255}]
+        # Use a sparse file to exercise the upper bound without allocating
+        # a huge frame. Zero-byte captures must also be rejected.
+        for size in (0, 32 * 1024 * 1024 + 1):
+            with self.subTest(size=size):
+                with capture.open('wb') as stream:
+                    stream.truncate(size)
+                with (patch('omniflow.replay.cv2.imread', wraps=cv2.imread) as read,
+                      patch('omniflow.engine.OCREngine.read') as ocr,
+                      patch('omniflow.devices.Device.screenshot') as device,
+                      patch('omniflow.engine.OmniDetector.inspect') as inspect):
+                    result = replay_saved_captures(self.folder)[0]
+                    self.assertEqual(result['status'], 'unavailable')
+                    self.assertIn('at most 32 MiB', result['reason'])
+                    self.assertEqual(result['evidence'], [])
+                    self.assertEqual(result['action_plan'], [])
+
+                    draft = audit_draft_saved_captures(
+                        self.folder, key, conditions=rules,
+                        condition_match='all', condition_only=True,
+                        threshold=None)[0]
+                    self.assertEqual(draft['status'], 'unavailable')
+                    self.assertIn('at most 32 MiB', draft['reason'])
+                    with self.assertRaisesRegex(WorkflowError, 'at most 32 MiB'):
+                        replay_saved_action_map(self.folder, key)
+
+                    # Detector setup can read saved anchor templates, but
+                    # no over-limit capture may be passed to OpenCV.
+                    capture_reads = [call for call in read.call_args_list
+                                     if Path(call.args[0]).parent.name == 'captures']
+                    self.assertEqual(capture_reads, [])
+                    inspect.assert_not_called()
+                    ocr.assert_not_called()
+                    device.assert_not_called()
+                self.assertEqual(manifest.read_bytes(), original)
+
     def test_nonnormalized_capture_is_unavailable_without_detector_inspection(self):
         key = self.record('Wrong capture geometry')
         manifest = self.manifest()
