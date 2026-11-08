@@ -332,6 +332,53 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_failed_saved_state_switch_restores_editor_and_list_selection(self):
+        for from_saved in (False, True):
+            with self.subTest(from_saved=from_saved):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    folder = create_workflow('InvalidSelection', root)
+                    image = self.frame.copy()
+                    image[220:270, 120:200] = (10, 230, 30)
+                    first = record_step(folder, 'First', image,
+                                        [(100, 200, 230, 300)],
+                                        taps=[(150, 250)])
+                    second = record_step(folder, 'Second', image,
+                                         [(100, 200, 230, 300)],
+                                         taps=[(150, 250)])
+                    studio = OmniStudio('', 'InvalidSelection', base=root)
+                    try:
+                        if from_saved:
+                            studio.steps.setCurrentRow(0)
+                            self.assertEqual(studio.editing_key, first)
+                            self.assertEqual(studio.step_name.text(), 'First')
+                        else:
+                            self.assertIsNone(studio.editing_key)
+                            self.assertEqual(studio.steps.currentRow(), -1)
+                        manifest = folder / 'manifest.json'
+                        data = json.loads(manifest.read_text(encoding='utf-8'))
+                        data['actions'][second]['capture'] = '../../outside.png'
+                        manifest.write_text(json.dumps(data), encoding='utf-8')
+                        before = manifest.read_bytes()
+                        with (patch('swordx.recorder.QMessageBox.warning') as warning,
+                              patch('swordx.workflows.cv2.imread') as read,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio.steps.setCurrentRow(1)
+                            warning.assert_called_once()
+                            read.assert_not_called()
+                            write.assert_not_called()
+                        self.assertIn('Unsafe saved captures', warning.call_args.args[2])
+                        self.assertEqual(studio.steps.currentRow(),
+                                         0 if from_saved else -1)
+                        self.assertEqual(studio.editing_key,
+                                         first if from_saved else None)
+                        self.assertEqual(studio.step_name.text(),
+                                         'First' if from_saved else '')
+                        self.assertFalse(studio._dirty)
+                        self.assertEqual(manifest.read_bytes(), before)
+                    finally:
+                        studio.close()
+
     def test_studio_failed_manifest_replace_warns_without_losing_saved_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
