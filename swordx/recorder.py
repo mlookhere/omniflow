@@ -37,9 +37,16 @@ class ReorderList(QListWidget):
 
     def dropEvent(self, event):
         before = self.keys()
-        super().dropEvent(event)
-        if before != self.keys():
-            self.reordered.emit(self.keys())
+        # Dragging is presentation-only; do not interpret Qt's temporary
+        # current-item changes as a request to discard the editor draft.
+        blocked = self.blockSignals(True)
+        try:
+            super().dropEvent(event)
+        finally:
+            self.blockSignals(blocked)
+        after = self.keys()
+        if before != after:
+            self.reordered.emit(after)
 
     def keys(self) -> list[str]:
         return [self.item(i).data(Qt.UserRole) for i in range(self.count())]
@@ -961,6 +968,16 @@ class RecorderDialog(QDialog):
         self.save_status.setText('State saved. Restart automation to apply changes.')
         self._update_controls()
 
+    def _align_state_selection(self) -> None:
+        """Keep the highlighted row on the state actually being edited."""
+        keys = self.steps.keys()
+        selected = keys.index(self.editing_key) if self.editing_key in keys else -1
+        blocked = self.steps.blockSignals(True)
+        try:
+            self.steps.setCurrentRow(selected)
+        finally:
+            self.steps.blockSignals(blocked)
+
     def _restore_state_order(self) -> bool:
         """Undo a failed drag without touching unsaved editor fields/history."""
         keys = self._persisted_step_order
@@ -975,11 +992,7 @@ class RecorderDialog(QDialog):
                 items[item.data(Qt.UserRole)] = item
             for key in keys:
                 self.steps.addItem(items[key])
-            # A drag may have moved the visual selection while the editor
-            # still targets its previous state. Restore the editor's target.
-            selected = next((index for index, key in enumerate(keys)
-                             if key == self.editing_key), -1)
-            self.steps.setCurrentRow(selected)
+            self._align_state_selection()
         finally:
             self.steps.blockSignals(blocked)
         return True
@@ -998,6 +1011,7 @@ class RecorderDialog(QDialog):
             QMessageBox.warning(self, 'Could not reorder states', message)
             return
         self._persisted_step_order = list(keys)
+        self._align_state_selection()
 
     def _delete(self):
         item = self.steps.currentItem()
