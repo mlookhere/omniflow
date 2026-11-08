@@ -1990,26 +1990,38 @@ class VisualStudioGuiTests(unittest.TestCase):
                 studio.canvas.load(self.frame)
                 studio.canvas.boxes = [(100, 200, 230, 300), None]
                 studio.canvas.gestures = [first, second]
-                action, steps, targets, paired = studio._draft_action_plan()
-                self.assertFalse(paired)
-                self.assertEqual(targets, [first, second])
-                self.assertEqual(
-                    targets, resolve_action_chain(action, 1))
-                self.assertEqual(len(steps), 2)
+                from omniflow.engine import WorkflowError
+                with self.assertRaisesRegex(
+                        WorkflowError, 'Each detection region needs one legacy tap/drag'):
+                    studio._draft_action_plan()
                 studio._preview_draft_actions()
-                self.assertIn('2. Tap location selected',
+                self.assertIn('Use an explicit action sequence',
                               studio.action_preview_status.text())
-                self.assertNotIn('only the first alternative',
-                                 studio.action_preview_status.text())
                 with (patch('omniflow.studio.ActionMapDialog') as dialog,
                       patch('omniflow.devices.Device.screenshot') as capture,
                       patch('swordx.workflows._write_manifest') as write):
                     studio._show_action_map()
-                    self.assertFalse(dialog.call_args.kwargs['alternatives'])
-                    self.assertEqual(dialog.call_args.args[1], [first, second])
+                    dialog.assert_not_called()
                     capture.assert_not_called()
                     write.assert_not_called()
 
+                # The same two sequential steps are saveable as a modern
+                # explicit chain, without inventing a second image region.
+                studio.extra_chain = [first, second]
+                action, steps, targets, paired = studio._draft_action_plan()
+                self.assertFalse(paired)
+                self.assertEqual(targets, [first, second])
+                self.assertEqual(targets, resolve_action_chain(action, 1))
+                self.assertEqual(len(steps), 2)
+                studio._preview_draft_actions()
+                self.assertIn('2. Tap location selected',
+                              studio.action_preview_status.text())
+                with patch('omniflow.studio.ActionMapDialog') as dialog:
+                    studio._show_action_map()
+                    self.assertFalse(dialog.call_args.kwargs['alternatives'])
+                    self.assertEqual(dialog.call_args.args[1], [first, second])
+
+                studio.extra_chain = None
                 studio.canvas.boxes[1] = (260, 400, 370, 500)
                 action, steps, targets, paired = studio._draft_action_plan()
                 self.assertTrue(paired)
@@ -2096,6 +2108,8 @@ class VisualStudioGuiTests(unittest.TestCase):
             before = manifest.read_bytes()
             studio = OmniStudio('', 'MalformedGesturePreview', base=root)
             try:
+                studio.canvas.boxes = [(100, 200, 230, 300),
+                                       (260, 400, 370, 500)]
                 studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
                 for malformed in (['broken'], '', [], 0, False, {'kind': 'warp'}):
                     with self.subTest(malformed=malformed):
