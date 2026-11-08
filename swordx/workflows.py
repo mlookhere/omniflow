@@ -75,7 +75,10 @@ def _safe_saved_image(folder: Path, kind: str, name: str) -> Path:
     if (not isinstance(name, str) or not name or name in ('.', '..') or
             '/' in name or '\\' in name or ':' in name or '\x00' in name):
         raise ValueError(f'Unsafe saved {kind} filename')
+    workflow = folder.resolve()
     root = (folder / kind).resolve()
+    if not root.is_relative_to(workflow):
+        raise ValueError(f'Saved {kind} directory resolves outside workflow')
     image = folder / kind / name
     if not image.resolve().is_relative_to(root):
         raise ValueError(f'Saved {kind} image resolves outside workflow')
@@ -107,7 +110,7 @@ def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, i
         anchors.append(_safe_saved_image(folder, 'anchors', probe.get('file')))
     capture = action.get('capture')
     capture_path = (_safe_saved_image(folder, 'captures', capture)
-                    if capture is not None else None)
+                    if capture else None)
     taps = [tuple(tap) if tap is not None else None for tap in action.get('taps', [])]
     if 'gestures' in action:
         taps = [tuple(gesture['point']) if gesture['kind'] == 'tap' else None
