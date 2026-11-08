@@ -98,6 +98,27 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(benchmark.evaluate(results, requested=10, min_fps=0.0))
         self.assertTrue(all(x.calls >= 1 for x in detectors))
 
+    def test_short_run_fps_uses_reported_elapsed_without_relaxing_validation(self):
+        class Clock:
+            now = 0.0
+
+            def __call__(self):
+                return self.now
+
+            def wait(self, seconds):
+                self.now += seconds
+
+        clock = Clock()
+        result = benchmark.measure(
+            'short', 0.08749, 0.02, device_factory=FakeDevice,
+            clock=clock, wait=clock.wait)
+        self.assertEqual(result.frames, 5)
+        self.assertEqual(result.elapsed_seconds, 0.087)
+        self.assertEqual(
+            result.effective_fps,
+            round(result.frames / result.elapsed_seconds, 3))
+        self.assertEqual(benchmark.evaluate([result], 1, min_fps=0.0), [])
+
     def test_detection_error_is_reported_not_counted_as_valid_frame(self):
         class BrokenDetector:
             def detect(self, frame):

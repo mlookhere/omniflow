@@ -821,3 +821,20 @@ etc.), decoded only when the user opens the existing rule editor.
 The test explicitly asserts that every selected preset exists
 before it is activated. The choices, recognition behavior, and
 safety boundaries are unchanged; CI gates are not weakened.
+
+
+**CI root-cause correction: coherent benchmark frame-rate reporting
+(November 7, 2026):** A Linux Python 3.12 worker intermittently failed
+the existing strict `frame count and FPS disagree` guard during a
+short ten-worker synthetic benchmark. The benchmark stored a duration
+rounded to milliseconds but calculated frame rate from the unrounded
+duration; in a ~0.18-second run the two values could legitimately
+differ beyond the unchanged discrepancy tolerance. It now calculates
+reported FPS from the *same rounded measured duration* written to the
+device result. No frames, timestamps, capture errors, hardware
+acceptance, or threshold values are fabricated or waived; the
+consistency guard remains intact. A deterministic short synthetic
+clock regression verifies 5 frames in 0.08749 seconds report 0.087 s,
+with an FPS that reconciles exactly with that reported duration.
+The fix is narrowly required to keep the existing CI quality gate
+meaningful; it is not a resumption of multi-device implementation.

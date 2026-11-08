@@ -159,6 +159,9 @@ def measure(serial: str, seconds: float, poll_seconds: float,
             wait(remaining)
     finished = clock()
     elapsed = max(0.0, finished - started)
+    # FPS and duration must use the same reported precision. Otherwise,
+    # short concurrent runs can disagree solely because elapsed is rounded.
+    reported_elapsed = round(elapsed, 3)
     # Frame timestamps use this same monotonic delta. A second wall-clock
     # sample can lag behind a valid final frame on Windows (QPC vs system
     # wall time), producing impossible-looking evidence and flaky tests.
@@ -167,8 +170,9 @@ def measure(serial: str, seconds: float, poll_seconds: float,
     frames = len(capture_times)
     return DeviceResult(
         serial=serial, frames=frames, errors=errors,
-        elapsed_seconds=round(elapsed, 3),
-        effective_fps=round(frames / elapsed, 3) if elapsed > 0 else 0.0,
+        elapsed_seconds=reported_elapsed,
+        effective_fps=(round(frames / reported_elapsed, 3)
+                       if reported_elapsed > 0 else 0.0),
         capture_mean_ms=round(statistics.mean(capture_times) * 1000, 2) if frames else None,
         capture_p95_ms=round(percentile(capture_times, 0.95) * 1000, 2) if frames else None,
         detection_p95_ms=round(percentile(detect_times, 0.95) * 1000, 2) if detect_times else None,
