@@ -924,10 +924,16 @@ class RecorderDialog(QDialog):
                                         'Region 2 needs Tap 2 or Drag 2, or remove both.')
                 return
             boxes = ([self.canvas.boxes[0]] if self.canvas.boxes[0] is not None and not condition_only else [])
-            gestures = [] if self.passive.isChecked() or condition_only else [self.canvas.gestures[0]]
+            # Explicit action chains replace legacy region/touch pairs.
+            # Passing an empty legacy slot as [None] would make record_step
+            # reject an otherwise valid visually authored action sequence.
+            use_legacy_gestures = (
+                not self.passive.isChecked() and not condition_only and
+                getattr(self, 'extra_chain', None) is None)
+            gestures = [self.canvas.gestures[0]] if use_legacy_gestures else []
             if self.canvas.boxes[1] is not None and not condition_only:
                 boxes.append(self.canvas.boxes[1])
-                if not self.passive.isChecked() and self.canvas.gestures[1] is not None:
+                if use_legacy_gestures and self.canvas.gestures[1] is not None:
                     gestures.append(self.canvas.gestures[1])
         try:
             if visual_edit:
