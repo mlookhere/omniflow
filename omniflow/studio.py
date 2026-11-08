@@ -544,25 +544,35 @@ class ActionMapDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('Action target map · Read-only')
         self.resize(830, 810)
+        from .engine import SIZE, _target, validate_action
+
+        # Fail before opening a Qt painter. The runner accepts inclusive
+        # right/bottom legacy coordinates; reuse its clamped screen mapping
+        # rather than the stricter new-selection-only validate_point().
+        if not passive:
+            for action in actions:
+                validate_action(action)
         layout = QHBoxLayout(self)
         rgb = cv2.cvtColor(require_frame(frame), cv2.COLOR_BGR2RGB)
         self.annotated = QPixmap.fromImage(QImage(
             rgb.data, rgb.shape[1], rgb.shape[0], rgb.strides[0],
             QImage.Format_RGB888).copy())
         painter = QPainter(self.annotated)
-        if not passive:
-            for index, action in enumerate(actions, 1):
-                kind, label = action['kind'], str(index)
-                color = QColor('#f0cb70')
-                if kind in ('tap', 'double_tap', 'hold', 'field_text'):
-                    point = QPoint(*validate_point(action['point']))
-                    CaptureCanvas._draw_marker(painter, point, label, color)
-                elif kind in ('swipe', 'drag'):
-                    start = QPoint(*validate_point(action['start']))
-                    end = QPoint(*validate_point(action['end']))
-                    CaptureCanvas._draw_arrow(painter, start, end, color)
-                    CaptureCanvas._draw_marker(painter, start, label, color)
-        painter.end()
+        try:
+            if not passive:
+                for index, action in enumerate(actions, 1):
+                    kind, label = action['kind'], str(index)
+                    color = QColor('#f0cb70')
+                    if kind in ('tap', 'double_tap', 'hold', 'field_text'):
+                        point = QPoint(*_target(action['point'], SIZE))
+                        CaptureCanvas._draw_marker(painter, point, label, color)
+                    elif kind in ('swipe', 'drag'):
+                        start = QPoint(*_target(action['start'], SIZE))
+                        end = QPoint(*_target(action['end'], SIZE))
+                        CaptureCanvas._draw_arrow(painter, start, end, color)
+                        CaptureCanvas._draw_marker(painter, start, label, color)
+        finally:
+            painter.end()
         self.screen = QLabel()
         self.screen.setPixmap(self.annotated.scaled(
             405, 720, Qt.KeepAspectRatio, Qt.SmoothTransformation))

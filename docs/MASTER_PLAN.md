@@ -1089,3 +1089,19 @@ fresh two-frame confirmation, and real execution remain untested; no
 runtime behavior was changed. Source and Windows Qt regressions cover
 step sequence, secret redaction, delays, invalid targets and UI text.
 Release/merge hardware and required-check gates remain unchanged.
+
+**Legacy border-target map compatibility (current Studio iteration):**
+Saved workflows may legitimately store normalized touch coordinates
+at the inclusive legacy right/bottom edge (540,960), which the live
+runner clamps to pixel (539,959). The read-only ActionMapDialog used
+to reject those valid legacy touches because new screen-coordinate
+picking intentionally requires points strictly inside the image.
+Action maps now prevalidate the full actionable chain before Qt
+painting, then use the production runner's normalized-to-screen
+mapping to render inclusive endpoints consistently. A try/finally
+always closes the painter if graphical rendering unexpectedly raises.
+New visual selections remain strict and no runner/touch behavior
+changes. Source/Windows Qt tests cover saved-edge replay, tap,
+double-tap, swipe and field touch targets, redacted content, out-of-
+range rejection and absence of device input. Physical Windows/MuMu
+acceptance and enforced `dev` status checks remain release gates.

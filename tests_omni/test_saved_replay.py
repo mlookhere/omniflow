@@ -223,6 +223,26 @@ class SavedReplayTests(unittest.TestCase):
             device.assert_not_called()
             image.assert_not_called()
 
+    def test_replay_saved_action_map_accepts_legacy_inclusive_corner(self):
+        from omniflow.replay import replay_saved_action_map
+
+        key = self.record('Legacy edge tap')
+        data = json.loads(self.manifest().read_text())
+        data['actions'][key]['action_chain'] = [
+            {'kind': 'tap', 'point': [540, 960]}]
+        self.manifest().write_text(json.dumps(data), encoding='utf-8')
+        before = self.manifest().read_bytes()
+        with patch('omniflow.devices.Device.screenshot') as device:
+            frame, chain, passive, label, delay = replay_saved_action_map(
+                self.folder, key)
+            device.assert_not_called()
+        self.assertEqual(frame.shape, (960, 540, 3))
+        self.assertEqual(chain, [{'kind': 'tap', 'point': [540, 960]}])
+        self.assertFalse(passive)
+        self.assertEqual(label, 'Legacy edge tap')
+        self.assertEqual(delay, 0)
+        self.assertEqual(before, self.manifest().read_bytes())
+
     def test_action_dry_run_trace_matches_runner_steps_without_private_text(self):
         from omniflow.replay import describe_action_trace
         secret = 'some-private-data-999'

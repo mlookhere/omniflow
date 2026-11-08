@@ -1371,6 +1371,40 @@ class VisualStudioGuiTests(unittest.TestCase):
         finally:
             view.close()
 
+    def test_action_map_legacy_inclusive_border_targets_match_runner(self):
+        from omniflow.engine import WorkflowError, _target, SIZE
+
+        # A legacy normalized position of x=540, y=960 is accepted and
+        # clamped to the final drawable pixel by the production runner.
+        self.assertEqual(_target([540, 960], SIZE), (539, 959))
+        old = self.frame.copy()
+        view = ActionMapDialog(
+            old, [{'kind': 'tap', 'point': [540, 960]},
+                  {'kind': 'double_tap', 'point': [540.0, 960.0]},
+                  {'kind': 'swipe', 'start': [0, 0],
+                   'end': [540, 960], 'duration_ms': 650},
+                  {'kind': 'field_text', 'point': [540, 960],
+                   'text': 'sensitive-data'}])
+        try:
+            self.assertEqual((view.annotated.width(), view.annotated.height()),
+                             (540, 960))
+            at_edge = view.annotated.toImage().pixelColor(539, 959)
+            self.assertNotEqual(
+                (at_edge.red(), at_edge.green(), at_edge.blue()),
+                (75, 75, 75))
+            self.assertIn('normalized (540, 960)',
+                          view.details.toPlainText())
+            self.assertNotIn('sensitive-data', view.details.toPlainText())
+            self.assertTrue(np.array_equal(old, self.frame))
+        finally:
+            view.close()
+        with self.assertRaisesRegex(WorkflowError, 'outside'):
+            ActionMapDialog(
+                self.frame,
+                [{'kind': 'tap', 'point': [540.1, 960]}])
+        with self.assertRaisesRegex(WorkflowError, 'Unknown action'):
+            ActionMapDialog(self.frame, [{'kind': 'unexpected'}])
+
     def test_action_map_shows_per_step_read_only_trace_without_secrets(self):
         secret = 'do-not-show-token-712'
         dialog = ActionMapDialog(
