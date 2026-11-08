@@ -416,9 +416,10 @@ while the editor retained the earlier state's data and `editing_key`, making
 a subsequent Save misleading. Both the original recorder and OmniFlow Studio
 now restore the previous list selection on a failed load, or clear it if the
 user was editing a new state. The existing unsaved-discard rollback shares
-this same signal-safe helper. Offscreen Qt regression verifies both contexts,
-an actionable warning, unchanged editor fields/target, no image reads or
-manifest writes, and no false dirty status. This is UI state consistency,
+this same signal-safe helper. Source-level regressions verify unsafe
+imported anchor/capture references fail before image reads or manifest writes.
+Offscreen Qt regression verifies both selection contexts, an actionable
+warning, unchanged editor fields/target and no false dirty status. This is UI state consistency,
 not a claim that the invalid saved state was repaired.
 
 ### Previous platform priority queue (historical)
