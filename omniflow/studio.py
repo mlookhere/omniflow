@@ -1649,8 +1649,16 @@ class OmniStudio(RecorderDialog):
             action['action_chain'] = self.extra_chain
         else:
             action['gestures'] = [g for g in self.canvas.gestures if g is not None]
-        regions = len(self.canvas.boxes)
+        # Canvas allocates two slots regardless of how many detection
+        # regions are actually drawn. Only recorded regions select legacy
+        # alternatives; one region means sequential gestures at runtime.
+        regions = (0 if self.rules_only.isChecked() else
+                   sum(box is not None for box in self.canvas.boxes))
         legacy = self.extra_chain is None and not action['passive']
+        if legacy and self.rules_only.isChecked():
+            raise WorkflowError(
+                'Condition-only actions need an explicit action sequence '
+                'before saving')
         choices = None
         if legacy:
             choices = resolve_action_chain(action, 1)
