@@ -744,3 +744,16 @@ no screenshot reads, no manifest writes and valid-state isolation. The runtime
 continues to validate the entire workflow on start; this UI guard does not
 weaken that gate. Physical Windows/MuMu acceptance and enforced required
 checks on protected `dev` remain outstanding.
+
+
+**Qt regression correction — imported control validation order
+(November 7, 2026):** Windows offscreen Qt CI exposed five failures after
+the new matcher preflight because invalid saved recorder controls
+(`retry`, pre-action delay, retry mode/interval and extra taps) were
+reported by the runtime matcher validator before the established
+recorder-level "Invalid saved" diagnostic. The Studio preflight now invokes
+the existing shared `_validate_saved_editor_settings` validator before
+the additional isolated matcher preflight, preserving previous warnings
+and unsaved-draft safeguards without weakening either validation path.
+No tests or CI checks were relaxed. This correction must pass both Python
+and Windows Qt checks at its own commit before being marked green.

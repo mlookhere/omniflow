@@ -704,6 +704,12 @@ class OmniStudio(RecorderDialog):
                 key = current.data(Qt.UserRole)
                 action = manifest['actions'][key]
                 self._validate_saved_studio_fields(action)
+                # Preserve recorder-level control validation and its useful
+                # imported-settings errors before the wider runtime matcher
+                # preflight. The base selector applies the same guard again
+                # when it loads images; neither path touches the draft here.
+                from swordx.workflows import _validate_saved_editor_settings
+                _validate_saved_editor_settings(action)
                 # Apply the same recognition preflight as the runner, but
                 # isolate the destination state. A broken *other* state must
                 # not prevent editing this valid state to repair a workflow.
