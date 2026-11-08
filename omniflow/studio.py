@@ -617,6 +617,20 @@ class OmniStudio(RecorderDialog):
         self.condition_logic.currentIndexChanged.connect(self._condition_mode_changed)
         logic_row.addWidget(self.condition_logic, 1)
         rule_col.addLayout(logic_row)
+        priority_row = QHBoxLayout()
+        priority_row.addWidget(QLabel('State priority (optional):'))
+        self.priority = QLineEdit()
+        self.priority.setPlaceholderText('0 (default)')
+        self.priority.setToolTip(
+            'Higher values win only when recognition confidence is equal. '
+            'A matching WAIT state always wins over actionable states. '
+            'Leave blank for the default priority of zero.')
+        self.priority.setMaximumWidth(140)
+        self._last_priority_text = ''
+        self.priority.textChanged.connect(self._priority_changed)
+        priority_row.addWidget(self.priority)
+        priority_row.addStretch(1)
+        rule_col.addLayout(priority_row)
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
         self.rules_only.toggled.connect(self._rule_mode_changed)
         rule_col.addWidget(self.rules_only)
@@ -757,6 +771,7 @@ class OmniStudio(RecorderDialog):
             'condition_match': self.condition_logic.currentData(),
             'image_custom': self.image_custom.isChecked(),
             'image_percent': self.image_confidence.value(),
+            'priority_text': self.priority.text(),
             'rule_row': self.rules_list.currentRow(),
             'action_row': self.actions_list.currentRow(),
         }
@@ -810,6 +825,12 @@ class OmniStudio(RecorderDialog):
                     widget.blockSignals(False)
             self._last_image_custom = self.image_custom.isChecked()
             self._last_image_percent = self.image_confidence.value()
+            self.priority.blockSignals(True)
+            try:
+                self.priority.setText(snapshot['priority_text'])
+            finally:
+                self.priority.blockSignals(False)
+            self._last_priority_text = self.priority.text()
             self._sync_image_controls()
             self._refresh_extra(rule_row=snapshot['rule_row'],
                                 action_row=snapshot['action_row'])
@@ -871,6 +892,27 @@ class OmniStudio(RecorderDialog):
         return (round(self.image_confidence.value() / 100, 3)
                 if self.image_custom.isChecked() else None)
 
+    def _priority_changed(self, text):
+        if self._history_busy or text == self._last_priority_text:
+            return
+        previous = self._edit_snapshot()
+        previous['priority_text'] = self._last_priority_text
+        self._remember_edit(previous)
+        self._last_priority_text = text
+        self._field_changed()
+
+    def _priority_value(self):
+        from swordx.workflows import _validate_priority
+        text = self.priority.text().strip()
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError as exc:
+            raise ValueError('State priority must be a finite number') from exc
+        _validate_priority(value)
+        return value
+
     def _condition_mode_changed(self, _index):
         mode = self.condition_logic.currentData()
         if self._history_busy or mode == self._last_condition_match:
@@ -888,6 +930,7 @@ class OmniStudio(RecorderDialog):
         folder=self._folder()
         mode = 'all'
         override = None
+        priority = None
         default_threshold = 0.82
         if folder:
             manifest = json.loads((folder/'manifest.json').read_text(encoding='utf-8'))
@@ -896,6 +939,7 @@ class OmniStudio(RecorderDialog):
             action = manifest['actions'].get(self.editing_key, {})
             mode = action.get('condition_match', 'all')
             override = action.get('threshold')
+            priority = action.get('priority')
             self.extra_chain=action.get('action_chain')
             self.extra_conditions=action.get('conditions',[])
             self.rules_only.blockSignals(True)
@@ -925,6 +969,12 @@ class OmniStudio(RecorderDialog):
                 widget.blockSignals(False)
         self._last_image_custom = self.image_custom.isChecked()
         self._last_image_percent = self.image_confidence.value()
+        self.priority.blockSignals(True)
+        try:
+            self.priority.setText('' if priority is None else str(priority))
+        finally:
+            self.priority.blockSignals(False)
+        self._last_priority_text = self.priority.text()
         self._sync_image_controls()
         self.image_test_status.setText(
             'Image confidence uses the saved template. Start with the workflow default.')
@@ -1409,6 +1459,13 @@ class OmniStudio(RecorderDialog):
             self._field_changed()
 
     def _save(self):
+        # Numeric priorities are optional, but invalid values must not reach
+        # either the screenshot writer or the saved-settings manifest path.
+        try:
+            self._priority_value()
+        except ValueError as exc:
+            QMessageBox.warning(self, 'State priority', str(exc))
+            return
         # Copied/imported rules may bypass the RuleEditor dialog.
         # Fail before any manifest or screenshot writes, including for states
         # that still require an image template.

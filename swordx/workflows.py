@@ -302,6 +302,12 @@ def _validate_image_threshold(value: float | None) -> None:
         raise ValueError('Image confidence threshold must be a finite number from 0 to 1')
 
 
+def _validate_priority(value: float | None) -> None:
+    if value is not None and (
+            type(value) not in (int, float) or not math.isfinite(value)):
+        raise ValueError('State priority must be a finite number')
+
+
 def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
                          retry: bool, retry_mode: str = 'interval',
                          retry_interval_seconds: int = 25,
@@ -321,6 +327,8 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
     _validate_max_extra_taps(max_extra_taps)
     if studio is not None:
         _validate_image_threshold(studio.get('threshold'))
+        if 'priority' in studio:
+            _validate_priority(studio['priority'])
     path = Path(folder) / 'manifest.json'
     content = json.loads(path.read_text(encoding='utf-8'))
     if key not in content['states'] or key not in content['actions']:
@@ -366,6 +374,13 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
                 action.pop('threshold', None)
             else:
                 action['threshold'] = studio['threshold']
+        if 'priority' in studio:
+            # Absence means the default rank of zero. Legacy editors that
+            # omit this field retain saved overrides unchanged.
+            if studio['priority'] is None:
+                action.pop('priority', None)
+            else:
+                action['priority'] = studio['priority']
     if max_extra_taps:
         action['max_extra_taps'] = max_extra_taps
     else:
@@ -398,7 +413,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
                 action_chain: list[dict] | None = None,
                 conditions: list[dict] | None = None, condition_only: bool = False,
                 condition_match: str = 'all',
-                image_threshold: float | None = None) -> str:
+                image_threshold: float | None = None,
+                priority: float | None = None) -> str:
     """Save 1–2 region/gesture pairs. Gesture can be tap or timed drag.
 
     ``click`` and ``taps`` retain the v1.2 API for old workflow clients.
@@ -419,6 +435,7 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
     if condition_match not in ('all', 'any'):
         raise ValueError('Condition match mode must be all or any')
     _validate_image_threshold(image_threshold)
+    _validate_priority(priority)
     if condition_only and not passive and not action_chain and not gestures and not taps and not click:
         raise ValueError('An action state needs a gesture or an action sequence')
     if passive:
@@ -538,6 +555,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
             action['condition_match'] = condition_match
         if image_threshold is not None:
             action['threshold'] = image_threshold
+        if priority is not None:
+            action['priority'] = priority
         if condition_only:
             action['skip_template'] = True
         if gestures is not None:

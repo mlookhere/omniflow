@@ -940,3 +940,17 @@ the exact production comparator (WAIT, confidence, priority, key).
 Engine, replay, and offscreen Qt regressions assert those four cases
 and the absence of device input or manifest writes. CI and Windows/MuMu
 physical acceptance remain independent release gates.
+
+**Editable state selection priority (current Studio iteration):** WHEN now
+exposes optional numeric state priority with explicit guidance: a passive
+WAIT always wins, confidence ranks ahead of priority, and priority only
+breaks equal-confidence matches. Blank means the default priority of
+zero. The plain-text numeric field preserves large finite imported values
+without spinbox clamping, validates nonfinite/malformed input before any
+screenshot or manifest write, and participates in the existing bounded
+draft Undo/Redo and state-switch boundaries. Both recapture/new-state and
+settings-only saves pass through the same finite-number validator and
+atomic workflow writers; legacy settings editors that do not specify a
+priority preserve it. Regression coverage checks round-tripping, undo,
+invalid inputs, image stability and no Android input. No detector ordering,
+required CI gate, or physical hardware acceptance threshold is changed.

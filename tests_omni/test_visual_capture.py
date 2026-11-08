@@ -37,6 +37,44 @@ class VisualCaptureTests(unittest.TestCase):
         self.assertEqual(sample_color(self.frame, [120, 160]), [200, 100, 10])
         self.assertEqual(sample_average(self.frame, [110, 150, 140, 168]), [200, 100, 10])
 
+    def test_priority_writers_validate_before_writes_and_keep_legacy_overrides(self):
+        from swordx.workflows import update_step_settings
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_workflow('PriorityWriter', Path(tmp))
+            rect = (80, 100, 220, 170)
+            key = record_step(folder, 'First', self.frame, [rect],
+                              taps=[(130, 140)], priority=1.25)
+            path = folder / 'manifest.json'
+            data = json.loads(path.read_text())
+            self.assertEqual(data['actions'][key]['priority'], 1.25)
+            update_step_settings(folder, key, 'Renamed', end=False, retry=False)
+            data = json.loads(path.read_text())
+            self.assertEqual(data['actions'][key]['priority'], 1.25)
+            before = path.read_bytes()
+            before_files = {p.name for p in (folder / 'captures').iterdir()}
+            bad_values = (float('nan'), float('inf'), -float('inf'),
+                          '5', True, [], {})
+            for bad in bad_values:
+                with self.subTest(value=repr(bad)):
+                    with self.assertRaisesRegex(ValueError, 'finite number'):
+                        record_step(folder, 'Invalid', self.frame, [rect],
+                                    taps=[(130, 140)], priority=bad)
+                    with self.assertRaisesRegex(ValueError, 'finite number'):
+                        update_step_settings(folder, key, 'Invalid',
+                                             end=False, retry=False,
+                                             studio={'priority': bad})
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(
+                        {p.name for p in (folder / 'captures').iterdir()},
+                        before_files)
+            update_step_settings(
+                folder, key, 'Renamed', end=False, retry=False,
+                studio={'priority': None, 'threshold': None,
+                        'action_chain': None, 'conditions': [],
+                        'skip_template': False})
+            self.assertNotIn(
+                'priority', json.loads(path.read_text())['actions'][key])
+
     def test_no_manual_coordinates_required_to_author_condition_only_ocr(self):
         with tempfile.TemporaryDirectory() as root:
             folder = create_workflow('OCR-only', Path(root))

@@ -271,6 +271,85 @@ class VisualStudioGuiTests(unittest.TestCase):
                 write.assert_not_called()
             self.assertEqual(before, manifest.read_bytes())
 
+    def test_state_priority_edit_undo_atomic_save_and_invalid_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('PriorityStudio', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            pictures = {p.relative_to(folder): p.read_bytes()
+                        for p in folder.rglob('*') if p.is_file()
+                        and p.parent.name in ('anchors', 'captures')}
+            studio = OmniStudio('', 'PriorityStudio', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.priority.text(), '')
+                self.assertIsNone(studio._priority_value())
+                studio.priority.setText('7.5')
+                self.assertTrue(studio._dirty)
+                studio._undo_edit()
+                self.assertEqual(studio.priority.text(), '')
+                studio._redo_edit()
+                self.assertEqual(studio.priority.text(), '7.5')
+                with (patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest',
+                            wraps=workflows._write_manifest) as write):
+                    studio._save()
+                    capture.assert_not_called()
+                    write.assert_called_once()
+                self.assertEqual(
+                    json.loads((folder / 'manifest.json').read_text())[
+                        'actions'][key]['priority'], 7.5)
+                self.assertFalse(studio._dirty)
+                studio.priority.setText('nan')
+                before = (folder / 'manifest.json').read_bytes()
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._save()
+                    warning.assert_called_once()
+                    write.assert_not_called()
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+                studio.priority.clear()
+                studio._save()
+                self.assertNotIn(
+                    'priority',
+                    json.loads((folder / 'manifest.json').read_text())[
+                        'actions'][key])
+                self.assertEqual(
+                    {p.relative_to(folder): p.read_bytes()
+                     for p in folder.rglob('*') if p.is_file()
+                     and p.parent.name in ('anchors', 'captures')}, pictures)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_state_priority_preserves_large_imported_value_on_name_edit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ImportedPriority', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Before', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)],
+                              priority=1e25)
+            studio = OmniStudio('', 'ImportedPriority', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.priority.text(), '1e+25')
+                studio.step_name.setText('After')
+                studio._save()
+                action = json.loads(
+                    (folder / 'manifest.json').read_text())['actions'][key]
+                self.assertEqual(action['priority'], 1e25)
+                self.assertEqual(action['label'], 'After')
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_image_confidence_override_undo_save_reload_and_clear(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
