@@ -1355,3 +1355,20 @@ action-map alternative flag and no ADB or manifest writes, and preserve
 the prior invalid-alternative coverage with actual recorded regions.
 Hardware verification and required status enforcement on `dev`
 remain independent blockers; PR #2 stays draft/unmerged.
+
+**Unsavable legacy touch previews fail closed (current Studio increment):**
+New or visually modified image-template drafts must have exactly one
+legacy gesture per selected detection region, matching the recorder's
+persisted format. Previously one region plus two raw legacy gestures
+could be displayed as a valid sequential dry-run because the runtime
+resolver can execute such imported data, even though saving the new
+recording would refuse mismatched region/touch counts. Now read-only
+draft preview and action map explain the mismatch and direct authors
+to an explicit sequential action chain; nothing is silently rewritten
+or persisted. Existing untouched imported legacy states retain their
+historical preview and runtime semantics. Offscreen Qt regression checks
+mismatch refusal, sequential explicit-chain preview, two-region
+alternative selection, malformed alternative validation and zero ADB
+or manifest writes. This is authoring/save parity, not a change to
+runtime action execution. Required `dev` status enforcement and actual
+MuMu hardware acceptance remain outstanding; PR #2 stays draft.
