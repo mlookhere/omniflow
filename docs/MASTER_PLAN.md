@@ -1121,3 +1121,18 @@ input or workflow write happens in the editor. Offscreen Qt tests cover
 all supported point and swipe kinds, picker cancel, mode switching,
 repicking, preservation, and invalid point rejection. The runner and
 release gates are unchanged.
+
+**Match runner gesture geometry in saved/draft maps (current Studio
+iteration):** Production OmniRunner accepts legacy hold, swipe and drag
+commands using a single `point` for stationary gestures or a mix of
+`start`/`end` fields. The visual action-map drawing path incorrectly
+assumed `hold.point` and `swipe/drag.start/end` always existed; valid
+saved workflows could therefore raise a KeyError mid-draw. Maps now
+derive start and end with the exact production `action.get('start',
+action.get('point'))` / `end` fallback, draw an arrow only for actual
+motion, and always mark the first touch. Action prevalidation and the
+finally-closed painter remain in place, with no change to runner input
+or stored workflow data. Source and Windows Qt regressions cover
+legacy gesture field variants, inclusive edge coordinates, redacted
+trace details, immutability and fail-closed invalid targets. Actual
+MuMu touch acceptance and protected status checks remain outstanding.

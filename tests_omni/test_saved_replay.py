@@ -243,6 +243,30 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(delay, 0)
         self.assertEqual(before, self.manifest().read_bytes())
 
+    def test_saved_action_map_accepts_point_only_swipe_and_start_end_hold(self):
+        from omniflow.replay import replay_saved_action_map, describe_action_trace
+
+        key = self.record('Legacy gesture forms')
+        chain = [
+            {'kind': 'hold', 'start': [140, 210], 'end': [160, 240],
+             'duration_ms': 750},
+            {'kind': 'swipe', 'point': [150, 220], 'duration_ms': 650}]
+        manifest = json.loads(self.manifest().read_text())
+        manifest['actions'][key]['action_chain'] = chain
+        self.manifest().write_text(json.dumps(manifest), encoding='utf-8')
+        before = self.manifest().read_bytes()
+        with patch('omniflow.devices.Device.screenshot') as device:
+            _frame, actual, passive, label, _delay = replay_saved_action_map(
+                self.folder, key)
+            device.assert_not_called()
+        self.assertEqual(actual, chain)
+        self.assertFalse(passive)
+        self.assertEqual(label, 'Legacy gesture forms')
+        details = '\n'.join(describe_action_trace(actual))
+        self.assertIn('(140, 210) to (160, 240)', details)
+        self.assertIn('(150, 220) to (150, 220)', details)
+        self.assertEqual(before, self.manifest().read_bytes())
+
     def test_action_dry_run_trace_matches_runner_steps_without_private_text(self):
         from omniflow.replay import describe_action_trace
         secret = 'some-private-data-999'

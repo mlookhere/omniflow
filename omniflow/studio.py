@@ -581,13 +581,19 @@ class ActionMapDialog(QDialog):
                 for index, action in enumerate(actions, 1):
                     kind, label = action['kind'], str(index)
                     color = QColor('#f0cb70')
-                    if kind in ('tap', 'double_tap', 'hold', 'field_text'):
+                    if kind in ('tap', 'double_tap', 'field_text'):
                         point = QPoint(*_target(action['point'], SIZE))
                         CaptureCanvas._draw_marker(painter, point, label, color)
-                    elif kind in ('swipe', 'drag'):
-                        start = QPoint(*_target(action['start'], SIZE))
-                        end = QPoint(*_target(action['end'], SIZE))
-                        CaptureCanvas._draw_arrow(painter, start, end, color)
+                    elif kind in ('hold', 'swipe', 'drag'):
+                        # Mirror OmniRunner._execute: older workflows may
+                        # encode a stationary swipe as point, or a hold as
+                        # start/end. Both are valid runner inputs.
+                        start = QPoint(*_target(
+                            action.get('start', action.get('point')), SIZE))
+                        end = QPoint(*_target(
+                            action.get('end', action.get('point')), SIZE))
+                        if start != end:
+                            CaptureCanvas._draw_arrow(painter, start, end, color)
                         CaptureCanvas._draw_marker(painter, start, label, color)
         finally:
             painter.end()

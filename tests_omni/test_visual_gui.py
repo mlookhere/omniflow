@@ -1479,6 +1479,53 @@ class VisualStudioGuiTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, 'Unknown action'):
             ActionMapDialog(self.frame, [{'kind': 'unexpected'}])
 
+    def test_action_map_uses_runner_geometry_for_all_valid_hold_swipe_forms(self):
+        from omniflow.engine import WorkflowError, SIZE, _target, validate_action
+
+        # Each action is accepted by the production runner, but these
+        # encodings previously raised KeyError inside an active Qt painter.
+        commands = [
+            {'kind': 'hold', 'start': [140, 250], 'end': [240, 370],
+             'duration_ms': 850},
+            {'kind': 'hold', 'point': [160, 290], 'duration_ms': 750},
+            {'kind': 'swipe', 'point': [280, 430], 'duration_ms': 650},
+            {'kind': 'drag', 'point': [300, 450], 'end': [360, 520],
+             'duration_ms': 720},
+            {'kind': 'swipe', 'start': [540, 960], 'point': [100, 120],
+             'duration_ms': 900},
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIn(validate_action(command),
+                              ('hold', 'swipe', 'drag'))
+                initial = command.get('start', command.get('point'))
+                start = _target(initial, SIZE)
+                frame = self.frame.copy()
+                view = ActionMapDialog(frame, [command])
+                try:
+                    self.assertEqual((view.annotated.width(),
+                                      view.annotated.height()), (540, 960))
+                    self.assertIn('DRY RUN',
+                                  view.details.toPlainText())
+                    self.assertIn(
+                        f'({initial[0]}, {initial[1]})',
+                        view.details.toPlainText())
+                    pixel = view.annotated.toImage().pixelColor(*start)
+                    self.assertNotEqual(
+                        (pixel.red(), pixel.green(), pixel.blue()),
+                        (75, 75, 75))
+                    self.assertTrue(np.array_equal(frame, self.frame))
+                finally:
+                    view.close()
+
+        # Validate every action before opening a Qt painter, even if an
+        # earlier step is valid and visually drawable.
+        with self.assertRaisesRegex(WorkflowError, 'outside'):
+            ActionMapDialog(self.frame, [
+                {'kind': 'tap', 'point': [130, 200]},
+                {'kind': 'drag', 'point': [541, 200],
+                 'duration_ms': 650}])
+
     def test_action_map_shows_per_step_read_only_trace_without_secrets(self):
         secret = 'do-not-show-token-712'
         dialog = ActionMapDialog(
