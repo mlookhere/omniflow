@@ -3530,6 +3530,46 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_malformed_ocr_comparison_remains_visible_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('MalformedCompare', root)
+            key = record_step(folder, 'Ready', self.frame,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'MalformedCompare', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                for bad in (['contains'], {'mode': 'equals'}):
+                    with self.subTest(bad=bad):
+                        studio.extra_conditions = [{
+                            'type': 'ocr', 'rect': [100, 200, 230, 300],
+                            'text': 'READY', 'text_match': bad}]
+                        studio._refresh_extra()
+                        self.assertEqual(studio.rules_list.count(), 1)
+                        self.assertIn(
+                            'has invalid comparison',
+                            studio.rules_list.item(0).text())
+                        with (patch('omniflow.engine.OCREngine.read') as ocr,
+                              patch('omniflow.devices.Device.screenshot') as capture,
+                              patch('swordx.workflows._write_manifest') as write,
+                              patch('omniflow.studio.QMessageBox.warning') as warn):
+                            studio._test_draft_conditions()
+                            studio._save()
+                            ocr.assert_not_called()
+                            capture.assert_not_called()
+                            write.assert_not_called()
+                            warn.assert_called_once()
+                        self.assertIn('Condition test failed: Condition 1:',
+                                      studio.rule_test_status.text())
+                        self.assertEqual((folder / 'manifest.json').read_bytes(),
+                                         before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_studio_rejects_invalid_draft_recognition_rules_without_saving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
