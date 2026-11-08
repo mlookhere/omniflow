@@ -163,11 +163,28 @@ class SavedReplayTests(unittest.TestCase):
             {'kind': 'tap', 'point': [700, 210]}]
         manifest.write_text(json.dumps(data), encoding='utf-8')
         before = manifest.read_bytes()
-        result = replay_saved_captures(self.folder)[0]
-        self.assertEqual(result['status'], 'error')
-        self.assertIn('Replay inspection failed', result['reason'])
-        self.assertIn('outside 540', result['reason'])
-        self.assertFalse(result['action_plan'])
+        with patch('omniflow.engine.OCREngine.read') as ocr:
+            with self.assertRaisesRegex(WorkflowError, 'action 1: Point'):
+                replay_saved_captures(self.folder)
+            ocr.assert_not_called()
+        self.assertEqual(manifest.read_bytes(), before)
+
+    def test_replay_checks_nonwinning_states_before_inspecting_screenshots(self):
+        self.record('Expected')
+        other = self.record('Secondary')
+        manifest = self.manifest()
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        data['actions'][other]['action_chain'] = [
+            {'kind': 'tap', 'point': [150, 210]},
+            {'kind': 'unsupported'},
+        ]
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        before = manifest.read_bytes()
+        with patch('omniflow.engine.OCREngine.read') as ocr:
+            with self.assertRaisesRegex(
+                    WorkflowError, "Secondary.*, action 2: Unknown action"):
+                replay_saved_captures(self.folder)
+            ocr.assert_not_called()
         self.assertEqual(manifest.read_bytes(), before)
 
     def test_no_capture_does_not_count_as_success(self):
