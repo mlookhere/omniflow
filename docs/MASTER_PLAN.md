@@ -512,6 +512,22 @@ key sets fail closed; offscreen Qt regressions cover selected-state drafts,
 new-state drafts, later Save, and a successful drag followed by a failed one.
 This does not replace hardware/GUI acceptance of real mouse dragging.
 
+**Legacy editor auto-recapture preserves visual targeting (November 7, 2026):**
+When an imported/legacy saved state has detection templates but no full-screen
+capture, the Studio renders a reconstructed preview and marks it for recapture.
+Opening the rule or action editor with a connected MuMu can automatically fetch
+a real screenshot. Previously this path called the new-state canvas loader,
+silently clearing the state's saved region boxes, tap targets and drag timing
+before the editor even opened. Studio now uses the same replacement semantics
+as the explicit Capture/Replace button for an existing selected state: only the
+image changes, while visual regions, gestures and drag durations are retained.
+New-state editing still initializes a fresh canvas. The automatic screenshot
+is marked as an unsaved visual edit and never writes the manifest until Save.
+Source-level regression confirms template-only two-region tap/drag metadata
+survives legacy loading; offscreen Qt covers both rule and action editor entry,
+a cancelled editor dialog, exact retained overlays and a subsequent successful
+recapture Save. Physical MuMu capture/coordinate accuracy is still unverified.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
