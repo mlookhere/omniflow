@@ -481,6 +481,22 @@ A mismatched externally changed state list cannot be restored in place;
 the UI warns the operator to save their draft before manually reloading.
 Reordering affects presentation only, not runtime match priority.
 
+**Explicit confirmation before deleting an unsaved Studio draft
+(November 7, 2026):** The old Delete flow asked only whether to delete
+the highlighted saved state, then committed its removal and cleared the
+editor's unsaved flag before loading the next state. Draft WHEN rules,
+THEN actions, state-name edits and their history could therefore be lost
+without the normal *Discard unsaved changes?* confirmation. Delete now
+requires both the delete confirmation and, when the editor is dirty, the
+existing explicit unsaved-discard confirmation **before** any manifest or
+image mutation. Declining either preserves both draft and saved state;
+a failure after confirmation also retains the draft. The existing atomic
+manifest writer leaves saved files untouched if deletion cannot commit.
+Offscreen Qt tests exercise cancel, failed delete and successful delete
+with unsaved rules/actions; a source-level regression checks atomic write
+failure preserves the state, images and original manifest. This does not
+make state deletion reversible after both confirmations are accepted.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
