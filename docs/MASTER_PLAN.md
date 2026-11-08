@@ -394,6 +394,21 @@ replay status without emulator access. This extends the same previously
 implemented read/write/delete boundary; it does not relax recognition or
 represent physical MuMu validation.
 
+**Committed edit consistency on cleanup errors (November 7, 2026):**
+After a successful atomic manifest replacement, both recapturing and deleting
+a state previously unlinked unused old images with errors still propagated to
+Studio. If Windows held a screenshot file open, a completed update could be
+reported as failed despite being permanently persisted, risking duplicate
+operations and user confusion. Pre-commit validation and manifest writes remain
+strict and fail closed. Only post-commit removal of **validated, no-longer-
+referenced** images is now best effort: permission/IO failures are logged,
+leaving a harmless orphan for later maintenance rather than falsifying the
+Save/Delete result. Python tests cover actual recorded state persistence and
+warning logs for both recapture and delete with simulated locked files, and
+an offscreen Qt test confirms the real Studio Delete flow reflects the
+persisted result. This is not a successful cleanup claim; the remaining old
+files are explicitly verified to persist in the failure regression.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
