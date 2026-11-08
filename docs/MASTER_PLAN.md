@@ -559,6 +559,22 @@ tap/drag metadata; offscreen Qt verifies failure warnings, no image reads,
 no manifest writes, unchanged editor target and restored selection. This
 is authoring-time input safety, not physical Android input validation.
 
+**Imported state-control validation before editor activation (November 7,
+2026):** External or legacy workflow manifests can contain malformed state
+names, retry and passive flags, timer fields or retry modes. The base recorder
+previously activated the selected state and then passed imported values
+straight into Qt controls, including integer division on the pre-action delay.
+Invalid data could trigger a Qt slot exception after switching the editor's
+target or silently clamp values without warning. The saved-state loader now
+checks the editable label, boolean state flags, pre-action delay, retry mode,
+retry interval and maximum extra taps *before loading any screenshot*. It
+reuses existing range validators and raises a readable ValueError so Studio's
+existing failed-selection rollback preserves the previous target and UI.
+Source-level tests cover malformed labels/flags/timings and valid maximum
+timing limits; offscreen Qt verifies warning, prior target, unchanged controls,
+no disk writes, no image reads and intact manifest. This does not alter the
+runtime's separate manifest preflight or claim real MuMu behavior.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
