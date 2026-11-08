@@ -284,6 +284,58 @@ class VisualCaptureTests(unittest.TestCase):
                         read.assert_not_called()
                     self.assertEqual(manifest.read_bytes(), before)
 
+    def test_partial_image_write_failure_rolls_back_new_and_recaptured_assets(self):
+        rect = (80, 100, 220, 170)
+        for editing in (False, True):
+            for failed_asset in ('anchor', 'capture'):
+                for failure in ('false', 'exception'):
+                    with self.subTest(editing=editing, asset=failed_asset,
+                                      failure=failure):
+                        with tempfile.TemporaryDirectory() as root:
+                            folder = create_workflow('Partial image rollback',
+                                                     Path(root))
+                            key = (record_step(folder, 'Before', self.frame,
+                                               [rect], taps=[(130, 140)])
+                                   if editing else None)
+                            manifest = folder / 'manifest.json'
+                            before = {p.relative_to(folder): p.read_bytes()
+                                      for p in folder.rglob('*') if p.is_file()}
+                            attempted = []
+
+                            def partial_write(name, *_args):
+                                target = Path(name)
+                                attempted.append(target)
+                                # Model an encoder that creates output before
+                                # reporting failure or throwing an exception.
+                                target.write_bytes(b'incomplete image bytes')
+                                if failed_asset in target.parent.name:
+                                    if failure == 'false':
+                                        return False
+                                    raise RuntimeError('simulated interrupted encoder')
+                                return True
+
+                            error = OSError if failure == 'false' else RuntimeError
+                            message = ('Cannot save' if failure == 'false'
+                                       else 'simulated interrupted encoder')
+                            with (patch('swordx.workflows.cv2.imwrite',
+                                        side_effect=partial_write),
+                                  patch('swordx.workflows._write_manifest') as save):
+                                with self.assertRaisesRegex(error, message):
+                                    record_step(folder, 'After', self.frame,
+                                                [rect], taps=[(130, 140)], key=key)
+                                save.assert_not_called()
+                            self.assertEqual(len(attempted),
+                                             1 if failed_asset == 'anchor' else 2)
+                            self.assertTrue(all(not p.exists() for p in attempted))
+                            self.assertEqual(
+                                {p.relative_to(folder): p.read_bytes()
+                                 for p in folder.rglob('*') if p.is_file()},
+                                before)
+                            if key is not None:
+                                self.assertEqual(
+                                    json.loads(manifest.read_text())['actions'][key]['label'],
+                                    'Before')
+
     def test_failed_obsolete_image_cleanup_keeps_committed_state_successful(self):
         # An unlink failure happens after the manifest transaction, so it
         # cannot safely make either operation appear rolled back.
