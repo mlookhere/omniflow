@@ -411,6 +411,12 @@ class OmniDetector:
         return self._evaluate(frame, explain=True)
 
     def _evaluate(self, frame: np.ndarray, *, explain: bool) -> tuple[Match, list[dict]]:
+        # Direct inspect/detect callers are not necessarily using OmniRunner,
+        # which already validates screenshot geometry. Never let a malformed
+        # image reach normalization, template matching or OCR inference.
+        if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
+                frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
+            raise WorkflowError('Recognition requires a nonempty 8-bit color screenshot')
         # OmniRunner already normalized this screenshot. Preserve one resize
         # and one OCR cache for all states, also during read-only inspection.
         image = (frame if frame.shape == (SIZE[1], SIZE[0], 3)
