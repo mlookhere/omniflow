@@ -242,6 +242,14 @@ def _read_saved_capture(folder: Path, name: str | None) -> tuple[np.ndarray | No
     if not path.is_file():
         return None, 'Saved screenshot is missing'
     try:
+        size = path.stat().st_size
+    except OSError:
+        return None, 'Saved screenshot is inaccessible'
+    # Match the offline image-import limit before allowing OpenCV to decode
+    # an externally modified capture. Recorded 540×960 frames are far smaller.
+    if not 0 < size <= 32 * 1024 * 1024:
+        return None, 'Saved screenshot must be nonempty and at most 32 MiB'
+    try:
         frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
     except cv2.error:
         frame = None
