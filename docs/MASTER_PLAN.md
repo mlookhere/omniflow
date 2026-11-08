@@ -1203,3 +1203,17 @@ Save or live execution. Source tests cover malformed and valid labels;
 offscreen Qt tests cover displaying/editing context, refusal to test/save,
 and unchanged workflow files/ADB input. This corrects the draft display
 path only, not matching semantics or physical MuMu acceptance.
+
+**Unsaved image-region preview freshness (current Studio increment):**
+The separate read-only image similarity button now checks that the currently
+drawn detection rectangles still match the selected state's saved template
+rectangles before calculating and displaying MATCH/NO MATCH. A changed
+unsaved region no longer compares an old anchor and presents its score as
+proof of the edited region; the UI instead requests an explicit Save.
+Restoring the saved regions permits the original saved-template comparison,
+including when the screenshot itself has changed for read-only recognition
+inspection. The guard does not send Android commands or write workflow
+files, and an offscreen Qt regression covers edit/undo, score suppression,
+read-only behavior and intact existing captures. Live recognition, condition
+rules and template thresholds remain unchanged; hardware validation and
+enforced dev checks are still required before merge.
