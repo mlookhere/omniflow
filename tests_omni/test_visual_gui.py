@@ -329,6 +329,38 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_saved_inspection_rejects_unsafe_retry_without_device_or_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeRetry', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Recorded screen', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'UnsafeRetry', base=root)
+            try:
+                studio.canvas.load(image)
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['actions'][key]['retry'] = 'false'
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = {p.relative_to(folder): p.read_bytes()
+                          for p in folder.rglob('*') if p.is_file()}
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device.screenshot') as screenshot,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_detection()
+                    screenshot.assert_not_called()
+                    write.assert_not_called()
+                    warning.assert_called_once()
+                self.assertIn('retry must be true or false',
+                              warning.call_args.args[2])
+                self.assertEqual(before, {
+                    p.relative_to(folder): p.read_bytes()
+                    for p in folder.rglob('*') if p.is_file()})
+            finally:
+                studio.close()
+
     def test_saved_studio_inspection_rejects_unsafe_template_reference(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
