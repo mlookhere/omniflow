@@ -400,6 +400,27 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
     _write_manifest(path, content)
 
 
+def validate_recorded_gesture(gesture: dict) -> None:
+    """Validate the legacy tap/drag format accepted by the recorder."""
+    if not isinstance(gesture, dict):
+        raise ValueError('Gesture must be a tap or drag')
+    kind = gesture.get('kind')
+    if kind == 'tap':
+        points = [gesture.get('point')]
+    elif kind == 'drag':
+        points = [gesture.get('start'), gesture.get('end')]
+        duration = gesture.get('duration_ms')
+        if type(duration) is not int or not 100 <= duration <= 10000:
+            raise ValueError('Drag duration must be 100–10000 milliseconds')
+    else:
+        raise ValueError('Gesture must be a tap or drag')
+    for point in points:
+        if (not isinstance(point, (tuple, list)) or len(point) != 2
+                or any(type(value) is not int for value in point)
+                or not (0 <= point[0] < SIZE[0] and 0 <= point[1] < SIZE[1])):
+            raise ValueError('Gesture position is outside the game screen')
+
+
 def record_step(folder: Path, label: str, frame: np.ndarray,
                 boxes: list[tuple[int, int, int, int]],
                 click: tuple[int, int] | None = None,
@@ -451,24 +472,9 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
         if not passive and not action_chain and len(gestures) != len(boxes):
             raise ValueError('Each detection region needs its own tap or drag')
         for gesture in gestures:
-            if not isinstance(gesture, dict):
-                raise ValueError('Gesture must be a tap or drag')
-            kind = gesture.get('kind')
-            if kind == 'tap':
-                points = [gesture.get('point')]
-            elif kind == 'drag':
-                points = [gesture.get('start'), gesture.get('end')]
-                duration = gesture.get('duration_ms')
-                if type(duration) is not int or not 100 <= duration <= 10000:
-                    raise ValueError('Drag duration must be 100–10000 milliseconds')
-            else:
-                raise ValueError('Gesture must be a tap or drag')
-            for point in points:
-                if (not isinstance(point, (tuple, list)) or len(point) != 2
-                        or any(type(value) is not int for value in point)
-                        or not (0 <= point[0] < SIZE[0] and 0 <= point[1] < SIZE[1])):
-                    raise ValueError('Gesture position is outside the game screen')
-            taps.append(tuple(points[0]) if kind == 'tap' else None)
+            validate_recorded_gesture(gesture)
+            taps.append(tuple(gesture['point']) if gesture['kind'] == 'tap'
+                        else None)
         legacy_and = False
     elif taps is None:
         if action_chain:
