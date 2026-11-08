@@ -99,6 +99,29 @@ class VisualCaptureTests(unittest.TestCase):
         self.assertEqual(sample_color(self.frame, [120, 160]), [200, 100, 10])
         self.assertEqual(sample_average(self.frame, [110, 150, 140, 168]), [200, 100, 10])
 
+    def test_recorder_requires_matching_legacy_region_count_or_explicit_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_workflow('PairedGestureWriter', Path(tmp))
+            manifest = folder / 'manifest.json'
+            original = manifest.read_bytes()
+            rect = (80, 100, 220, 170)
+            first = {'kind': 'tap', 'point': [130, 140]}
+            second = {'kind': 'tap', 'point': [170, 145]}
+            with self.assertRaisesRegex(
+                    ValueError, 'Each detection region needs its own tap or drag'):
+                record_step(folder, 'Mismatch', self.frame, [rect],
+                            gestures=[first, second])
+            self.assertEqual(manifest.read_bytes(), original)
+            self.assertEqual(list((folder / 'anchors').glob('*.png')), [])
+            self.assertEqual(list((folder / 'captures').glob('*.png')), [])
+
+            key = record_step(folder, 'Sequential', self.frame, [rect],
+                              gestures=[], action_chain=[first, second])
+            content = json.loads(manifest.read_text(encoding='utf-8'))
+            self.assertEqual(content['actions'][key]['action_chain'],
+                             [first, second])
+            self.assertEqual(len(content['states'][key]), 1)
+
     def test_priority_writers_validate_before_writes_and_keep_legacy_overrides(self):
         from swordx.workflows import update_step_settings
         with tempfile.TemporaryDirectory() as tmp:
