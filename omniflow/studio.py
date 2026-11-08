@@ -427,8 +427,9 @@ class RuleEditor(QDialog):
 class ReplayResultsDialog(QDialog):
     """Readable saved-screen audit, including states that also matched."""
 
-    def __init__(self, results: list[dict], parent=None):
+    def __init__(self, results: list[dict], parent=None, *, folder=None):
         super().__init__(parent)
+        self._folder = folder
         self.setWindowTitle('Saved screenshot recognition replay')
         self.resize(1050, 680)
         self._results = results
@@ -476,8 +477,15 @@ class ReplayResultsDialog(QDialog):
         self.table.currentCellChanged.connect(
             lambda row, _column, _old_row, _old_column: self._show_evidence(row))
         layout.addWidget(self.evidence, 1)
+        self.map_button = QPushButton('Show selected action targets (read-only)')
+        self.map_button.setToolTip(
+            'Recheck the saved screenshot and actual winning action sequence '
+            'before drawing numbered targets. No emulator input or writes.')
+        self.map_button.clicked.connect(self._show_saved_action_map)
+        layout.addWidget(self.map_button)
         if results:
             self.table.setCurrentCell(0, 0)
+        self._update_map_button()
         note = QLabel(
             'Offline, one-frame recognition and planned-action preview only. '
             'Real input requires two matching frames, fresh capture and session permission. '
@@ -488,20 +496,50 @@ class ReplayResultsDialog(QDialog):
         close.rejected.connect(self.reject)
         layout.addWidget(close)
 
+    def _update_map_button(self):
+        row = self.table.currentRow()
+        self.map_button.setEnabled(
+            self._folder is not None and 0 <= row < len(self._results)
+            and self._results[row]['status'] in ('matched', 'different')
+            and bool(self._results[row].get('expected_key')))
+
     def _show_evidence(self, row: int):
         if not 0 <= row < len(self._results):
             self.evidence.clear()
+            self._update_map_button()
             return
         item = self._results[row]
         lines = item.get('evidence') or [item.get('reason') or 'No recognition evidence available']
         self.evidence.setPlainText('\n'.join(lines))
+        self._update_map_button()
+
+    def _show_saved_action_map(self):
+        row = self.table.currentRow()
+        if (self._folder is None or not 0 <= row < len(self._results)
+                or self._results[row]['status'] not in ('matched', 'different')
+                or not self._results[row].get('expected_key')):
+            return
+        from .engine import WorkflowError
+        from .replay import replay_saved_action_map
+
+        try:
+            frame, chain, passive, label = replay_saved_action_map(
+                self._folder, self._results[row]['expected_key'])
+            dialog = ActionMapDialog(
+                frame, chain, passive=passive, saved_label=label, parent=self)
+        except (WorkflowError, OSError, ValueError, TypeError, KeyError,
+                cv2.error) as exc:
+            QMessageBox.warning(
+                self, 'Saved action map unavailable', str(exc))
+            return
+        dialog.exec()
 
 
 class ActionMapDialog(QDialog):
     """Read-only screenshot overlay of validated, numbered action targets."""
 
     def __init__(self, frame, actions, *, alternatives=False, passive=False,
-                 parent=None):
+                 saved_label=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Action target map · Read-only')
         self.resize(830, 810)
@@ -530,6 +568,9 @@ class ActionMapDialog(QDialog):
         layout.addWidget(self.screen)
         sidebar = QVBoxLayout()
         self.intro = QLabel(
+            f'Selected saved state: {saved_label}. '
+            'Only actions for the matched region are shown.'
+            if saved_label is not None else
             'ALTERNATIVE targets — matched region selects one gesture.'
             if alternatives else
             'SEQUENTIAL actions — numbered targets follow the step order.')
@@ -542,8 +583,13 @@ class ActionMapDialog(QDialog):
             '\n'.join(f'{index}. {action_summary(action)}'
                       for index, action in enumerate(actions, 1)))
         sidebar.addWidget(self.details, 1)
-        note = QLabel('Read-only draft map. No taps, emulator screenshots '
-                      'or saved changes. Text contents are hidden.')
+        note = QLabel(
+            ('Read-only saved replay map. Workflow and screenshot were '
+             'rechecked; live two-frame confirmation was not performed. '
+             if saved_label is not None else
+             'Read-only draft map. ')
+            + 'No taps, emulator screenshots or saved changes. '
+              'Text contents are hidden.')
         note.setWordWrap(True)
         sidebar.addWidget(note)
         close = QDialogButtonBox(QDialogButtonBox.Close)
@@ -1805,7 +1851,7 @@ class OmniStudio(RecorderDialog):
         except (WorkflowError, OSError, ValueError, KeyError, cv2.error) as exc:
             QMessageBox.warning(self, 'Screenshot replay', str(exc))
             return
-        ReplayResultsDialog(results, parent=self).exec()
+        ReplayResultsDialog(results, parent=self, folder=folder).exec()
 
     def _reset_chain(self):
         if self.extra_chain is not None:

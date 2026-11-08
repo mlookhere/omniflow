@@ -2768,6 +2768,56 @@ class VisualStudioGuiTests(unittest.TestCase):
         dialog.table.setCurrentCell(-1, -1)
         self.assertEqual(dialog.evidence.toPlainText(), '')
 
+    def test_replay_action_map_shows_actual_selected_actions_without_device_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ReplayActionMap', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Tap button', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            record_step(folder, 'Safe WAIT', image,
+                        [(100, 200, 230, 300)], passive=True)
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            from omniflow.replay import replay_saved_captures
+            dialog = ReplayResultsDialog(
+                replay_saved_captures(folder), folder=folder)
+            try:
+                self.assertTrue(dialog.map_button.isEnabled())
+                with (patch.object(ActionMapDialog, 'exec') as show,
+                      patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    dialog.map_button.click()
+                    show.assert_called_once()
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                    action_map = show.call_args  # The dialog was actually opened.
+                self.assertIsNotNone(action_map)
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+                dialog.table.setCurrentCell(-1, -1)
+                self.assertFalse(dialog.map_button.isEnabled())
+                dialog.table.setCurrentCell(0, 0)
+                self.assertTrue(dialog.map_button.isEnabled())
+                # The old replay must not authorize a stale unsafe screenshot.
+                data = json.loads((folder / 'manifest.json').read_text())
+                tap_key = dialog._results[0]['expected_key']
+                data['actions'][tap_key]['capture'] = '../outside.jpg'
+                (folder / 'manifest.json').write_text(json.dumps(data))
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch.object(ActionMapDialog, 'exec') as show,
+                      patch('omniflow.devices.Device.screenshot') as adb):
+                    dialog._show_saved_action_map()
+                    warning.assert_called_once()
+                    show.assert_not_called()
+                    adb.assert_not_called()
+                self.assertIn('Unsafe screenshot',
+                              warning.call_args.args[2])
+            finally:
+                dialog.close()
+
     def test_empty_replay_dialog_keeps_evidence_panel_empty(self):
         dialog = ReplayResultsDialog([])
         self.addCleanup(dialog.close)

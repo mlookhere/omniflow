@@ -170,6 +170,53 @@ class SavedReplayTests(unittest.TestCase):
                             threshold=threshold)
             adb.assert_not_called()
 
+    def test_saved_action_map_revalidates_winner_and_resolves_wait_override(self):
+        from omniflow.replay import replay_saved_action_map
+
+        tap_key = self.record('Press match')
+        wait_key = self.record('Wait for queue', passive=True)
+        before = {file.relative_to(self.folder): file.read_bytes()
+                  for file in self.folder.rglob('*') if file.is_file()}
+        with patch('omniflow.devices.Device.screenshot') as device:
+            frame, steps, passive, label = replay_saved_action_map(
+                self.folder, tap_key)
+            device.assert_not_called()
+        self.assertTrue(np.array_equal(frame, self.frame))
+        self.assertEqual(steps, [])
+        self.assertTrue(passive)
+        self.assertEqual(label, 'Wait for queue')
+        self.assertEqual(
+            before, {file.relative_to(self.folder): file.read_bytes()
+                     for file in self.folder.rglob('*') if file.is_file()})
+
+        with self.assertRaisesRegex(WorkflowError, 'no longer exists'):
+            replay_saved_action_map(self.folder, 'missing')
+
+        # A stale result must not reopen or resolve a changed invalid capture.
+        data = json.loads(self.manifest().read_text())
+        data['actions'][tap_key]['capture'] = '../outside.jpg'
+        self.manifest().write_text(json.dumps(data), encoding='utf-8')
+        with self.assertRaisesRegex(WorkflowError, 'Unsafe screenshot'):
+            replay_saved_action_map(self.folder, tap_key)
+        self.assertIn(wait_key, data['actions'])
+
+    def test_saved_action_map_rechecks_all_saved_actions_before_preview(self):
+        from omniflow.replay import replay_saved_action_map
+
+        good = self.record('Valid tap')
+        bad = self.record('Invalid sibling')
+        data = json.loads(self.manifest().read_text())
+        data['actions'][bad]['action_chain'] = [
+            {'kind': 'tap', 'point': [150, 210]},
+            {'kind': 'unexpected'}]
+        self.manifest().write_text(json.dumps(data), encoding='utf-8')
+        with (patch('omniflow.devices.Device.screenshot') as device,
+              patch('omniflow.replay._read_saved_capture') as image):
+            with self.assertRaisesRegex(WorkflowError, 'Unknown action'):
+                replay_saved_action_map(self.folder, good)
+            device.assert_not_called()
+            image.assert_not_called()
+
     def test_saved_capture_matches_without_writing_any_files(self):
         key = self.record()
         before = {file.relative_to(self.folder): file.read_bytes()

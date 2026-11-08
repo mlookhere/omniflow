@@ -205,6 +205,33 @@ def _read_saved_capture(folder: Path, name: str | None) -> tuple[np.ndarray | No
     return frame, ''
 
 
+def replay_saved_action_map(
+        folder: Path, source_key: str) -> tuple[np.ndarray, list[dict], bool, str]:
+    """Resolve a recorded screen's current winning actions for a visual dry-run.
+
+    The replay row is only a navigation hint. Reload and validate the actual
+    saved workflow and screen on each click, preventing a stale result from
+    drawing targets after a state or capture has changed.
+    """
+    detector = OmniDetector(folder)
+    validate_saved_action_chains(detector.manifest)
+    if source_key not in detector.actions:
+        raise WorkflowError('Recorded source state no longer exists')
+    frame, reason = _read_saved_capture(
+        detector.folder, detector.actions[source_key].get('capture'))
+    if frame is None:
+        raise WorkflowError(reason)
+    winner, _details = detector.inspect(frame)
+    if not winner.key:
+        raise WorkflowError('No saved state recognizes this screenshot')
+    action = detector.actions[winner.key]
+    chain = resolve_action_chain(
+        action, len(detector.manifest['states'].get(winner.key, [])),
+        winner.trigger)
+    describe_action_plan(action, chain)  # Revalidate the selected commands.
+    return frame, chain, bool(action.get('passive')), winner.label
+
+
 def replay_saved_captures(folder: Path) -> list[dict]:
     """Check every recorded state against the same matcher used during runs.
 

@@ -1055,3 +1055,21 @@ two-frame confirmation and action readiness. Qt/source regressions
 verify cross-screen matches, invalid input/capture containment, saved
 manifest immutability and absence of ADB input. No multi-device or
 merge-gate changes.
+
+**Read-only mapped actions from saved replay (current Studio iteration):**
+The saved screenshot audit now lets a user open a numbered target map
+for the *actually selected* action sequence on each readable recording.
+A click reopens and validates the live manifest and its complete saved
+action collection, safely reloads the selected recorded screenshot,
+re-evaluates recognition and resolves the winning action chain with the
+production trigger (including legacy two-region alternatives and WAIT
+overrides). No stale table verdict alone can authorize a map, and no
+device input, manifest write or screenshot acquisition is performed.
+Unavailable/unknown rows cannot show action maps, and changed unsafe
+capture names are rejected even if an earlier replay was successful.
+The saved-action map distinguishes itself from draft previews and
+explicitly excludes live two-frame confirmation; private text contents
+remain hidden. Source and offscreen Qt tests cover WAIT selection,
+stale capture refusal, invalid non-winning actions, button state and
+disk/device immutability. Hardware acceptance and enforced `dev`
+checks remain merge blockers.
