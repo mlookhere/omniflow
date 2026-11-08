@@ -1668,6 +1668,14 @@ class OmniStudio(RecorderDialog):
                 except WorkflowError as exc:
                     raise WorkflowError(
                         f'Legacy alternative {index}: {exc}') from exc
+            # The recorder can save new/recaptured legacy gestures only as
+            # one touch per image region. Existing untouched imported formats
+            # retain their historical runtime preview.
+            if (not self.editing_key or self._visual_dirty) and len(choices) != regions:
+                raise WorkflowError(
+                    'Each detection region needs one legacy tap/drag. '
+                    'Use an explicit action sequence for multiple steps '
+                    'on one image region')
         chain = resolve_action_chain(action, regions)
         steps = describe_action_plan(action, chain)
         paired = (legacy and regions > 1 and len(action['gestures']) > 1)
