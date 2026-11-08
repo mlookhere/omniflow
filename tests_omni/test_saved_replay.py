@@ -10,7 +10,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from omniflow.engine import WorkflowError, resolve_action_chain
+from omniflow.engine import WorkflowError, resolve_action_chain, validate_action, _target
 from omniflow.replay import describe_action_plan, replay_saved_captures
 from swordx.workflows import create_workflow, record_step
 
@@ -161,6 +161,49 @@ class SavedReplayTests(unittest.TestCase):
         self.assertEqual(
             describe_action_plan({'passive': True}, chain),
             ['WAIT — no input will be sent'])
+
+    def test_all_visual_action_kinds_reject_exclusive_pixel_edges(self):
+        valid = [539, 959]
+        for kind in ('tap', 'double_tap', 'hold', 'drag', 'swipe', 'field_text'):
+            def action(point):
+                if kind in ('tap', 'double_tap'):
+                    return {'kind': kind, 'point': point}
+                if kind == 'field_text':
+                    return {'kind': kind, 'point': point, 'text': 'READY'}
+                if kind == 'hold':
+                    return {'kind': kind, 'point': point, 'duration_ms': 600}
+                return {'kind': kind, 'start': [100, 200],
+                        'end': point, 'duration_ms': 600}
+
+            with self.subTest(kind=kind):
+                self.assertEqual(validate_action(action(valid)), kind)
+                for bad in ([540, 300], [150, 960], [540, 960]):
+                    with self.subTest(point=bad):
+                        with self.assertRaisesRegex(WorkflowError,
+                                                    'outside 540×960'):
+                            validate_action(action(bad))
+        # Valid final pixels continue to map to device coordinates.
+        self.assertEqual(_target([0, 0], (1080, 1920)), (0, 0))
+        mapped = _target(valid, (1080, 1920))
+        self.assertTrue(0 <= mapped[0] < 1080)
+        self.assertTrue(0 <= mapped[1] < 1920)
+
+    def test_exclusive_boundary_fails_preflight_before_input_or_replay(self):
+        from omniflow.engine import OmniRunner
+        key = self.record('Invalid boundary')
+        manifest = self.manifest()
+        content = json.loads(manifest.read_text(encoding='utf-8'))
+        content['actions'][key]['action_chain'] = [
+            {'kind': 'tap', 'point': [540, 220]}]
+        manifest.write_text(json.dumps(content), encoding='utf-8')
+        before = manifest.read_bytes()
+        device = unittest.mock.Mock()
+        with self.assertRaisesRegex(WorkflowError, 'outside 540×960'):
+            OmniRunner(device, self.folder, 'com.example.game')
+        device.assert_not_called()
+        with self.assertRaisesRegex(WorkflowError, 'outside 540×960'):
+            replay_saved_captures(self.folder)
+        self.assertEqual(manifest.read_bytes(), before)
 
     def test_replay_rejects_saved_invalid_action_plan_instead_of_claiming_success(self):
         key = self.record('Unsafe')
