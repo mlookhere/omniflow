@@ -488,6 +488,85 @@ class VisualStudioGuiTests(unittest.TestCase):
                     finally:
                         studio.close()
 
+    def test_invalid_saved_studio_rules_and_actions_preserve_unsaved_editor(self):
+        invalid = [
+            ('conditions', {'type': 'ocr'}, 'Invalid saved conditions'),
+            ('conditions', [None], 'Invalid saved condition 1'),
+            ('conditions', [{'type': 'ocr', 'rect': [10, 10, 120, 120],
+                             'text': '(', 'regex': True}], 'Invalid saved condition 1'),
+            ('action_chain', {'kind': 'tap'}, 'Invalid saved action chain'),
+            ('action_chain', [{'kind': 'tap', 'point': [-1, 200]}],
+             'Invalid saved action 1'),
+            ('action_chain', [None], 'Invalid saved action 1'),
+        ]
+        for field, malformed, expected_error in invalid:
+            with self.subTest(field=field, malformed=malformed):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    folder = create_workflow('InvalidStudioImports', root)
+                    first = record_step(folder, 'First', self.frame,
+                                        [(100, 200, 230, 300)], taps=[(150, 250)])
+                    second = record_step(folder, 'Second', self.frame,
+                                         [(100, 200, 230, 300)], taps=[(150, 250)])
+                    studio = OmniStudio('', 'InvalidStudioImports', base=root)
+                    try:
+                        studio.steps.setCurrentRow(0)
+                        self.assertEqual(studio.editing_key, first)
+                        draft = {'type': 'ocr', 'rect': [10, 10, 110, 110],
+                                 'text': 'unsaved draft'}
+                        studio.extra_conditions.append(draft.copy())
+                        studio._refresh_extra()
+                        studio._field_changed()
+                        self.assertTrue(studio._dirty)
+
+                        manifest = folder / 'manifest.json'
+                        data = json.loads(manifest.read_text(encoding='utf-8'))
+                        data['actions'][second][field] = malformed
+                        manifest.write_text(json.dumps(data), encoding='utf-8')
+                        before = manifest.read_bytes()
+                        with (patch('swordx.recorder.QMessageBox.warning') as warning,
+                              patch('swordx.workflows.cv2.imread') as read,
+                              patch('swordx.workflows._write_manifest') as write,
+                              patch.object(studio, '_confirm_discard') as discard):
+                            studio.steps.setCurrentRow(1)
+                            warning.assert_called_once()
+                            read.assert_not_called()
+                            write.assert_not_called()
+                            discard.assert_not_called()
+                        self.assertIn(expected_error, warning.call_args.args[2])
+                        self.assertEqual(studio.steps.currentRow(), 0)
+                        self.assertEqual(studio.editing_key, first)
+                        self.assertEqual(studio.step_name.text(), 'First')
+                        self.assertEqual(studio.extra_conditions, [draft])
+                        self.assertTrue(studio._dirty)
+                        self.assertEqual(manifest.read_bytes(), before)
+                    finally:
+                        studio.close()
+
+    def test_valid_imported_studio_rules_and_chain_still_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ValidStudioImport', root)
+            key = record_step(folder, 'Ready', self.frame,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            rule = {'type': 'ocr', 'rect': [100, 200, 230, 300], 'text': 'ready'}
+            chain = [{'kind': 'wait', 'seconds': 2},
+                     {'kind': 'tap', 'point': [150, 250]}]
+            manifest = folder / 'manifest.json'
+            data = json.loads(manifest.read_text(encoding='utf-8'))
+            data['actions'][key]['conditions'] = [rule]
+            data['actions'][key]['action_chain'] = chain
+            manifest.write_text(json.dumps(data), encoding='utf-8')
+            studio = OmniStudio('', 'ValidStudioImport', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                self.assertEqual(studio.extra_conditions, [rule])
+                self.assertEqual(studio.extra_chain, chain)
+                self.assertFalse(studio._dirty)
+            finally:
+                studio.close()
+
     def test_invalid_imported_state_controls_keep_prior_editor_selection(self):
         invalid = [
             ('label', None),

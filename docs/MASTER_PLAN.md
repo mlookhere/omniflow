@@ -587,3 +587,15 @@ runtime's separate manifest preflight or claim real MuMu behavior.
 Every milestone requires its own documented tests, evidence and acceptance
 criteria. Prioritize completing the current control issue before spinning up
 new, duplicate active branches or claiming a production release.
+
+**Imported WHEN/THEN state-switch preflight (November 7, 2026):**
+When Studio selects an externally modified saved state, it now validates that
+the recognition condition collection and action chain have list structure and
+that every rule/action passes the shared production preflight **before** the
+base editor reads saved images or asks to discard a current draft. Invalid
+OCR regular expressions, unsupported detectors, malformed list entries and
+unsafe touch targets show a contextual warning and restore the previous
+selection without changing editor rules/actions or writing workflow files.
+Valid imported condition/action chains remain editable; Windows offscreen Qt
+tests cover failure rollback, preservation of unsaved drafts and valid imports.
+This does not establish physical MuMu reliability or change merge gates.

@@ -668,7 +668,44 @@ class OmniStudio(RecorderDialog):
         self._refresh_extra(rule_row=-1, action_row=-1)
         self._clear_edit_history()
 
+    @staticmethod
+    def _validate_saved_studio_fields(action):
+        """Check imported WHEN/THEN data before changing the active editor."""
+        from .engine import WorkflowError, validate_action, validate_condition
+
+        if not isinstance(action, dict):
+            raise WorkflowError('Invalid saved Studio action')
+        conditions = action.get('conditions', [])
+        if not isinstance(conditions, list):
+            raise WorkflowError('Invalid saved conditions: expected a list')
+        for index, rule in enumerate(conditions, 1):
+            try:
+                validate_condition(rule)
+            except WorkflowError as exc:
+                raise WorkflowError(f'Invalid saved condition {index}: {exc}') from exc
+        chain = action.get('action_chain')
+        if chain is not None:
+            if not isinstance(chain, list):
+                raise WorkflowError('Invalid saved action chain: expected a list')
+            for index, step in enumerate(chain, 1):
+                try:
+                    validate_action(step)
+                except WorkflowError as exc:
+                    raise WorkflowError(f'Invalid saved action {index}: {exc}') from exc
+
     def _select_step(self, current, previous):
+        if current is not None and self._folder():
+            try:
+                manifest = json.loads(
+                    (self._folder() / 'manifest.json').read_text(encoding='utf-8'))
+                action = manifest['actions'][current.data(Qt.UserRole)]
+                self._validate_saved_studio_fields(action)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                # An invalid imported rule/step must not replace the selected
+                # state, discard an unsaved draft, or enter Qt list rendering.
+                self._restore_step_selection(previous)
+                QMessageBox.warning(self, 'Could not load state', str(exc))
+                return
         super()._select_step(current,previous)
         if current is not None and current.data(Qt.UserRole)==self.editing_key:
             self._load_extra()
