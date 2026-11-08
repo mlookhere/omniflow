@@ -84,7 +84,9 @@ def _rect(frame: np.ndarray, bounds: list[int]) -> np.ndarray:
 
 def validate_ocr_expression(text: str, regex: bool = False) -> str:
     """Reject invalid OCR rules before they reach the live state machine."""
-    expression = str(text)
+    if not isinstance(text, str):
+        raise WorkflowError('OCR condition text must be a string')
+    expression = text
     if not expression.strip():
         raise WorkflowError('OCR condition must contain text')
     if regex:
