@@ -438,19 +438,31 @@ corruption and legacy fallback; offscreen Qt checks both selected-state
 rollback and read-only replay warnings. This is file-level geometry safety,
 not proof of correct real-device touch scaling or MuMu acceptance.
 
-**Normalized action target boundary (November 7, 2026):** The live
-action mapper historically accepted `x=540` and `y=960` (inclusive edges)
-and clamped them to the last device pixel, even though visual authoring uses
-540×960 pixel coordinates with final valid indices **539 and 959**. Imported
-action chains could therefore silently target an unintended edge pixel.
-The shared action validation/Android mapping path now rejects those exclusive
-edge points with the same visible out-of-range error already used for larger
-coordinates. Python regressions cover tap, double-tap, hold, swipe, drag
-and visually targeted text, valid final pixel mapping, and runner preflight/
-offline replay failing before device input. Offscreen Qt confirms that Studio
-rejects bad copied or imported action drafts before any manifest write. This
-changes only the two invalid boundary values, not image matching, timer
-behavior, action execution order or physical-device geometry verification.
+**Normalized action target compatibility (November 7, 2026):** The
+runtime's inclusive right/bottom edge values `x=540` and `y=960` are
+intentional legacy coordinate inputs, safely clamped onto physical display
+pixels even on rotated/cropped screens. Existing Linux geometry tests explicitly
+verify this contract. A stricter exclusivity change was therefore **reverted
+after failing existing tests**, rather than silently breaking imported
+workflows or weakening the geometry gates. Python and offscreen Qt tests now
+explicitly verify accepted inclusive edges and reject true overshoots
+(`x=541` or `y=961`) before execution or Studio Save. New visual
+authoring still selects only real pixels through `x=539`, `y=959`.
+Physical-device geometry correctness remains an independent acceptance gate.
+
+**Partial screenshot write rollback (November 7, 2026):** A failed OpenCV
+image encoder can write incomplete PNG/JPEG bytes before returning false or
+raising an exception. Previously the recorder only tracked image paths
+**after** successful writes; incomplete output could linger in `anchors`
+or `captures` even when the manifest transaction was rejected. Both
+generated asset paths are now registered for cleanup *before* attempting
+their individual image writes. Failure removes the partial target and all
+other newly written images, leaves previous assets and manifest untouched,
+and shows Studio's existing failed-save warning without a ghost state.
+Source-level regressions cover new and recaptured states, both asset types
+and both false-return/exception failures; offscreen Qt verifies the Studio
+new-state path. This does not claim that filesystem cleanup can succeed if
+Windows denies deletion; real hardware acceptance remains outstanding.
 
 ### Previous platform priority queue (historical)
 
