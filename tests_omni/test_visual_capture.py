@@ -144,6 +144,50 @@ class VisualCaptureTests(unittest.TestCase):
                             'skip_template': True})
             self.assertEqual(path.read_bytes(), original)
 
+    def test_failed_manifest_replace_preserves_previous_save_and_cleans_staging(self):
+        from swordx.workflows import update_step_settings
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Atomic settings', Path(root))
+            key = record_step(folder, 'Before', self.frame,
+                              [(80, 100, 220, 170)], taps=[(130, 140)])
+            manifest = folder / 'manifest.json'
+            original = manifest.read_bytes()
+            previous_temp = folder / 'manifest.tmp'
+            previous_temp.write_text('existing unrelated file', encoding='utf-8')
+            with patch('swordx.workflows.os.replace',
+                       side_effect=OSError('simulated replace failure')) as replace:
+                with self.assertRaisesRegex(OSError, 'simulated replace failure'):
+                    update_step_settings(folder, key, 'After', end=True, retry=True)
+                replace.assert_called_once()
+            self.assertEqual(manifest.read_bytes(), original)
+            self.assertEqual(previous_temp.read_text(encoding='utf-8'),
+                             'existing unrelated file')
+            self.assertEqual(list(folder.glob('.manifest.json.*.tmp')), [])
+
+    def test_repeated_manifest_saves_use_distinct_staging_paths(self):
+        import os
+        from swordx.workflows import update_step_settings
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Distinct staging', Path(root))
+            key = record_step(folder, 'Before', self.frame,
+                              [(80, 100, 220, 170)], taps=[(130, 140)])
+            originals = []
+            real_replace = os.replace
+
+            def observe_replace(source, destination):
+                originals.append(Path(source))
+                real_replace(source, destination)
+
+            with patch('swordx.workflows.os.replace', side_effect=observe_replace):
+                update_step_settings(folder, key, 'First', end=False, retry=False)
+                update_step_settings(folder, key, 'Second', end=True, retry=False)
+            self.assertEqual(len(originals), 2)
+            self.assertNotEqual(originals[0], originals[1])
+            self.assertTrue(all(path.parent == folder for path in originals))
+            self.assertFalse(any(path.exists() for path in originals))
+            self.assertEqual(json.loads((folder / 'manifest.json').read_text())
+                             ['actions'][key]['label'], 'Second')
+
     def test_template_mode_needs_a_real_saved_image_region(self):
         from swordx.workflows import update_step_settings
         with tempfile.TemporaryDirectory() as root:
