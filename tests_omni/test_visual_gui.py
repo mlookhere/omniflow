@@ -119,6 +119,43 @@ class VisualStudioGuiTests(unittest.TestCase):
         dialog.text.setText(r'CLAIM\\s+NOW')
         self.assertTrue(dialog.result_rule()['regex'])
 
+    def test_ocr_comparison_editor_round_trips_without_changing_legacy_regex(self):
+        initial = {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                   'text': 'Claim', 'text_match': 'ends_with'}
+        dialog = RuleEditor(initial=initial, frame=self.frame)
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.text_match.currentData(), 'ends_with')
+        self.assertEqual(dialog.result_rule()['text_match'], 'ends_with')
+        self.assertIn('ends with', __import__('omniflow.visual',
+                      fromlist=['condition_summary']).condition_summary(
+                          dialog.result_rule()))
+        dialog.text_match.setCurrentIndex(
+            dialog.text_match.findData('equals'))
+        self.assertEqual(dialog.result_rule()['text_match'], 'equals')
+        dialog.regex.setChecked(True)
+        self.assertFalse(dialog.text_match.isEnabled())
+        self.assertTrue(dialog.result_rule()['regex'])
+        self.assertNotIn('text_match', dialog.result_rule())
+        dialog.regex.setChecked(False)
+        self.assertTrue(dialog.text_match.isEnabled())
+        self.assertEqual(dialog.result_rule()['text_match'], 'equals')
+        dialog.text_match.setCurrentIndex(
+            dialog.text_match.findData('contains'))
+        self.assertNotIn('text_match', dialog.result_rule())
+        dialog.kind.setCurrentIndex(dialog.kind.findData('color'))
+        self.assertFalse(dialog.form.isRowVisible(dialog.text_match))
+        dialog.kind.setCurrentIndex(dialog.kind.findData('ocr'))
+        self.assertTrue(dialog.form.isRowVisible(dialog.text_match))
+
+        old = RuleEditor(initial={'type': 'ocr', 'rect': [100, 200, 230, 300],
+                                  'text': r'CLAIM\\s+NOW', 'regex': True},
+                         frame=self.frame)
+        self.addCleanup(old.close)
+        self.assertEqual(old.text_match.currentData(), 'contains')
+        self.assertTrue(old.regex.isChecked())
+        self.assertTrue(old.result_rule()['regex'])
+        self.assertNotIn('text_match', old.result_rule())
+
     def test_switching_color_to_pixel_requires_fresh_target_and_color(self):
         frame = self.frame.copy()
         frame[210:235, 110:135] = (10, 20, 30)

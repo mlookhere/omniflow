@@ -90,6 +90,58 @@ class VisualCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, 'at least one'):
             preview_conditions(self.frame, [])
 
+    def test_ocr_text_comparisons_are_case_insensitive_and_replayable(self):
+        from omniflow.engine import WorkflowError, preview_conditions
+        region = [80, 100, 220, 170]
+        cases = (
+            ('contains', 'art', True),
+            ('equals', 'START GAME', True),
+            ('equals', 'START', False),
+            ('starts_with', 'start', True),
+            ('starts_with', 'game', False),
+            ('ends_with', 'GAME', True),
+            ('ends_with', 'START', False),
+        )
+        rules = [
+            {'type': 'ocr', 'rect': region, 'text': expected,
+             'text_match': mode}
+            for mode, expected, _ in cases
+        ]
+        rules.append({'type': 'ocr', 'rect': region, 'text': 'game',
+                      'text_match': 'ends_with', 'negate': True})
+        with patch('omniflow.engine.OCREngine.read', return_value='Start Game') as ocr:
+            actual = preview_conditions(self.frame, rules)
+        self.assertEqual(actual, [outcome for _, _, outcome in cases] + [False])
+        ocr.assert_called_once()
+
+        for mode in ('unknown', [], None):
+            with self.subTest(mode=repr(mode)), patch(
+                    'omniflow.engine.OCREngine.read') as ocr:
+                with self.assertRaisesRegex(WorkflowError, 'OCR text comparison'):
+                    preview_conditions(self.frame, [
+                        {'type': 'ocr', 'rect': region,
+                         'text': 'Start', 'text_match': mode}])
+                ocr.assert_not_called()
+        with patch('omniflow.engine.OCREngine.read') as ocr:
+            with self.assertRaisesRegex(WorkflowError, 'regex cannot be combined'):
+                preview_conditions(self.frame, [{
+                    'type': 'ocr', 'rect': region, 'text': '^Start',
+                    'regex': True, 'text_match': 'equals'}])
+            ocr.assert_not_called()
+
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('StartsWith', Path(root))
+            rule = {'type': 'ocr', 'rect': region,
+                    'text': 'start', 'text_match': 'starts_with'}
+            key = record_step(folder, 'Start prompt', self.frame, [],
+                              conditions=[rule], condition_only=True,
+                              action_chain=[{'kind': 'tap', 'point': [140, 155]}])
+            manifest = json.loads((folder / 'manifest.json').read_text())
+            self.assertEqual(manifest['actions'][key]['conditions'], [rule])
+            with patch('omniflow.engine.OCREngine.read',
+                       return_value='Start Game'):
+                self.assertEqual(OmniDetector(folder).detect(self.frame).key, key)
+
     def test_bad_ocr_regex_is_actionable_workflow_error(self):
         from omniflow.engine import WorkflowError, preview_conditions
         rule = {'type': 'ocr', 'rect': [80, 100, 220, 170],

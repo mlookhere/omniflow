@@ -112,6 +112,11 @@ def validate_condition(condition: dict) -> None:
     if not (0 <= x1 < x2 <= SIZE[0] and 0 <= y1 < y2 <= SIZE[1]):
         raise WorkflowError('Recognition zone is outside the normalized screen')
     if kind == 'ocr':
+        mode = condition.get('text_match', 'contains')
+        if mode not in ('contains', 'equals', 'starts_with', 'ends_with'):
+            raise WorkflowError('OCR text comparison must be contains, equals, starts_with or ends_with')
+        if condition.get('regex') and mode != 'contains':
+            raise WorkflowError('OCR regex cannot be combined with a text comparison')
         validate_ocr_expression(condition.get('text', ''), bool(condition.get('regex')))
     elif kind in ('color', 'pixel'):
         bgr = condition.get('bgr')
@@ -167,7 +172,16 @@ def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
         if condition.get('regex'):
             passed = re.search(expression, found, re.IGNORECASE) is not None
         else:
-            passed = expression.casefold() in found.casefold()
+            expected, actual = expression.casefold(), found.casefold()
+            mode = condition.get('text_match', 'contains')
+            if mode == 'equals':
+                passed = actual == expected
+            elif mode == 'starts_with':
+                passed = actual.startswith(expected)
+            elif mode == 'ends_with':
+                passed = actual.endswith(expected)
+            else:
+                passed = expected in actual
     elif kind == 'pixel':
         x, y = map(int, condition['point'])
         if not 0 <= x < SIZE[0] or not 0 <= y < SIZE[1]:

@@ -901,3 +901,16 @@ overrides, while the current Studio explicitly sends None to
 clear its override. Source and offscreen Qt tests verify a saved
 40% threshold survives name editing and legacy settings updates.
 No matching thresholds, validations, or CI gates are weakened.
+
+**Beginner OCR comparisons (current core-Studio iteration):** Text checks may
+now explicitly use **contains**, **equals**, **starts with** or **ends with**
+(ignoring case), selected in the visual Rule Editor without requiring regex.
+Saved rules lacking `text_match` continue to mean contains, and existing
+`regex: true` rules retain their behavior. The editor only writes an
+override for non-default comparisons, and the shared runtime/preflight path
+rejects unsupported modes or conflicting imported regex/comparison settings
+before capture or input. Unsaved previews, live matching and saved screenshot
+replay share the same evaluator and human-readable condition descriptions.
+Source and offscreen Qt tests cover successful/negative comparisons, OCR
+caching, legacy regex, visual editing and persisted condition-only matching.
+No physical acceptance or protected-branch claim is implied.

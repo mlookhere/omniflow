@@ -83,7 +83,12 @@ def condition_summary(rule: dict) -> str:
     kind = rule.get('type', '?')
     op = 'NOT ' if rule.get('negate') else ''
     if kind == 'ocr':
-        mode = 'matches pattern' if rule.get('regex') else 'contains'
+        comparisons = {
+            'contains': 'contains', 'equals': 'equals',
+            'starts_with': 'starts with', 'ends_with': 'ends with',
+        }
+        mode = ('matches pattern' if rule.get('regex') else
+                comparisons.get(rule.get('text_match', 'contains'), 'has invalid comparison'))
         return f'When zone text {op}{mode} {rule.get("text", "")!r}'
     if kind == 'color':
         return f'When zone average color {op}matches sampled color'

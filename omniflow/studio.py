@@ -284,8 +284,24 @@ class RuleEditor(QDialog):
         self.read_text = QPushButton('Read text from selected zone (OCR)')
         self.read_text.clicked.connect(self._read_ocr)
         form.addRow('Read from screenshot', self.read_text)
-        self.regex = QCheckBox('Match a regular expression')
+        self.text_match = QComboBox()
+        for label, mode in (
+                ('Contains text (default)', 'contains'),
+                ('Equals entire recognized text', 'equals'),
+                ('Starts with text', 'starts_with'),
+                ('Ends with text', 'ends_with')):
+            self.text_match.addItem(label, mode)
+        self.text_match.setCurrentIndex(max(
+            0, self.text_match.findData(initial.get('text_match', 'contains'))))
+        self.text_match.setToolTip(
+            'Compare text without case sensitivity. Equals needs the whole '
+            'recognized zone to match, so select a tight OCR area.')
+        form.addRow('Compare OCR text', self.text_match)
+        self.regex = QCheckBox('Match a regular expression (advanced)')
         self.regex.setChecked(bool(initial.get('regex',False)))
+        self.regex.toggled.connect(
+            lambda checked: self.text_match.setEnabled(not checked))
+        self.text_match.setEnabled(not self.regex.isChecked())
         form.addRow('', self.regex)
         self.negate = QCheckBox('This must NOT be visible')
         self.negate.setChecked(bool(initial.get('negate',False)))
@@ -319,7 +335,7 @@ class RuleEditor(QDialog):
                         and self.bounds is not None else None)
             self._selected_kind = kind
         ocr = kind == 'ocr'
-        for widget in (self.text, self.read_text, self.regex):
+        for widget in (self.text, self.read_text, self.text_match, self.regex):
             self.form.setRowVisible(widget, ocr)
         self.form.setRowVisible(self.tolerance, not ocr)
         self.form.setRowVisible(self.color_info, not ocr)
@@ -383,6 +399,9 @@ class RuleEditor(QDialog):
                 raise ValueError('Enter text to recognize or use OCR autofill')
             validate_ocr_expression(value, self.regex.isChecked())
             out.update(text=value, regex=self.regex.isChecked())
+            mode = self.text_match.currentData()
+            if not self.regex.isChecked() and mode != 'contains':
+                out['text_match'] = mode
         else:
             if kind == 'pixel':
                 if self.point is None:
