@@ -788,3 +788,25 @@ evidence lines, without changing production behavior or suppressing
 the original assertion. Added imported invalid `condition_match`
 coverage to the existing unsaved-draft preservation regression.
 The correction must pass all six exact-head CI checks independently.
+
+
+**Beginner guided quick-start for WHEN rules and THEN actions
+(November 7, 2026):** The Studio now exposes compact quick-start selectors
+alongside the existing full-featured +Condition and +Action tools.
+In WHEN, users can choose text appearing/disappearing or pixel/area
+colors matching/differing; the existing visual rule editor opens with
+the detector type and NOT flag preselected. In THEN, novice-friendly
+choices cover tap/double-tap, swipe, hold, tap-then-type, type into
+focused field, wait, Back/Home/Enter, game launch and completion marker.
+Each choice launches the existing validated action editor for
+review/confirmation, rather than sending device input. Screenshot
+capture is requested only for actions requiring a visual touch path;
+wait, keys, text into focused field, launch and completion no longer
+ask MuMu for a screenshot solely to construct that action.
+Legacy recorded gestures remain ahead of newly appended actions
+unless explicitly reset; the existing undo/redo, Save, and dry-run
+workflow handles the same saved manifest schema. Offscreen Qt
+regressions verify preset selection, no write/ADB side effects,
+safe cancellation and missing-frame behavior, undo/redo and
+settings-only persistence. No new runtime action types or CI gate
+relaxation; real Windows/MuMu acceptance remains pending.

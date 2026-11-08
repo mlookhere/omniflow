@@ -508,6 +508,25 @@ class OmniStudio(RecorderDialog):
             self._selection_buttons['rule'][name] = btn
         self.rules_list.currentRowChanged.connect(
             lambda _: self._update_selection_buttons('rule'))
+        rule_starter = QHBoxLayout()
+        rule_starter.addWidget(QLabel('Quick check:'))
+        self.rule_preset = QComboBox()
+        for label, kind, negate in (
+                ('Text appears', 'ocr', False),
+                ('Text disappears / is absent', 'ocr', True),
+                ('Pixel matches a color', 'pixel', False),
+                ('Pixel differs from a color', 'pixel', True),
+                ('Area matches a color', 'color', False),
+                ('Area differs from a color', 'color', True)):
+            self.rule_preset.addItem(label, (kind, negate))
+        rule_starter.addWidget(self.rule_preset, 1)
+        rule_starter_button = QPushButton('Set up check…')
+        rule_starter_button.setToolTip(
+            'Choose an example, select its target visually, then confirm. '
+            'Nothing runs on the emulator until the workflow is started.')
+        rule_starter_button.clicked.connect(self._add_guided_rule)
+        rule_starter.addWidget(rule_starter_button)
+        rule_col.addLayout(rule_starter)
         self._add_history_controls(rule_col)
         logic_row = QHBoxLayout()
         logic_row.addWidget(QLabel('Combine WHEN checks:'))
@@ -556,6 +575,31 @@ class OmniStudio(RecorderDialog):
             self._selection_buttons['action'][name] = btn
         self.actions_list.currentRowChanged.connect(
             lambda _: self._update_selection_buttons('action'))
+        action_starter = QHBoxLayout()
+        action_starter.addWidget(QLabel('Quick action:'))
+        self.action_preset = QComboBox()
+        for label, spec in (
+                ('Tap a button', {'kind': 'tap'}),
+                ('Double tap a button', {'kind': 'double_tap'}),
+                ('Swipe or drag', {'kind': 'swipe'}),
+                ('Press and hold', {'kind': 'hold'}),
+                ('Tap field and type text', {'kind': 'field_text'}),
+                ('Type in focused field', {'kind': 'text'}),
+                ('Wait one second', {'kind': 'wait', 'seconds': 1}),
+                ('Press Back', {'kind': 'back'}),
+                ('Press Home', {'kind': 'key', 'code': 3}),
+                ('Press Enter', {'kind': 'key', 'code': 66}),
+                ('Launch selected game', {'kind': 'launch'}),
+                ('Mark run complete', {'kind': 'count_run'})):
+            self.action_preset.addItem(label, spec)
+        action_starter.addWidget(self.action_preset, 1)
+        action_starter_button = QPushButton('Set up action…')
+        action_starter_button.setToolTip(
+            'Create an action using the screenshot where required, '
+            'then review and confirm it. Does not execute it.')
+        action_starter_button.clicked.connect(self._add_guided_action)
+        action_starter.addWidget(action_starter_button)
+        chain_col.addLayout(action_starter)
         reset=QPushButton('Use original recorded tap/drag only')
         reset.clicked.connect(self._reset_chain)
         chain_col.addWidget(reset)
@@ -827,10 +871,18 @@ class OmniStudio(RecorderDialog):
         return None
 
     def _add_rule(self):
+        self._create_rule()
+
+    def _add_guided_rule(self):
+        kind, negate = self.rule_preset.currentData()
+        self._create_rule({'type': kind, 'negate': negate})
+
+    def _create_rule(self, initial=None):
         image = self._editor_frame()
         if image is None:
             return
-        dialog=RuleEditor(self.canvas.boxes[0],parent=self,frame=image)
+        dialog=RuleEditor(self.canvas.boxes[0], initial=initial, parent=self,
+                          frame=image)
         if dialog.exec()==QDialog.Accepted:
             try:
                 result = dialog.result_rule()
@@ -893,13 +945,27 @@ class OmniStudio(RecorderDialog):
             self.extra_chain=[dict(g) for g in self.canvas.gestures if g]
 
     def _add_action(self):
-        default=None
-        gesture=next((g for g in self.canvas.gestures if g),None)
-        if gesture:default=gesture
+        default = next((g for g in self.canvas.gestures if g), None)
         image = self._editor_frame()
-        dialog=ActionEditor(default,parent=self,frame=image)
-        if dialog.exec()==QDialog.Accepted:
-            result = dialog.result_action()
+        self._create_action(default, image)
+
+    def _add_guided_action(self):
+        preset = self.action_preset.currentData()
+        requires_target = preset['kind'] in (
+            'tap', 'double_tap', 'swipe', 'hold', 'field_text')
+        image = self._editor_frame() if requires_target else None
+        if requires_target and image is None:
+            return
+        self._create_action(preset, image)
+
+    def _create_action(self, initial, image):
+        dialog = ActionEditor(initial, parent=self, frame=image)
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                result = dialog.result_action()
+            except (ValueError, KeyError) as exc:
+                QMessageBox.warning(self, 'Action', str(exc))
+                return
             self._remember_edit()
             self._ensure_chain()
             self.extra_chain.append(result)

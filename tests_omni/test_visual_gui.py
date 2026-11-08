@@ -244,6 +244,127 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_guided_rule_starters_preselect_detection_and_preserve_undo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('GuidedChecks', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'GuidedChecks', base=root)
+            try:
+                studio.canvas.load(self.frame)
+                studio.needs_recapture = False
+                for preset, selected in (
+                        (('ocr', True), {'type': 'ocr', 'negate': True,
+                                       'rect': [100, 200, 230, 300],
+                                       'text': 'CANCEL', 'regex': False}),
+                        (('pixel', False), {'type': 'pixel', 'negate': False,
+                                           'rect': [105, 215, 112, 222],
+                                           'point': [109, 218],
+                                           'bgr': [75, 75, 75],
+                                           'tolerance': 25})):
+                    studio.rule_preset.setCurrentIndex(
+                        studio.rule_preset.findData(preset))
+                    with (patch('omniflow.studio.RuleEditor') as editor,
+                          patch('omniflow.devices.Device.screenshot') as capture,
+                          patch('swordx.workflows._write_manifest') as write):
+                        editor.return_value.exec.return_value = QDialog.Accepted
+                        editor.return_value.result_rule.return_value = selected
+                        studio._add_guided_rule()
+                        self.assertEqual(editor.call_args.kwargs['initial'],
+                                         {'type': preset[0], 'negate': preset[1]})
+                        capture.assert_not_called()
+                        write.assert_not_called()
+                    self.assertEqual(studio.extra_conditions[-1], selected)
+                self.assertEqual(len(studio.extra_conditions), 2)
+                studio._undo_edit()
+                self.assertEqual(len(studio.extra_conditions), 1)
+                studio._redo_edit()
+                self.assertEqual(len(studio.extra_conditions), 2)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_guided_actions_work_without_capture_when_no_target_is_needed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('GuidedActions', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('127.0.0.1:16384', 'GuidedActions', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                # A preset must be reviewed and confirmed; merely picking one
+                # never issues Android input or writes the manifest.
+                for preset, expected in (
+                        ('wait', {'kind': 'wait', 'seconds': 1}),
+                        ('back', {'kind': 'key', 'code': 4}),
+                        ('count_run', {'kind': 'count_run'})):
+                    studio.action_preset.setCurrentIndex(
+                        next(i for i in range(studio.action_preset.count())
+                             if studio.action_preset.itemData(i)['kind'] == preset))
+                    with (patch('omniflow.studio.ActionEditor') as editor,
+                          patch('omniflow.devices.Device.screenshot') as capture,
+                          patch('swordx.workflows._write_manifest') as write):
+                        editor.return_value.exec.return_value = QDialog.Accepted
+                        editor.return_value.result_action.return_value = expected
+                        studio._add_guided_action()
+                        self.assertIsNone(editor.call_args.kwargs['frame'])
+                        capture.assert_not_called()
+                        write.assert_not_called()
+                    self.assertEqual(studio.extra_chain[-1], expected)
+                self.assertEqual(len(studio.extra_chain), 4)
+                self.assertEqual(studio.extra_chain[0]['kind'], 'tap')
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+                studio._undo_edit()
+                self.assertEqual(len(studio.extra_chain), 3)
+                studio._redo_edit()
+                self.assertEqual(len(studio.extra_chain), 4)
+                studio._save()
+                saved = json.loads((folder / 'manifest.json').read_text())
+                self.assertEqual(saved['actions'][key]['action_chain'],
+                                 studio.extra_chain)
+                self.assertFalse(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
+    def test_guided_touch_requires_a_screenshot_and_cancel_keeps_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('GuidedTap', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('', 'GuidedTap', base=root)
+            try:
+                with (patch('omniflow.studio.QMessageBox.information') as notice,
+                      patch('omniflow.studio.ActionEditor') as editor,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._add_guided_action()
+                    notice.assert_called_once()
+                    editor.assert_not_called()
+                    write.assert_not_called()
+                self.assertIsNone(studio.extra_chain)
+                self.assertFalse(studio._dirty)
+                studio.canvas.load(self.frame)
+                studio.needs_recapture = False
+                with (patch('omniflow.studio.ActionEditor') as editor,
+                      patch('swordx.workflows._write_manifest') as write):
+                    editor.return_value.exec.return_value = QDialog.Rejected
+                    studio._add_guided_action()
+                    self.assertEqual(editor.call_args.args[0],
+                                     {'kind': 'tap'})
+                    self.assertIsNotNone(editor.call_args.kwargs['frame'])
+                    write.assert_not_called()
+                self.assertIsNone(studio.extra_chain)
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_draft_condition_preflight_rejects_bad_regex_before_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
