@@ -122,6 +122,50 @@ class VisualCaptureTests(unittest.TestCase):
                              [first, second])
             self.assertEqual(len(content['states'][key]), 1)
 
+    def test_legacy_writer_gesture_preflight_agrees_with_record_step(self):
+        from swordx.workflows import validate_recorded_gesture
+
+        start, end = [100, 120], [180, 150]
+        unsupported = (
+            ({'kind': 'double_tap', 'point': [130, 140]},
+             'Gesture must be a tap or drag'),
+            ({'kind': 'hold', 'point': [130, 140], 'duration_ms': 650},
+             'Gesture must be a tap or drag'),
+            ({'kind': 'swipe', 'start': start, 'end': end,
+              'duration_ms': 650}, 'Gesture must be a tap or drag'),
+            ({'kind': 'drag', 'start': start, 'end': end,
+              'duration_ms': 75}, 'Drag duration must be 100'),
+            ({'kind': 'drag', 'start': start, 'end': end},
+             'Drag duration must be 100'),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_workflow('StrictLegacyGestures', Path(tmp))
+            manifest = folder / 'manifest.json'
+            original = manifest.read_bytes()
+            for gesture, reason in unsupported:
+                with self.subTest(gesture=gesture):
+                    with self.assertRaisesRegex(ValueError, reason):
+                        validate_recorded_gesture(gesture)
+                    with self.assertRaisesRegex(ValueError, reason):
+                        record_step(folder, 'Rejected', self.frame,
+                                    [(80, 100, 220, 170)],
+                                    gestures=[gesture])
+                    self.assertEqual(manifest.read_bytes(), original)
+                    self.assertEqual(list((folder / 'anchors').glob('*')), [])
+                    self.assertEqual(list((folder / 'captures').glob('*')), [])
+
+            for duration in (100, 10000):
+                with self.subTest(valid_duration=duration):
+                    gesture = {'kind': 'drag', 'start': start, 'end': end,
+                               'duration_ms': duration}
+                    validate_recorded_gesture(gesture)
+                    key = record_step(folder, 'Valid drag', self.frame,
+                                      [(80, 100, 220, 170)],
+                                      gestures=[gesture])
+                    saved = json.loads(manifest.read_text())
+                    self.assertEqual(saved['actions'][key]['gestures'],
+                                     [gesture])
+
     def test_priority_writers_validate_before_writes_and_keep_legacy_overrides(self):
         from swordx.workflows import update_step_settings
         with tempfile.TemporaryDirectory() as tmp:
