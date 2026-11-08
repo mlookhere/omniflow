@@ -771,6 +771,10 @@ class VisualStudioGuiTests(unittest.TestCase):
                     {'type': 'color', 'rect': [100, 200, 230, 300],
                      'bgr': [50, 50, 50], 'tolerance': -1,
                      'negate': True},
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                     'text': 'READY', 'regex': 'false'},
+                    {'type': 'color', 'rect': [100, 200, 230, 300],
+                     'bgr': [50, 50, 50], 'negate': 'false'},
                 ]
                 for bad_rule in invalid:
                     with self.subTest(rule=bad_rule):
