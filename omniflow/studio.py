@@ -15,8 +15,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFormLayout, QHeaderView,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QMessageBox, QPushButton, QSpinBox, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+                               QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from swordx.recorder import CaptureCanvas, RecorderDialog
 from .devices import android_text_argument
@@ -409,7 +409,8 @@ class ReplayResultsDialog(QDialog):
     def __init__(self, results: list[dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle('Saved screenshot recognition replay')
-        self.resize(1050, 540)
+        self.resize(1050, 680)
+        self._results = results
         layout = QVBoxLayout(self)
         matched = sum(item['status'] == 'matched' for item in results)
         tested = sum(item['status'] in ('matched', 'different', 'unknown')
@@ -447,6 +448,15 @@ class ReplayResultsDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.Stretch)
         header.setSectionResizeMode(5, QHeaderView.Stretch)
         layout.addWidget(self.table, 1)
+        layout.addWidget(QLabel('Recognition evidence for selected screenshot'))
+        self.evidence = QPlainTextEdit()
+        self.evidence.setReadOnly(True)
+        self.evidence.setMinimumHeight(145)
+        self.table.currentCellChanged.connect(
+            lambda row, _column, _old_row, _old_column: self._show_evidence(row))
+        layout.addWidget(self.evidence, 1)
+        if results:
+            self.table.setCurrentCell(0, 0)
         note = QLabel(
             'Offline, one-frame recognition and planned-action preview only. '
             'Real input requires two matching frames, fresh capture and session permission. '
@@ -456,6 +466,14 @@ class ReplayResultsDialog(QDialog):
         close = QDialogButtonBox(QDialogButtonBox.Close)
         close.rejected.connect(self.reject)
         layout.addWidget(close)
+
+    def _show_evidence(self, row: int):
+        if not 0 <= row < len(self._results):
+            self.evidence.clear()
+            return
+        item = self._results[row]
+        lines = item.get('evidence') or [item.get('reason') or 'No recognition evidence available']
+        self.evidence.setPlainText('\n'.join(lines))
 
 
 class OmniStudio(RecorderDialog):
