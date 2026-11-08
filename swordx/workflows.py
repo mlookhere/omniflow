@@ -34,9 +34,15 @@ def list_workflows(base: Path | None = None) -> dict[str, Path]:
 
 
 def _write_manifest(path: Path, content: dict) -> None:
-    temp = path.with_suffix('.tmp')
-    temp.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(temp, path)
+    # Each save stages its own file so overlapping writes never share a temp.
+    # A failed replacement must leave the previous manifest intact and not
+    # leave a stale staging file in the workflow folder.
+    temp = path.with_name(f'.{path.name}.{uuid4().hex}.tmp')
+    try:
+        temp.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def create_workflow(name: str, base: Path | None = None) -> Path:
