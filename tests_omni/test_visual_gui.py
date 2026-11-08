@@ -1184,6 +1184,56 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_image_match_status_invalidated_by_rule_mode_region_and_undo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('ImageStatusFreshness', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            record_step(folder, 'Ready', image,
+                        [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'ImageStatusFreshness', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                with (patch('omniflow.devices.Device.screenshot') as adb,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio.image_test_status.setText('MATCH: stale template')
+                    studio.rules_only.setChecked(True)
+                    self.assertIn('Condition-only mode',
+                                  studio.image_test_status.text())
+                    self.assertNotIn('MATCH:', studio.image_test_status.text())
+                    studio._undo_edit()
+                    self.assertFalse(studio.rules_only.isChecked())
+                    self.assertIn('Recheck saved image similarity',
+                                  studio.image_test_status.text())
+                    studio._redo_edit()
+                    self.assertTrue(studio.rules_only.isChecked())
+                    self.assertIn('Condition-only mode',
+                                  studio.image_test_status.text())
+                    studio.rules_only.setChecked(False)
+                    studio.image_test_status.setText('MATCH: stale template')
+                    studio.canvas.boxes[0] = (110, 210, 230, 310)
+                    studio.canvas.changed.emit()
+                    self.assertIn('Image regions changed',
+                                  studio.image_test_status.text())
+                    self.assertNotIn('MATCH:', studio.image_test_status.text())
+                    studio.image_test_status.setText('MATCH: stale template')
+                    studio._undo_edit()
+                    self.assertIn('Recheck saved image similarity',
+                                  studio.image_test_status.text())
+                    self.assertNotIn('MATCH:', studio.image_test_status.text())
+                    adb.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual(
+                    before, {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()})
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_image_confidence_read_only_score_before_saving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

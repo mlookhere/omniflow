@@ -1058,6 +1058,14 @@ class OmniStudio(RecorderDialog):
             marks = self._canvas_marks()
             if (marks != self._last_canvas_marks
                     and not self._loading and not self._history_busy):
+                if (marks['boxes'] != self._last_canvas_marks['boxes']
+                        and hasattr(self, 'image_test_status')):
+                    self.image_test_status.setText(
+                        'Image regions changed. Saved anchors are unchanged; '
+                        'save updated regions before testing combined image '
+                        'recognition.' if not self.rules_only.isChecked()
+                        else 'Condition-only mode: image matching is disabled '
+                             'for this draft.')
                 previous = self._edit_snapshot()
                 previous['canvas_marks'] = deepcopy(self._last_canvas_marks)
                 self._remember_edit(previous)
@@ -1173,6 +1181,10 @@ class OmniStudio(RecorderDialog):
                 self._progress()
             self._last_canvas_marks = self._canvas_marks()
             self._sync_image_controls()
+            self.image_test_status.setText(
+                'Condition-only mode: image matching is disabled for this draft.'
+                if self.rules_only.isChecked()
+                else 'Draft restored. Recheck saved image similarity.')
             self._refresh_extra(rule_row=snapshot['rule_row'],
                                 action_row=snapshot['action_row'])
         finally:
@@ -1202,6 +1214,10 @@ class OmniStudio(RecorderDialog):
         previous['rules_only'] = not checked
         self._remember_edit(previous)
         self._sync_image_controls()
+        self.image_test_status.setText(
+            'Condition-only mode: image matching is disabled for this draft.'
+            if checked else
+            'Image template enabled. Recheck saved image similarity.')
         self._field_changed()
 
     def _sync_image_controls(self):

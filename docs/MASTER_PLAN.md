@@ -1167,3 +1167,19 @@ to use a point picker, and only an accepted repick modernizes their
 coordinate representation. Existing cancellation, strict new target
 validation and file/device immutability are unchanged. Windows Qt
 regressions verify path versus point picker modes and both endpoints.
+
+**Invalidate stale image-MATCH statuses on draft mode/region/undo changes
+(current Studio iteration):** An earlier saved-template MATCH could remain
+visible when Studio switched to condition-only recognition, after moving
+the draft's image rectangles, or after restoring a prior draft snapshot.
+Even though full combined-draft matching already refused unsaved image
+templates, the individual image result could mislead visual authors.
+Studio now clears that result on condition-only mode changes, marks it
+stale after drawn anchor-region changes (saving is necessary before
+testing the revised template), and resets it on undo/redo. Existing
+recognition tests keep explicitly distinguishing read-only saved anchors
+from unsaved regions; screenshots, OCR, manifest files and Android
+input are never touched merely to invalidate status. Offscreen Windows
+Qt tests verify mode toggle, region editing and undo/redo never leave
+old MATCH verdicts visible. Physical Windows/MuMu acceptance and
+enforced branch protections remain outstanding.
