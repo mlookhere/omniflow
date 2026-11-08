@@ -300,6 +300,38 @@ class VisualStudioGuiTests(unittest.TestCase):
             finally:
                 studio.close()
 
+    def test_saved_inspection_validates_flags_before_live_emulator_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('UnsafeOCRFlags', root)
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            studio = OmniStudio('', 'UnsafeOCRFlags', base=root)
+            try:
+                studio.canvas.load(image)
+                studio.serial = '127.0.0.1:16384'
+                manifest = folder / 'manifest.json'
+                data = json.loads(manifest.read_text(encoding='utf-8'))
+                data['actions'][key]['conditions'] = [
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                     'text': 'READY', 'regex': 'false'}]
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                before = manifest.read_bytes()
+                with (patch('omniflow.studio.QMessageBox.warning') as warning,
+                      patch('omniflow.devices.Device') as device,
+                      patch('swordx.workflows._write_manifest') as write):
+                    studio._test_detection()
+                    warning.assert_called_once()
+                    device.assert_not_called()
+                    write.assert_not_called()
+                self.assertIn('Recognition regex must be true or false',
+                              warning.call_args.args[2])
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_saved_inspection_rejects_unsafe_matcher_configuration_without_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
