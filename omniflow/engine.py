@@ -100,6 +100,10 @@ def validate_condition(condition: dict) -> None:
     if not isinstance(condition, dict):
         raise WorkflowError('Recognition condition must be an object')
     kind = condition.get('type')
+    for flag in ('regex', 'negate'):
+        if flag in condition and type(condition[flag]) is not bool:
+            raise WorkflowError(
+                f'Recognition {flag} must be true or false')
     rect = condition.get('rect', [0, 0, *SIZE])
     if (not isinstance(rect, (list, tuple)) or len(rect) != 4 or
             any(type(v) is not int for v in rect)):
