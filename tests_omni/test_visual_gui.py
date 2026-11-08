@@ -455,6 +455,49 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_studio_failed_capture_encoding_leaves_no_partial_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('PartialCaptureStudio', root)
+            manifest = folder / 'manifest.json'
+            before = manifest.read_bytes()
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            studio = OmniStudio('', 'PartialCaptureStudio', base=root)
+            try:
+                studio.canvas.load(image)
+                studio.canvas.boxes[0] = (100, 200, 230, 300)
+                studio.canvas.gestures[0] = {'kind': 'tap', 'point': [150, 250]}
+                studio.step_name.setText('Ready')
+                writes = []
+
+                def interrupted_encoder(path, *_args):
+                    target = Path(path)
+                    writes.append(target)
+                    target.write_bytes(b'partial encoded image')
+                    return target.parent.name != 'captures'
+
+                with (patch('swordx.workflows.cv2.imwrite',
+                            side_effect=interrupted_encoder),
+                      patch('swordx.workflows._write_manifest') as save,
+                      patch('swordx.recorder.QMessageBox.warning') as warning):
+                    studio._save()
+                    warning.assert_called_once()
+                    save.assert_not_called()
+                self.assertIn('Cannot save state screenshot',
+                              warning.call_args.args[2])
+                self.assertEqual(len(writes), 2)
+                self.assertTrue(all(not path.exists() for path in writes))
+                self.assertFalse(list((folder / 'anchors').iterdir()))
+                self.assertFalse(list((folder / 'captures').iterdir()))
+                self.assertEqual(manifest.read_bytes(), before)
+                self.assertEqual(studio.steps.count(), 0)
+                self.assertTrue(studio._dirty)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_studio_new_state_refuses_unsafe_screenshot_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
