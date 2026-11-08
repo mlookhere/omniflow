@@ -1424,7 +1424,19 @@ class OmniStudio(RecorderDialog):
         if hasattr(self, 'action_preview_status'):
             self.action_preview_status.setText(
                 'Unsaved actions can be checked before saving or running.')
-        self.canvas.extra_zones = [dict(item) for item in self.extra_conditions]
+        # Invalid imported rules stay in the list for removal, but must
+        # not reach the canvas painter as malformed rectangles.
+        overlays = []
+        for item in self.extra_conditions:
+            if not isinstance(item, dict) or not isinstance(
+                    item.get('rect'), (list, tuple)):
+                continue
+            try:
+                validate_zone(item['rect'])
+            except (TypeError, ValueError):
+                continue
+            overlays.append(dict(item))
+        self.canvas.extra_zones = overlays
         self.canvas.update()
         for rule in self.extra_conditions:
             self.rules_list.addItem(condition_summary(rule))
@@ -1495,6 +1507,11 @@ class OmniStudio(RecorderDialog):
     def _edit_rule(self):
         row=self.rules_list.currentRow()
         if row<0:return
+        if not isinstance(self.extra_conditions[row], dict):
+            QMessageBox.warning(
+                self, 'Invalid rule',
+                'This rule is not an object. Remove it and add a valid rule.')
+            return
         image = self._editor_frame()
         dialog=RuleEditor(initial=self.extra_conditions[row],parent=self,frame=image)
         if dialog.exec()==QDialog.Accepted:
