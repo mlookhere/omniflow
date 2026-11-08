@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -52,6 +53,83 @@ class WorkflowEditorTests(unittest.TestCase):
         runner = Runner(device, detector, Settings(package='com.example.sword', diagnostics=False), lambda _: None)
         runner.step(100)
         self.assertEqual(device.taps, [(440, 800)])
+
+    def test_load_step_rejects_unsafe_capture_before_reading_any_images(self):
+        key = record_step(self.folder, 'Safe capture', frame(), [BOX_A],
+                          taps=[(110, 200)])
+        manifest = self.folder / 'manifest.json'
+        original = self.metadata()
+        for bad_name in ('../outside.png', r'..\\outside.png', '/tmp/other.png',
+                         'C:outside.png', '.', ''):
+            with self.subTest(capture=bad_name):
+                data = json.loads(json.dumps(original))
+                data['actions'][key]['capture'] = bad_name
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                with patch('swordx.workflows.cv2.imread') as read:
+                    with self.assertRaisesRegex(ValueError, 'Unsafe saved captures'):
+                        load_step(self.folder, key)
+                    read.assert_not_called()
+        manifest.write_text(json.dumps(original), encoding='utf-8')
+        self.assertFalse(load_step(self.folder, key)[0].get('_needs_recapture'))
+
+    def test_load_step_rejects_unsafe_anchor_even_when_capture_exists(self):
+        key = record_step(self.folder, 'Safe anchor', frame(), [BOX_A],
+                          taps=[(110, 200)])
+        manifest = self.folder / 'manifest.json'
+        original = self.metadata()
+        for bad_name in ('../outside.png', '/tmp/other.png', r'..\\outside.png',
+                         'C:outside.png'):
+            with self.subTest(anchor=bad_name):
+                data = json.loads(json.dumps(original))
+                data['states'][key][0]['file'] = bad_name
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                with patch('swordx.workflows.cv2.imread') as read:
+                    with self.assertRaisesRegex(ValueError, 'Unsafe saved anchors'):
+                        load_step(self.folder, key)
+                    read.assert_not_called()
+        for rect in ([20, 20, 20, 30], [0, 0, 541, 80],
+                     [0, 0, '12', 50], [0, 0, 50]):
+            with self.subTest(rect=rect):
+                data = json.loads(json.dumps(original))
+                data['states'][key][0]['rect'] = rect
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                with patch('swordx.workflows.cv2.imread') as read:
+                    with self.assertRaisesRegex(ValueError, 'Invalid saved template 1 region'):
+                        load_step(self.folder, key)
+                    read.assert_not_called()
+        manifest.write_text(json.dumps(original), encoding='utf-8')
+        self.assertEqual(load_step(self.folder, key)[1], [BOX_A])
+
+    def test_load_step_blocks_image_symlink_escape_and_keeps_legacy_fallback(self):
+        key = record_step(self.folder, 'Safe legacy', frame(), [BOX_A],
+                          taps=[(110, 200)])
+        manifest = self.folder / 'manifest.json'
+        original = self.metadata()
+        with tempfile.TemporaryDirectory() as elsewhere:
+            outside = Path(elsewhere) / 'image.jpg'
+            outside.write_bytes((self.folder / 'captures' /
+                                 original['actions'][key]['capture']).read_bytes())
+            link = self.folder / 'captures' / 'escaped.jpg'
+            try:
+                link.symlink_to(outside)
+            except (NotImplementedError, OSError):
+                pass  # Windows symlinks may require elevated privileges.
+            else:
+                data = json.loads(json.dumps(original))
+                data['actions'][key]['capture'] = link.name
+                manifest.write_text(json.dumps(data), encoding='utf-8')
+                with patch('swordx.workflows.cv2.imread') as read:
+                    with self.assertRaisesRegex(ValueError, 'resolves outside workflow'):
+                        load_step(self.folder, key)
+                    read.assert_not_called()
+        # Missing or legacy capture still uses the existing template fallback.
+        original['actions'][key].pop('capture')
+        manifest.write_text(json.dumps(original), encoding='utf-8')
+        info, boxes, taps, image = load_step(self.folder, key)
+        self.assertTrue(info['_needs_recapture'])
+        self.assertEqual(boxes, [BOX_A])
+        self.assertEqual(taps, [(110, 200)])
+        self.assertEqual(image.shape, (960, 540, 3))
 
     def test_two_region_pairs_alternate_and_route_the_correct_tap(self):
         source = frame()
