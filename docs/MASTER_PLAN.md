@@ -1245,3 +1245,18 @@ routes with zero-byte and sparse oversized files, verifies no image decode,
 OCR or device commands, and confirms normal anchors still recognize.
 Physical Windows/MuMu acceptance and enforced required dev checks remain
 unverified; the PR stays draft/unmerged.
+
+**Pixel recognition zone/point consistency (current Studio increment):**
+Imported, copied and authored pixel conditions now require the sampled
+pixel to lie inside their selected rectangular zone (inclusive left/top,
+exclusive right/bottom). Previously the zone could indicate one feature
+while live recognition actually sampled a different part of the screen,
+including a negated rule; such a mismatch could produce a false action.
+The existing default full-screen zone still accepts legacy pixel rules
+that omit a rectangle, and valid screen-edge selections remain supported.
+The shared recognition preflight rejects inconsistent rules before
+offline preview OCR, Studio Save, or live detector startup. Pure engine
+tests cover positive boundary behavior, default full-screen rules and
+fail-closed invalid/negated imports; offscreen Qt regressions verify the
+invalid rule is rejected without OCR, emulator capture or manifest edits.
+Real MuMu acceptance and enforced required `dev` checks remain outstanding.
