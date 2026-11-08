@@ -1671,11 +1671,21 @@ class OmniStudio(RecorderDialog):
             # The recorder can save new/recaptured legacy gestures only as
             # one touch per image region. Existing untouched imported formats
             # retain their historical runtime preview.
-            if (not self.editing_key or self._visual_dirty) and len(choices) != regions:
-                raise WorkflowError(
-                    'Each detection region needs one legacy tap/drag. '
-                    'Use an explicit action sequence for multiple steps '
-                    'on one image region')
+            if not self.editing_key or self._visual_dirty:
+                if len(choices) != regions:
+                    raise WorkflowError(
+                        'Each detection region needs one legacy tap/drag. '
+                        'Use an explicit action sequence for multiple steps '
+                        'on one image region')
+                if self.canvas.boxes[0] is None:
+                    raise WorkflowError(
+                        'Draw detection Region 1 before previewing legacy actions')
+                for index, (box, gesture) in enumerate(
+                        zip(self.canvas.boxes, self.canvas.gestures), 1):
+                    if (box is None) != (gesture is None):
+                        raise WorkflowError(
+                            f'Region {index} needs its own paired tap/drag '
+                            'or both region and gesture must be removed')
         chain = resolve_action_chain(action, regions)
         steps = describe_action_plan(action, chain)
         paired = (legacy and regions > 1 and len(action['gestures']) > 1)
