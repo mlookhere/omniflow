@@ -1306,3 +1306,20 @@ rectangles, list visibility, canvas repaint, refusal to test/save, safe
 removal, and unchanged stored workflow bytes. This improves Studio
 resilience, not recognition semantics or real MuMu acceptance.
 Required `dev` status protection and physical hardware checks still block merge.
+
+**Fail-closed editing of malformed unsaved entries (current Studio increment):**
+Studio now runs the same strict recognition/action validators before
+opening existing draft RuleEditor and ActionEditor dialogs. Previously
+malformed imported/copied rules (e.g., a null or noninteger rectangle)
+and actions (e.g., dict/list/string gesture duration) could pass a
+safe list display but throw when the modal editor tried to initialize
+its controls. Invalid entries stay visible and removable; requesting
+Edit instead produces an explicit replacement instruction without
+requesting an emulator screenshot, constructing a modal editor, or
+overwriting the unsaved draft. Valid entries continue to use the normal
+visual editing path. In addition, ActionEditor result extraction now
+handles invalid dialog return values by warning rather than throwing.
+Offscreen Qt regressions check both editors and invariants; all
+original strict preview, Save and runtime validation remain enforced.
+Real Windows/MuMu acceptance and `dev` required-check protection
+are still outstanding.
