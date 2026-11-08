@@ -16,8 +16,8 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QSpinBox
-    from omniflow.studio import (ActionEditor, RuleEditor, ZoneCaptureDialog,
-                                 OmniStudio, ReplayResultsDialog)
+    from omniflow.studio import (ActionEditor, ActionMapDialog, RuleEditor,
+                                 ZoneCaptureDialog, OmniStudio, ReplayResultsDialog)
     from swordx import workflows
     from swordx.workflows import create_workflow, record_step
     QT = True
