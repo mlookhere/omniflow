@@ -820,6 +820,92 @@ class VisualStudioGuiTests(unittest.TestCase):
                     finally:
                         studio.close()
 
+    def test_invalid_imported_recognition_settings_preserve_unsaved_editor(self):
+        invalid = [
+            ('match', 'neither', 'image match mode must be all or any'),
+            ('threshold', float('nan'), 'image threshold must be a finite number'),
+            ('priority', 'high', 'priority must be a finite number'),
+            ('skip_template', True, 'condition-only recognition needs a condition'),
+        ]
+        for field, value, error in invalid:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    folder = create_workflow('InvalidMatcherImport', root)
+                    image = self.frame.copy()
+                    image[200:300, 100:230] = np.random.default_rng(59).integers(
+                        0, 256, (100, 130, 3), dtype=np.uint8)
+                    first = record_step(folder, 'First', image,
+                                        [(100, 200, 230, 300)], taps=[(150, 250)])
+                    second = record_step(folder, 'Second', image,
+                                         [(100, 200, 230, 300)], taps=[(150, 250)])
+                    studio = OmniStudio('', 'InvalidMatcherImport', base=root)
+                    try:
+                        studio.steps.setCurrentRow(0)
+                        self.assertEqual(studio.editing_key, first)
+                        rule = {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                                'text': 'draft'}
+                        studio.extra_conditions = [rule]
+                        studio.extra_chain = [{'kind': 'wait', 'seconds': 2}]
+                        studio._refresh_extra()
+                        studio.step_name.setText('Unsaved name')
+                        studio._field_changed()
+                        self.assertTrue(studio._dirty)
+                        manifest = folder / 'manifest.json'
+                        content = json.loads(manifest.read_text(encoding='utf-8'))
+                        content['actions'][second][field] = value
+                        manifest.write_text(json.dumps(content), encoding='utf-8')
+                        before = manifest.read_bytes()
+                        with (patch.object(studio, '_confirm_discard') as discard,
+                              patch('swordx.recorder.QMessageBox.warning') as warning,
+                              patch('swordx.workflows.cv2.imread') as image_read,
+                              patch('swordx.workflows._write_manifest') as write):
+                            studio.steps.setCurrentRow(1)
+                            discard.assert_not_called()
+                            image_read.assert_not_called()
+                            write.assert_not_called()
+                            warning.assert_called_once()
+                        self.assertIn(error, warning.call_args.args[2])
+                        self.assertEqual(studio.steps.currentRow(), 0)
+                        self.assertEqual(studio.editing_key, first)
+                        self.assertEqual(studio.step_name.text(), 'Unsaved name')
+                        self.assertEqual(studio.extra_conditions, [rule])
+                        self.assertEqual(studio.extra_chain,
+                                         [{'kind': 'wait', 'seconds': 2}])
+                        self.assertTrue(studio._dirty)
+                        self.assertEqual(manifest.read_bytes(), before)
+                    finally:
+                        with patch('swordx.recorder.QMessageBox.question',
+                                   return_value=QMessageBox.Yes):
+                            studio.close()
+
+    def test_invalid_other_state_does_not_block_opening_valid_saved_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('IsolatedMatcherImport', root)
+            image = self.frame.copy()
+            image[200:300, 100:230] = np.random.default_rng(59).integers(
+                0, 256, (100, 130, 3), dtype=np.uint8)
+            first = record_step(folder, 'First', image,
+                                [(100, 200, 230, 300)], taps=[(150, 250)])
+            second = record_step(folder, 'Broken', image,
+                                 [(100, 200, 230, 300)], taps=[(150, 250)])
+            manifest = folder / 'manifest.json'
+            content = json.loads(manifest.read_text(encoding='utf-8'))
+            content['actions'][second]['match'] = 'invalid'
+            manifest.write_text(json.dumps(content), encoding='utf-8')
+            before = manifest.read_bytes()
+            studio = OmniStudio('', 'IsolatedMatcherImport', base=root)
+            try:
+                with patch('swordx.recorder.QMessageBox.warning') as warning:
+                    studio.steps.setCurrentRow(0)
+                    warning.assert_not_called()
+                self.assertEqual(studio.editing_key, first)
+                self.assertFalse(studio._dirty)
+                self.assertEqual(manifest.read_bytes(), before)
+            finally:
+                studio.close()
+
     def test_valid_imported_studio_rules_and_chain_still_load(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

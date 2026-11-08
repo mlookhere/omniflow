@@ -727,3 +727,20 @@ valid saved detection remains covered by its existing read-only test.
 This is one-frame diagnostic parity, not live hardware acceptance.
 Required-check enforcement on protected dev and real Windows/MuMu
 validation remain outstanding.
+
+
+**Imported saved-state matcher preflight before draft discard (November 7,
+2026):** The Studio saved-state selector already rejected malformed imported
+WHEN rules and THEN chains before prompting to discard current edits, but
+could still activate a state with unsafe recognition settings such as a NaN
+threshold, unsupported image match mode, non-numeric priority, or
+condition-only mode without any WHEN conditions. The editor now reuses the
+production `validate_recognition_manifest` preflight on an isolated view of
+the selected destination state before reading image files or asking to discard
+an unsaved draft. A different broken state in the same workflow does not
+prevent opening a valid state for repairs. Two offscreen Windows Qt regression
+tests cover imported recognition faults, retained unsaved rules/actions/name,
+no screenshot reads, no manifest writes and valid-state isolation. The runtime
+continues to validate the entire workflow on start; this UI guard does not
+weaken that gate. Physical Windows/MuMu acceptance and enforced required
+checks on protected `dev` remain outstanding.

@@ -701,8 +701,18 @@ class OmniStudio(RecorderDialog):
             try:
                 manifest = json.loads(
                     (self._folder() / 'manifest.json').read_text(encoding='utf-8'))
-                action = manifest['actions'][current.data(Qt.UserRole)]
+                key = current.data(Qt.UserRole)
+                action = manifest['actions'][key]
                 self._validate_saved_studio_fields(action)
+                # Apply the same recognition preflight as the runner, but
+                # isolate the destination state. A broken *other* state must
+                # not prevent editing this valid state to repair a workflow.
+                from .engine import validate_recognition_manifest
+                validate_recognition_manifest({
+                    'states': {key: manifest['states'][key]},
+                    'actions': {key: action},
+                    'threshold': manifest.get('threshold', 0.82),
+                })
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 # An invalid imported rule/step must not replace the selected
                 # state, discard an unsaved draft, or enter Qt list rendering.
