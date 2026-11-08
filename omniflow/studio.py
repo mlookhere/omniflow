@@ -906,6 +906,7 @@ class OmniStudio(RecorderDialog):
     def _test_detection(self):
         from .devices import Device
         from .engine import OmniDetector, WorkflowError
+        from .replay import describe_recognition_evidence
         from swordx.adb import ADBError
         folder=self._folder()
         if folder is None:
@@ -924,20 +925,7 @@ class OmniStudio(RecorderDialog):
                 return
             result, states = detector.inspect(screenshot)
             kind = 'WAIT · no action' if result.passive else 'ACTION' if result.key else 'UNKNOWN'
-            lines = []
-            for state in states:
-                image = (f"Image {state['template_confidence']:.0%} "
-                         f"(minimum {state['threshold']:.0%})"
-                         if state['has_template'] else 'Condition-only')
-                lines.append(f"{state['label']}: {state['status']} — {image}")
-                rules = detector.actions[state['key']].get('conditions', [])
-                outcomes = state['condition_results']
-                if outcomes is None and rules and state['status'] == 'template below threshold':
-                    lines.append('  Conditions not evaluated: image threshold failed')
-                elif outcomes is not None:
-                    for passed, rule in zip(outcomes, rules):
-                        lines.append(
-                            f"  {'PASS' if passed else 'FAIL'} — {condition_summary(rule)}")
+            lines = describe_recognition_evidence(detector, states)
             message = QMessageBox(self)
             message.setWindowTitle('Recognition test')
             message.setIcon(QMessageBox.Information)
@@ -946,8 +934,9 @@ class OmniStudio(RecorderDialog):
                 'Saved workflow inspected on one screenshot. No actions were executed.')
             message.setDetailedText('\n'.join(lines))
             message.exec()
-        except (ADBError,WorkflowError,OSError,ValueError) as exc:
-            QMessageBox.warning(self,'Recognition test',str(exc))
+        except (ADBError, WorkflowError, OSError, ValueError,
+                KeyError, TypeError, cv2.error) as exc:
+            QMessageBox.warning(self, 'Recognition test', str(exc))
 
     def _replay_saved_screenshots(self):
         """Audit saved captures offline; never read from or control the emulator."""
