@@ -111,6 +111,9 @@ def replay_saved_captures(folder: Path) -> list[dict]:
                 frame.shape[2] != 3 or frame.dtype != np.uint8 or not frame.size):
             item['reason'] = 'Saved screenshot is unreadable'
             continue
+        if frame.shape != (960, 540, 3):
+            item['reason'] = 'Saved screenshot must be a normalized 540×960 color image'
+            continue
         try:
             winner, details = detector.inspect(frame)
             plan = describe_selected_actions(detector, winner.key, winner.trigger)
