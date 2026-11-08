@@ -3624,6 +3624,40 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_pixel_outside_zone_fails_before_unsaved_ocr_or_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('PixelPreflight', root)
+            before = (folder / 'manifest.json').read_bytes()
+            studio = OmniStudio('127.0.0.1:16384', 'PixelPreflight', base=root)
+            try:
+                studio.extra_conditions = [
+                    {'type': 'ocr', 'rect': [100, 200, 230, 300],
+                     'text': 'READY'},
+                    {'type': 'pixel', 'rect': [100, 200, 230, 300],
+                     'point': [250, 250], 'bgr': [75, 75, 75],
+                     'negate': True},
+                ]
+                with (patch('omniflow.engine.OCREngine.read') as ocr,
+                      patch('omniflow.devices.Device.screenshot') as capture,
+                      patch('swordx.workflows._write_manifest') as write,
+                      patch('omniflow.studio.QMessageBox.warning') as warning):
+                    studio._test_draft_conditions()
+                    self.assertIn('Condition 2:', studio.rule_test_status.text())
+                    self.assertIn('must lie inside its recognition zone',
+                                  studio.rule_test_status.text())
+                    studio._save()
+                    self.assertEqual(warning.call_args.args[1], 'Rules')
+                    self.assertIn('Condition 2:', warning.call_args.args[2])
+                    ocr.assert_not_called()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual((folder / 'manifest.json').read_bytes(), before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_studio_rejects_invalid_draft_recognition_rules_without_saving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3642,6 +3676,9 @@ class VisualStudioGuiTests(unittest.TestCase):
                      'text': '[', 'regex': True},
                     {'type': 'pixel', 'rect': [100, 200, 230, 300],
                      'point': [540, 250], 'bgr': [50, 50, 50]},
+                    {'type': 'pixel', 'rect': [100, 200, 230, 300],
+                     'point': [250, 250], 'bgr': [50, 50, 50],
+                     'negate': True},
                     {'type': 'color', 'rect': [100, 200, 230, 300],
                      'bgr': [50, 50, 50], 'tolerance': -1,
                      'negate': True},
