@@ -342,6 +342,13 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
             action['skip_template'] = True
         else:
             action.pop('skip_template', None)
+        mode = studio.get('condition_match', 'all')
+        if mode not in ('all', 'any'):
+            raise ValueError('Condition match mode must be all or any')
+        if mode == 'any':
+            action['condition_match'] = mode
+        else:
+            action.pop('condition_match', None)
     if max_extra_taps:
         action['max_extra_taps'] = max_extra_taps
     else:
@@ -372,7 +379,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
                 retry_mode: str = 'interval', retry_interval_seconds: int = 25,
                 passive: bool = False, max_extra_taps: int = 0,
                 action_chain: list[dict] | None = None,
-                conditions: list[dict] | None = None, condition_only: bool = False) -> str:
+                conditions: list[dict] | None = None, condition_only: bool = False,
+                condition_match: str = 'all') -> str:
     """Save 1–2 region/gesture pairs. Gesture can be tap or timed drag.
 
     ``click`` and ``taps`` retain the v1.2 API for old workflow clients.
@@ -390,6 +398,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
         raise ValueError('Select one or two detection regions')
     if condition_only and not conditions:
         raise ValueError('Condition-only states require a recognition condition')
+    if condition_match not in ('all', 'any'):
+        raise ValueError('Condition match mode must be all or any')
     if condition_only and not passive and not action_chain and not gestures and not taps and not click:
         raise ValueError('An action state needs a gesture or an action sequence')
     if passive:
@@ -505,6 +515,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
             action['action_chain'] = [dict(step) for step in action_chain]
         if conditions:
             action['conditions'] = [dict(condition) for condition in conditions]
+        if condition_match == 'any':
+            action['condition_match'] = condition_match
         if condition_only:
             action['skip_template'] = True
         if gestures is not None:

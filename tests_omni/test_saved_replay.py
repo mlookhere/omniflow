@@ -55,6 +55,25 @@ class SavedReplayTests(unittest.TestCase):
             before, {file.relative_to(self.folder): file.read_bytes()
                      for file in self.folder.rglob('*') if file.is_file()})
 
+    def test_replay_explains_any_condition_logic(self):
+        key = record_step(
+            self.folder, 'Either cue', self.frame, [],
+            condition_only=True, condition_match='any',
+            conditions=[
+                {'type': 'color', 'rect': [90, 130, 240, 255],
+                 'bgr': [15, 225, 20], 'tolerance': 255},
+                {'type': 'color', 'rect': [90, 130, 240, 255],
+                 'bgr': [0, 0, 0], 'tolerance': 0},
+            ],
+            action_chain=[{'kind': 'tap', 'point': [150, 210]}],
+        )
+        result = replay_saved_captures(self.folder)[0]
+        self.assertEqual(result['expected_key'], key)
+        self.assertEqual(result['status'], 'matched')
+        self.assertIn('WHEN rules: any one may pass (OR)', result['evidence'])
+        self.assertIn('PASS', '\n'.join(result['evidence']))
+        self.assertIn('FAIL', '\n'.join(result['evidence']))
+
     def test_passive_wait_overrides_actionable_state_on_saved_capture(self):
         action_key = self.record('Tap')
         wait_key = self.record('Wait', passive=True)

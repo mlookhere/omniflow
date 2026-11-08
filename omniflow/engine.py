@@ -229,6 +229,8 @@ def validate_recognition_manifest(manifest: dict) -> None:
         mode = action.get('match', 'all')
         if mode not in ('all', 'any'):
             raise WorkflowError(f'{prefix}: image match mode must be all or any')
+        if action.get('condition_match', 'all') not in ('all', 'any'):
+            raise WorkflowError(f'{prefix}: condition match mode must be all or any')
         finite_number(action.get('threshold', manifest.get('threshold', 0.82)),
                       f'{prefix} image threshold', unit_interval=True)
         finite_number(action.get('priority', 0), f'{prefix} priority')
@@ -392,10 +394,12 @@ class OmniDetector:
                 raise WorkflowError(f'State {key} needs a template or a condition')
             if conditions:
                 outcomes = [_condition(image, cond, cache) for cond in conditions]
-                confidence = min(confidence, min(outcomes))
+                passed = (all(outcomes) if action.get('condition_match', 'all') == 'all'
+                          else any(outcomes))
+                confidence = min(confidence, float(passed))
                 if explain:
                     detail['condition_results'] = [bool(value) for value in outcomes]
-                if min(outcomes) == 0:
+                if not passed:
                     if explain:
                         detail['status'] = 'conditions failed'
                         details.append(detail)

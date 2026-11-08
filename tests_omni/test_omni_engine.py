@@ -889,6 +889,40 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(states[1]['status'], 'conditions failed')
         self.assertEqual(states[1]['condition_results'], [False])
 
+    def test_condition_match_any_or_and_keep_template_gate(self):
+        region = [155, 712, 434, 810]
+        conditions = [
+            {'type': 'ocr', 'rect': region, 'text': 'READY'},
+            {'type': 'ocr', 'rect': region, 'text': 'CANCEL'},
+        ]
+        self.change(self.key, conditions=conditions)
+        # Isolate this state's semantics from the competing WAIT.
+        data = json.loads((self.folder / 'manifest.json').read_text())
+        data['states'].pop(self.wait)
+        data['actions'].pop(self.wait)
+        (self.folder / 'manifest.json').write_text(json.dumps(data))
+        with patch('omniflow.engine.OCREngine.read', return_value='READY'):
+            detector = OmniDetector(self.folder)
+            chosen, details = detector.inspect(self.match)
+            self.assertEqual(chosen.key, '')
+            self.assertEqual(details[0]['condition_results'], [True, False])
+            self.assertEqual(details[0]['status'], 'conditions failed')
+        self.change(self.key, condition_match='any')
+        with patch('omniflow.engine.OCREngine.read', return_value='READY'):
+            detector = OmniDetector(self.folder)
+            selected, details = detector.inspect(self.match)
+            self.assertEqual(selected.key, self.key)
+            self.assertEqual(details[0]['condition_results'], [True, False])
+            self.assertEqual(details[0]['status'], 'selected')
+            self.assertEqual(detector.detect(self.match).key, self.key)
+        with (patch('omniflow.engine.OCREngine.read') as ocr,
+              patch.object(OmniDetector, '_match_template', return_value=0.0)):
+            self.assertEqual(OmniDetector(self.folder).detect(self.match).key, '')
+            ocr.assert_not_called()
+        self.change(self.key, condition_match='unknown')
+        with self.assertRaisesRegex(WorkflowError, 'condition match mode'):
+            OmniDetector(self.folder)
+
     def test_inspect_does_not_evaluate_ocr_when_template_fails(self):
         self.change(self.key, conditions=[
             {'type': 'ocr', 'rect': [155, 712, 434, 810], 'text': 'READY'}])

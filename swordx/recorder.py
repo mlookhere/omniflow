@@ -902,6 +902,8 @@ class RecorderDialog(QDialog):
         visual_edit = self.editing_key is None or self._visual_dirty
         condition_only = bool(getattr(self, 'rules_only', None) and self.rules_only.isChecked())
         have_conditions = bool(getattr(self, 'extra_conditions', []))
+        condition_match = (self.condition_logic.currentData()
+                           if hasattr(self, 'condition_logic') else 'all')
         if visual_edit:
             if self.canvas.frame is None or self.needs_recapture:
                 QMessageBox.information(self, 'Screen capture',
@@ -935,7 +937,8 @@ class RecorderDialog(QDialog):
                                   max_extra_taps=self.max_extra_taps.value(),
                                   action_chain=getattr(self, 'extra_chain', None),
                                   conditions=getattr(self, 'extra_conditions', []),
-                                  condition_only=condition_only)
+                                  condition_only=condition_only,
+                                  condition_match=condition_match)
             else:
                 key = self.editing_key
                 # Studio-only fields participate in the same atomic settings
@@ -944,6 +947,7 @@ class RecorderDialog(QDialog):
                     'action_chain': self.extra_chain,
                     'conditions': self.extra_conditions,
                     'skip_template': condition_only,
+                    'condition_match': condition_match,
                 } if hasattr(self, 'extra_conditions') else None)
                 update_step_settings(folder, key, self.step_name.text(),
                                      end=self.terminal.isChecked(), retry=self.retry.isChecked(),

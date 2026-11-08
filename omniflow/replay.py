@@ -55,6 +55,10 @@ def describe_recognition_evidence(detector: OmniDetector,
         lines.append(f"{state['label']} [{kind}]: {state['status']} — {image}")
         rules = detector.actions[state['key']].get('conditions', [])
         outcomes = state['condition_results']
+        if rules:
+            mode = detector.actions[state['key']].get('condition_match', 'all')
+            lines.append('  WHEN rules: all must pass (AND)' if mode == 'all'
+                         else '  WHEN rules: any one may pass (OR)')
         if rules and outcomes is None:
             lines.append('  Conditions not evaluated: image threshold failed')
         elif outcomes is not None:
