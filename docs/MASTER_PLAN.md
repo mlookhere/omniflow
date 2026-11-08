@@ -1217,3 +1217,16 @@ files, and an offscreen Qt regression covers edit/undo, score suppression,
 read-only behavior and intact existing captures. Live recognition, condition
 rules and template thresholds remain unchanged; hardware validation and
 enforced dev checks are still required before merge.
+
+**Bounded offline saved-capture decoding (current Studio increment):**
+Saved-screenshot replay, unsaved WHEN batch audits, and saved-action maps now
+reject zero-byte and greater-than-32-MiB recorded captures before calling
+OpenCV to decode the file. This reuses the existing manual screenshot-import
+size ceiling and reports the affected capture as unavailable, not matched.
+The read-only source tests exercise empty and sparse oversized captures
+through all three replay paths, assert no capture decoding, recognition,
+device input or manifest writes, and preserve normal saved screenshot replay.
+This is an input file-size guard, not a guarantee against every compressed
+image decompression hazard; normalized 540×960 frame checks still apply after
+decoding. Live capture, matching thresholds and hardware acceptance remain
+unchanged; dev required-status enforcement must still be enabled before merge.
