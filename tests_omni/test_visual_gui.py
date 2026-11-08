@@ -3666,6 +3666,59 @@ class VisualStudioGuiTests(unittest.TestCase):
                            return_value=QMessageBox.Yes):
                     studio.close()
 
+    def test_malformed_unsaved_action_remains_visible_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = create_workflow('InvalidDraftAction', root)
+            image = self.frame.copy()
+            image[215:275, 115:200] = (5, 230, 25)
+            key = record_step(folder, 'Ready', image,
+                              [(100, 200, 230, 300)], taps=[(150, 250)])
+            before = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*') if p.is_file()}
+            studio = OmniStudio('', 'InvalidDraftAction', base=root)
+            try:
+                studio.steps.setCurrentRow(0)
+                self.assertEqual(studio.editing_key, key)
+                for bad in (
+                    {'kind': 'hold', 'point': [150, 250],
+                     'duration_ms': ['650']},
+                    {'kind': 'swipe', 'start': [130, 225],
+                     'end': [165, 265], 'duration_ms': {'ms': 650}},
+                    ['tap'],
+                ):
+                    with self.subTest(action=bad):
+                        studio.extra_chain = [bad]
+                        studio._refresh_extra()
+                        studio._field_changed()
+                        self.assertEqual(studio.actions_list.count(), 1)
+                        self.assertIn('Invalid', studio.actions_list.item(0).text())
+                        with (patch('omniflow.devices.Device.screenshot') as capture,
+                              patch('omniflow.engine.OCREngine.read') as ocr,
+                              patch('swordx.workflows._write_manifest') as write,
+                              patch('omniflow.studio.QMessageBox.warning') as warning):
+                            studio._preview_draft_actions()
+                            self.assertIn('Draft action invalid:',
+                                          studio.action_preview_status.text())
+                            studio._show_action_map()
+                            self.assertIn('Draft action invalid:',
+                                          studio.action_preview_status.text())
+                            studio._save()
+                            warning.assert_called_once()
+                            self.assertEqual(warning.call_args.args[1],
+                                             'Actions')
+                            capture.assert_not_called()
+                            ocr.assert_not_called()
+                            write.assert_not_called()
+                        self.assertEqual(
+                            {p.relative_to(folder): p.read_bytes()
+                             for p in folder.rglob('*') if p.is_file()},
+                            before)
+            finally:
+                with patch('swordx.recorder.QMessageBox.question',
+                           return_value=QMessageBox.Yes):
+                    studio.close()
+
     def test_pixel_outside_zone_fails_before_unsaved_ocr_or_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
