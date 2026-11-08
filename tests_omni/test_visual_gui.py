@@ -504,9 +504,12 @@ class VisualStudioGuiTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
                     folder = create_workflow('InvalidStudioImports', root)
-                    first = record_step(folder, 'First', self.frame,
+                    image = self.frame.copy()
+                    image[200:300, 100:230] = np.random.default_rng(17).integers(
+                        0, 256, (100, 130, 3), dtype=np.uint8)
+                    first = record_step(folder, 'First', image,
                                         [(100, 200, 230, 300)], taps=[(150, 250)])
-                    second = record_step(folder, 'Second', self.frame,
+                    second = record_step(folder, 'Second', image,
                                          [(100, 200, 230, 300)], taps=[(150, 250)])
                     studio = OmniStudio('', 'InvalidStudioImports', base=root)
                     try:
@@ -547,7 +550,10 @@ class VisualStudioGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             folder = create_workflow('ValidStudioImport', root)
-            key = record_step(folder, 'Ready', self.frame,
+            image = self.frame.copy()
+            image[200:300, 100:230] = np.random.default_rng(17).integers(
+                0, 256, (100, 130, 3), dtype=np.uint8)
+            key = record_step(folder, 'Ready', image,
                               [(100, 200, 230, 300)], taps=[(150, 250)])
             rule = {'type': 'ocr', 'rect': [100, 200, 230, 300], 'text': 'ready'}
             chain = [{'kind': 'wait', 'seconds': 2},
