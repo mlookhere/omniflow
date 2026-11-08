@@ -464,6 +464,23 @@ and both false-return/exception failures; offscreen Qt verifies the Studio
 new-state path. This does not claim that filesystem cleanup can succeed if
 Windows denies deletion; real hardware acceptance remains outstanding.
 
+**Failed drag-to-reorder recovery (November 7, 2026):** The Studio
+previously reloaded the entire workflow after a reorder manifest write failed,
+risking a discard prompt or loss of unsaved WHEN/THEN edits and draft history.
+The recorder now tracks the most recently persisted presentation order for
+the selected workflow and, on a failed reorder, puts the existing list items
+back in that order with list signals blocked. The highlighted row is restored
+to the state actually being edited; no workflow reload, screenshot reset,
+draft rewrite or undo/redo reset occurs. A successful drag updates the
+in-memory baseline; a subsequent failed drag restores that latest committed
+order rather than an obsolete initial order. Offscreen Qt regression covers
+both phases, a simulated atomic manifest replacement failure, warning,
+unsaved rule and name retention, preserved undo history, and eventual
+successful Save of the draft without disturbing saved presentation order.
+A mismatched externally changed state list cannot be restored in place;
+the UI warns the operator to save their draft before manually reloading.
+Reordering affects presentation only, not runtime match priority.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
