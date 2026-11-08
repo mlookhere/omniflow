@@ -85,6 +85,21 @@ def _safe_saved_image(folder: Path, kind: str, name: str) -> Path:
     return image
 
 
+def _saved_step_images(folder: Path, probes: list[dict], capture: str | None) -> list[Path]:
+    """Validate all recorded image references before mutating a saved state."""
+    if not isinstance(probes, list):
+        raise ValueError('Invalid saved templates')
+    paths = []
+    for index, probe in enumerate(probes, 1):
+        if not isinstance(probe, dict):
+            raise ValueError(f'Invalid saved template {index}')
+        paths.append(_safe_saved_image(folder, 'anchors', probe.get('file')))
+    # A missing or blank screenshot is valid for legacy template-only states.
+    if capture is not None and capture != '':
+        paths.append(_safe_saved_image(folder, 'captures', capture))
+    return paths
+
+
 def load_step(folder: Path, key: str) -> tuple[dict, list[tuple[int, int, int, int]],
                                                 list[tuple[int, int] | None], np.ndarray | None]:
     """Load editable region/gesture pairs and saved screenshot (if available)."""
@@ -342,17 +357,18 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
     folder = Path(folder)
     manifest = folder / 'manifest.json'
     content = json.loads(manifest.read_text(encoding='utf-8'))
-    if key is not None and key not in content['states']:
+    if key is not None and (key not in content['states'] or key not in content['actions']):
         raise ValueError('Saved state no longer exists; reload the workflow')
     state_key = key or ('STEP_' + uuid4().hex[:12].upper())
+    old_images = (_saved_step_images(folder, content['states'][key],
+                                     content['actions'][key].get('capture'))
+                  if key is not None else [])
     (folder / 'anchors').mkdir(exist_ok=True)
     (folder / 'captures').mkdir(exist_ok=True)
     stamp = uuid4().hex[:10]
     probes = []
     created = []
     capture_name = f'{state_key}_{stamp}.jpg'
-    old_probes = content['states'].get(state_key, [])
-    old_capture = content['actions'].get(state_key, {}).get('capture')
     try:
         for index, (x1, y1, x2, y2) in enumerate(boxes):
             filename = f'{state_key}_{stamp}_{index}.png'
@@ -397,10 +413,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
         for path in created:
             path.unlink(missing_ok=True)
         raise
-    for probe in old_probes:
-        (folder / 'anchors' / probe['file']).unlink(missing_ok=True)
-    if old_capture:
-        (folder / 'captures' / old_capture).unlink(missing_ok=True)
+    for image in old_images:
+        image.unlink(missing_ok=True)
     return state_key
 
 
@@ -408,11 +422,12 @@ def remove_step(folder: Path, key: str) -> None:
     folder = Path(folder)
     file = folder / 'manifest.json'
     content = json.loads(file.read_text(encoding='utf-8'))
-    probes = content['states'].pop(key)
-    action = content['actions'].pop(key)
+    # Check references before the manifest changes, not after a file is deleted.
+    images = _saved_step_images(folder, content['states'][key],
+                                content['actions'][key].get('capture'))
+    content['states'].pop(key)
+    content['actions'].pop(key)
     content['order'] = step_order(content)
     _write_manifest(file, content)
-    for probe in probes:
-        (folder / 'anchors' / probe['file']).unlink(missing_ok=True)
-    if action.get('capture'):
-        (folder / 'captures' / action['capture']).unlink(missing_ok=True)
+    for image in images:
+        image.unlink(missing_ok=True)
