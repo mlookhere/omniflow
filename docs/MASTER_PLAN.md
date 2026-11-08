@@ -285,6 +285,19 @@ retries an unchanged screen. A round-trip test writes both modes through
 `update_step_retry` and verifies actual action timing with the input stub.
 The existing per-visit retry cap and two-frame recognition checks remain.
 
+**Boolean rule integrity and no-input inspection (current iteration):**
+Imported OCR/color/pixel conditions previously used truthiness for the
+`regex` and `negate` flags. Values like `"false"` therefore acted as
+`True`, silently turning a literal OCR check into regex matching or
+reversing a recognition condition. Shared condition preflight now permits
+only actual booleans when these flags are supplied (omitted flags preserve
+their old false default). The same preflight protects Studio draft saves,
+offline previews, saved-workflow inspection, and runtime startup. Saved
+Studio recognition inspection now validates the workflow **before** asking
+a connected emulator for any screenshot. Pure and Windows Qt regressions
+cover string, integer, and null flag rejection; genuine true/false matching;
+the draft Save boundary; and no ADB or manifest writes on invalid rules.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
