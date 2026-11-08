@@ -284,6 +284,8 @@ class OmniDetector:
         # Check path containment before invoking either the legacy or mixed
         # template loader. Neither can safely consume untrusted paths itself.
         anchors_root = (self.folder / 'anchors').resolve()
+        if not anchors_root.is_relative_to(self.folder.resolve()):
+            raise WorkflowError('Saved anchors directory resolves outside workflow')
         for key, probes in self.manifest['states'].items():
             for index, probe in enumerate(probes, 1):
                 path = self.folder / 'anchors' / probe['file']
