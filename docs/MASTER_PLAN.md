@@ -627,3 +627,18 @@ saving, and read-only action previews. Source-level and offscreen Windows
 Qt regressions exercise unsafe coercions and valid compatibility; no
 device action is sent during a failed preflight. Physical Windows/MuMu
 acceptance and protected dev required-check enforcement remain outstanding.
+
+
+**Unified THEN text redaction in Studio summaries (November 7, 2026):**
+Previously dry-run traces and offline action preview hid text payloads, but
+the visible THEN action list reused `action_summary` and displayed the
+first 35 characters of each `text` or `field_text` payload. Both list
+entries now show the same non-sensitive descriptions as the saved replay
+and unsaved preview: "Type text (contents hidden)" or "Tap selected field
+and type text (contents hidden)". A single shared `action_summary` formats
+all read-only action plans after preflight, avoiding duplicate redaction
+paths. The action editor still opens with the full intended text, and
+workflow manifests are not rewritten. Pure Python and offscreen Qt tests
+verify that neither list nor preview exposes example payloads and that
+editing remains intact. This does not encrypt saved workflow text,
+change Android input, or substitute for physical Windows/MuMu acceptance.

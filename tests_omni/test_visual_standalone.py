@@ -14,5 +14,14 @@ class VisualCaptureTests(unittest.TestCase):
         self.assertEqual(sample_color(frame,[90,300]),[30,60,120])
     def test_readable_action(self):
         self.assertNotIn('240',action_summary({'kind':'tap','point':[240,500]}))
+
+    def test_text_action_summaries_never_display_payload(self):
+        for kind in ('text', 'field_text'):
+            with self.subTest(kind=kind):
+                action = {'kind': kind, 'text': 'private-authorization-code'}
+                label = action_summary(action)
+                self.assertIn('contents hidden', label)
+                self.assertNotIn('private-authorization-code', label)
+                self.assertNotIn('authorization', label)
 if __name__ == '__main__':
     unittest.main()

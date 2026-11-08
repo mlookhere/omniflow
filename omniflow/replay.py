@@ -25,13 +25,8 @@ def describe_action_plan(action: dict, chain: list[dict]) -> list[str]:
     if delay:
         steps.append(f'Initial delay {delay}s after stable recognition')
     for item in chain:
-        kind = validate_action(item)
-        if kind == 'text':
-            steps.append('Type text (contents hidden)')
-        elif kind == 'field_text':
-            steps.append('Tap selected field and type text (contents hidden)')
-        else:
-            steps.append(action_summary(item))
+        validate_action(item)
+        steps.append(action_summary(item))
     return steps or ['No configured action']
 
 

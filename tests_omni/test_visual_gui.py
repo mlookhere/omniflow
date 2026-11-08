@@ -214,7 +214,22 @@ class VisualStudioGuiTests(unittest.TestCase):
                     {'kind': 'wait', 'seconds': 2},
                     {'kind': 'field_text', 'point': [150, 250],
                      'text': 'secret-987'},
+                    {'kind': 'text', 'text': 'another-private-321'},
                 ]
+                studio._refresh_extra()
+                labels = [studio.actions_list.item(i).text()
+                          for i in range(studio.actions_list.count())]
+                self.assertIn('contents hidden', labels[2])
+                self.assertIn('contents hidden', labels[3])
+                self.assertNotIn('secret-987', repr(labels))
+                self.assertNotIn('another-private-321', repr(labels))
+                # Redacting list labels must not erase data from the editor.
+                editor = ActionEditor(initial=studio.extra_chain[2], frame=image)
+                try:
+                    self.assertEqual(editor.text.text(), 'secret-987')
+                    self.assertEqual(editor.result_action()['text'], 'secret-987')
+                finally:
+                    editor.close()
                 with (patch('omniflow.devices.Device.screenshot') as capture,
                       patch('swordx.workflows._write_manifest') as write):
                     studio._preview_draft_actions()
@@ -224,7 +239,9 @@ class VisualStudioGuiTests(unittest.TestCase):
                 self.assertIn('1. Tap location selected on screen', output)
                 self.assertIn('2. Wait 2 seconds', output)
                 self.assertIn('3. Tap selected field and type text (contents hidden)', output)
+                self.assertIn('4. Type text (contents hidden)', output)
                 self.assertNotIn('secret-987', output)
+                self.assertNotIn('another-private-321', output)
                 self.assertIn('no taps or saves', output)
                 self.assertEqual(
                     before, {p.relative_to(folder): p.read_bytes()
