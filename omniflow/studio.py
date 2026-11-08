@@ -1549,6 +1549,10 @@ class OmniStudio(RecorderDialog):
             condition_only = self.rules_only.isChecked()
             if condition_only and not self.extra_conditions:
                 raise WorkflowError('Condition-only states need at least one WHEN rule')
+            if not condition_only and not self.editing_key:
+                raise WorkflowError(
+                    'Save this new state to create an image template, or '
+                    'enable condition-only recognition')
             if not condition_only and self._visual_dirty:
                 raise WorkflowError(
                     'Image regions or screenshot changed. Save the state first '
@@ -1561,10 +1565,6 @@ class OmniStudio(RecorderDialog):
                     conditions=self.extra_conditions, condition_match=mode,
                     condition_only=condition_only,
                     threshold=self._image_threshold_override())
-            elif not condition_only:
-                raise WorkflowError(
-                    'Save this new state to create an image template, or '
-                    'enable condition-only recognition')
         except (WorkflowError, ValueError, TypeError, KeyError,
                 OSError, cv2.error) as exc:
             status.setText(f'Combined draft test unavailable: {exc}. '
