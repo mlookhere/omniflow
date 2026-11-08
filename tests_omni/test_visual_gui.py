@@ -219,6 +219,7 @@ class VisualStudioGuiTests(unittest.TestCase):
                 studio.canvas.changed.emit()
                 studio.canvas._set_gesture(
                     0, {'kind': 'tap', 'point': [150, 250]})
+                studio.duration_inputs[0].setValue(850)
                 studio.canvas._set_gesture(
                     0, {'kind': 'drag', 'start': [110, 220],
                         'end': [190, 280], 'duration_ms': 850})
@@ -252,9 +253,11 @@ class VisualStudioGuiTests(unittest.TestCase):
             root = Path(tmp)
             folder = create_workflow('UndoBoundary', root)
             source = root / 'image.png'
-            self.assertTrue(cv2.imwrite(str(source), self.frame))
+            image = self.frame.copy()
+            image[220:270, 120:200] = (10, 230, 30)
+            self.assertTrue(cv2.imwrite(str(source), image))
             key = record_step(
-                folder, 'Recorded', self.frame,
+                folder, 'Recorded', image,
                 [(100, 200, 230, 300)], taps=[(150, 250)])
             before = (folder / 'manifest.json').read_bytes()
             studio = OmniStudio('', 'UndoBoundary', base=root)
