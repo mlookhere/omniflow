@@ -715,7 +715,12 @@ class OmniStudio(RecorderDialog):
             except Exception as exc:
                 QMessageBox.warning(self, 'Capture game screen', f'Could not capture MuMu: {exc}')
                 return None
-            self.canvas.load(image)
+            # Legacy states can have template/gesture overlays but no saved
+            # full-screen capture. Keep those edits while refreshing the image.
+            if self.editing_key:
+                self.canvas.replace_frame(image)
+            else:
+                self.canvas.load(image)
             self.needs_recapture = False
             self._visual_dirty = True
             self._field_changed()
