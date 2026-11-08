@@ -144,6 +144,34 @@ class VisualCaptureTests(unittest.TestCase):
                             'skip_template': True})
             self.assertEqual(path.read_bytes(), original)
 
+    def test_reorder_is_presentation_only_and_rejects_incomplete_keys(self):
+        from swordx.workflows import reorder_steps
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Presentation order', Path(root))
+            first = record_step(folder, 'First', self.frame,
+                                [(80, 100, 220, 170)], taps=[(130, 140)])
+            second = record_step(folder, 'Second', self.frame,
+                                 [(80, 100, 220, 170)], taps=[(130, 140)])
+            manifest = folder / 'manifest.json'
+            original = json.loads(manifest.read_text(encoding='utf-8'))
+            images = {p.relative_to(folder): p.read_bytes()
+                      for p in folder.rglob('*')
+                      if p.is_file() and p != manifest}
+            reorder_steps(folder, [second, first])
+            saved = json.loads(manifest.read_text(encoding='utf-8'))
+            self.assertEqual(saved['order'], [second, first])
+            for field in ('states', 'actions', 'threshold', 'name'):
+                self.assertEqual(saved[field], original[field])
+            self.assertEqual(
+                {p.relative_to(folder): p.read_bytes()
+                 for p in folder.rglob('*') if p.is_file() and p != manifest},
+                images)
+            before_invalid = manifest.read_bytes()
+            with self.assertRaisesRegex(ValueError,
+                                        'every state exactly once'):
+                reorder_steps(folder, [second, second])
+            self.assertEqual(manifest.read_bytes(), before_invalid)
+
     def test_failed_manifest_replace_preserves_previous_save_and_cleans_staging(self):
         from swordx.workflows import update_step_settings
         with tempfile.TemporaryDirectory() as root:
