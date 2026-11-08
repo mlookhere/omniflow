@@ -298,6 +298,22 @@ a connected emulator for any screenshot. Pure and Windows Qt regressions
 cover string, integer, and null flag rejection; genuine true/false matching;
 the draft Save boundary; and no ADB or manifest writes on invalid rules.
 
+**Studio saved-state image containment (current iteration):** The runtime
+detector and offline replay already rejected unsafe image references, but
+the visual editor's `load_step` still opened `capture` and fallback
+`anchors` filenames directly from the manifest. An imported or externally
+edited workflow could therefore direct the editor to inspect files outside
+the workflow when selecting a state. Studio state loading now checks all
+recorded image names and their resolved paths before any image read,
+rejecting traversal, absolute paths, drive syntax and symlink escapes;
+recorded region coordinates must also be valid normalized integers.
+Missing historical captures still render their in-workflow template crops
+for editing and require recapture as before. Python workflow-editor tests
+cover unsafe capture/anchor references, malformed regions, symlink escapes
+and legacy fallback; an offscreen Qt test verifies a readable warning
+without image access or manifest changes. No Android input or device
+permission is needed for this safety check.
+
 ### Previous platform priority queue (historical)
 
 1. **P0 OCR readiness:** fix standard installer/backend and verify UI OCR autofill.
