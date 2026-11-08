@@ -10,7 +10,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from swordx.workflows import step_order
+from swordx.workflows import _safe_saved_image, step_order
 from .engine import (OmniDetector, WorkflowError, resolve_action_chain,
                      validate_action, validate_saved_action_chains)
 from .visual import action_summary, condition_summary
@@ -74,7 +74,6 @@ def replay_saved_captures(folder: Path) -> list[dict]:
     """
     detector = OmniDetector(folder)
     validate_saved_action_chains(detector.manifest)
-    capture_root = (detector.folder / 'captures').resolve()
     results = []
     for key in step_order(detector.manifest):
         action = detector.actions[key]
@@ -94,15 +93,12 @@ def replay_saved_captures(folder: Path) -> list[dict]:
         if not name:
             item['reason'] = 'No saved screenshot (legacy or unrecorded state)'
             continue
-        # Captures created by the recorder are filenames, never paths. Reject
-        # traversal and symlinks so an edited manifest cannot read other files.
-        if (not isinstance(name, str) or name in ('.', '..') or
-                '/' in name or '\\' in name):
+        # Reuse the recorder's containment guard. A symlinked captures
+        # directory itself must not make external screenshots look valid.
+        try:
+            path = _safe_saved_image(detector.folder, 'captures', name)
+        except ValueError:
             item['reason'] = 'Unsafe screenshot reference'
-            continue
-        path = detector.folder / 'captures' / name
-        if not path.resolve().is_relative_to(capture_root):
-            item['reason'] = 'Screenshot resolves outside captures folder'
             continue
         if not path.is_file():
             item['reason'] = 'Saved screenshot is missing'
