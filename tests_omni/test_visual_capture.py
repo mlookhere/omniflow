@@ -13,7 +13,7 @@ import numpy as np
 from omniflow.engine import OmniDetector, OmniRunner
 from omniflow.visual import (action_summary, condition_summary, require_frame,
                              sample_average, sample_color, validate_point, validate_zone)
-from swordx.workflows import create_workflow, record_step
+from swordx.workflows import create_workflow, record_step, remove_step
 
 
 class VisualCaptureTests(unittest.TestCase):
@@ -162,6 +162,64 @@ class VisualCaptureTests(unittest.TestCase):
                     studio={'action_chain': chain, 'conditions': conditions,
                             'skip_template': False})
             self.assertEqual(path.read_bytes(), before)
+
+    def test_recapture_and_delete_clean_up_original_images(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = create_workflow('Clean image replacement', Path(root))
+            rect = (80, 100, 220, 170)
+            key = record_step(folder, 'Original', self.frame, [rect], taps=[(130, 140)])
+            manifest = folder / 'manifest.json'
+            before = json.loads(manifest.read_text())
+            old_anchor = folder / 'anchors' / before['states'][key][0]['file']
+            old_capture = folder / 'captures' / before['actions'][key]['capture']
+            self.assertTrue(old_anchor.exists())
+            self.assertTrue(old_capture.exists())
+            self.assertEqual(record_step(folder, 'Updated', self.frame, [rect],
+                                         taps=[(130, 140)], key=key), key)
+            updated = json.loads(manifest.read_text())
+            new_anchor = folder / 'anchors' / updated['states'][key][0]['file']
+            new_capture = folder / 'captures' / updated['actions'][key]['capture']
+            self.assertFalse(old_anchor.exists())
+            self.assertFalse(old_capture.exists())
+            self.assertTrue(new_anchor.exists())
+            self.assertTrue(new_capture.exists())
+            remove_step(folder, key)
+            self.assertNotIn(key, json.loads(manifest.read_text())['states'])
+            self.assertFalse(new_anchor.exists())
+            self.assertFalse(new_capture.exists())
+
+    def test_unsafe_cleanup_references_cannot_recapture_or_delete(self):
+        for operation in ('recapture', 'remove'):
+            for asset in ('anchor', 'capture'):
+                with self.subTest(operation=operation, asset=asset):
+                    with tempfile.TemporaryDirectory() as root:
+                        folder = create_workflow('Unsafe cleanup', Path(root))
+                        rect = (80, 100, 220, 170)
+                        key = record_step(folder, 'Saved', self.frame, [rect],
+                                          taps=[(130, 140)])
+                        outside = folder.parent / 'outside.txt'
+                        outside.write_text('untouched', encoding='utf-8')
+                        manifest = folder / 'manifest.json'
+                        data = json.loads(manifest.read_text())
+                        if asset == 'anchor':
+                            data['states'][key][0]['file'] = '../../outside.txt'
+                        else:
+                            data['actions'][key]['capture'] = '../../outside.txt'
+                        manifest.write_text(json.dumps(data), encoding='utf-8')
+                        before = {item.relative_to(folder): item.read_bytes()
+                                  for item in folder.rglob('*') if item.is_file()}
+                        with patch('swordx.workflows.cv2.imwrite') as write:
+                            with self.assertRaisesRegex(ValueError, 'Unsafe saved'):
+                                if operation == 'recapture':
+                                    record_step(folder, 'Replacement', self.frame,
+                                                [rect], taps=[(130, 140)], key=key)
+                                else:
+                                    remove_step(folder, key)
+                            write.assert_not_called()
+                        self.assertEqual(outside.read_text(encoding='utf-8'), 'untouched')
+                        self.assertEqual(before, {
+                            item.relative_to(folder): item.read_bytes()
+                            for item in folder.rglob('*') if item.is_file()})
 
     def test_readable_editor_summaries_do_not_expose_coordinates(self):
         self.assertIn('Swipe',action_summary({'kind':'swipe','start':[20,20],
