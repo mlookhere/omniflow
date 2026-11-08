@@ -14,6 +14,9 @@ import numpy as np
 from swordx.detection import SIZE, normalize
 
 
+MAX_SAVED_IMAGE_BYTES = 32 * 1024 * 1024
+
+
 def load_screenshot_file(path: Path) -> np.ndarray:
     """Load an explicit user-selected portrait capture; never touch a device.
 
@@ -23,10 +26,10 @@ def load_screenshot_file(path: Path) -> np.ndarray:
     path = Path(path)
     if path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.bmp'):
         raise ValueError('Choose a PNG, JPG or BMP screenshot')
-    if not 0 < path.stat().st_size <= 32 * 1024 * 1024:
+    if not 0 < path.stat().st_size <= MAX_SAVED_IMAGE_BYTES:
         raise ValueError('Screenshot file must be smaller than 32 MiB')
     data = path.read_bytes()
-    if not 0 < len(data) <= 32 * 1024 * 1024:
+    if not 0 < len(data) <= MAX_SAVED_IMAGE_BYTES:
         raise ValueError('Screenshot file must be smaller than 32 MiB')
     frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
     if (frame is None or frame.ndim != 3 or frame.shape[2] != 3
