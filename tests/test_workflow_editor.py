@@ -60,7 +60,7 @@ class WorkflowEditorTests(unittest.TestCase):
         manifest = self.folder / 'manifest.json'
         original = self.metadata()
         for bad_name in ('../outside.png', r'..\\outside.png', '/tmp/other.png',
-                         'C:outside.png', '.', ''):
+                         'C:outside.png', '.'):
             with self.subTest(capture=bad_name):
                 data = json.loads(json.dumps(original))
                 data['actions'][key]['capture'] = bad_name
@@ -122,14 +122,42 @@ class WorkflowEditorTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'resolves outside workflow'):
                         load_step(self.folder, key)
                     read.assert_not_called()
-        # Missing or legacy capture still uses the existing template fallback.
-        original['actions'][key].pop('capture')
-        manifest.write_text(json.dumps(original), encoding='utf-8')
-        info, boxes, taps, image = load_step(self.folder, key)
-        self.assertTrue(info['_needs_recapture'])
-        self.assertEqual(boxes, [BOX_A])
-        self.assertEqual(taps, [(110, 200)])
-        self.assertEqual(image.shape, (960, 540, 3))
+        # Missing or blank legacy capture still uses the template fallback.
+        for capture in (None, ''):
+            with self.subTest(legacy_capture=capture):
+                legacy = json.loads(json.dumps(original))
+                if capture is None:
+                    legacy['actions'][key].pop('capture')
+                else:
+                    legacy['actions'][key]['capture'] = capture
+                manifest.write_text(json.dumps(legacy), encoding='utf-8')
+                info, boxes, taps, image = load_step(self.folder, key)
+                self.assertTrue(info['_needs_recapture'])
+                self.assertEqual(boxes, [BOX_A])
+                self.assertEqual(taps, [(110, 200)])
+                self.assertEqual(image.shape, (960, 540, 3))
+
+    def test_load_step_refuses_symlinked_capture_directory(self):
+        key = record_step(self.folder, 'Directory escape', frame(), [BOX_A],
+                          taps=[(110, 200)])
+        captures = self.folder / 'captures'
+        renamed = self.folder / 'captures_original'
+        with tempfile.TemporaryDirectory() as elsewhere:
+            captures.rename(renamed)
+            try:
+                try:
+                    captures.symlink_to(Path(elsewhere), target_is_directory=True)
+                except (NotImplementedError, OSError):
+                    return  # Windows CI may not allow directory symlinks.
+                with patch('swordx.workflows.cv2.imread') as read:
+                    with self.assertRaisesRegex(
+                            ValueError, 'directory resolves outside workflow'):
+                        load_step(self.folder, key)
+                    read.assert_not_called()
+            finally:
+                if captures.is_symlink():
+                    captures.unlink()
+                renamed.rename(captures)
 
     def test_two_region_pairs_alternate_and_route_the_correct_tap(self):
         source = frame()
