@@ -139,6 +139,11 @@ def validate_condition(condition: dict) -> None:
 
 def preview_conditions(frame: np.ndarray, conditions: list[dict]) -> list[bool]:
     """Test unsaved Studio rules against pixels without loading or executing actions."""
+    return [item['passed'] for item in preview_condition_details(frame, conditions)]
+
+
+def preview_condition_details(frame: np.ndarray, conditions: list[dict]) -> list[dict]:
+    """Return input-free rule results and measurements; never include OCR contents."""
     if not conditions:
         raise WorkflowError('Add at least one recognition condition to test')
     if (not isinstance(frame, np.ndarray) or frame.ndim != 3 or
@@ -148,10 +153,16 @@ def preview_conditions(frame: np.ndarray, conditions: list[dict]) -> list[bool]:
         validate_condition(rule)
     image = frame if frame.shape == (SIZE[1], SIZE[0], 3) else normalize(frame)
     cache: dict = {}
-    return [bool(_condition(image, rule, cache)) for rule in conditions]
+    results = []
+    for rule in conditions:
+        observation: dict = {}
+        passed = bool(_condition(image, rule, cache, observation))
+        results.append({'passed': passed, 'explanation': observation['explanation']})
+    return results
 
 
-def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
+def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict,
+               observation: dict | None = None) -> float:
     kind = condition.get('type')
     rect = condition.get('rect', [0, 0, *SIZE])
     roi = _rect(frame, rect)
@@ -162,6 +173,9 @@ def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
         tolerance = float(condition.get('tolerance', 25))
         difference = float(np.max(np.abs(roi.mean(axis=(0, 1)) - expected)))
         passed = difference <= tolerance
+        if observation is not None:
+            observation['explanation'] = (
+                f'Max color difference {difference:.1f}; tolerance {tolerance:g}')
     elif kind == 'ocr':
         expression = validate_ocr_expression(
             condition.get('text', ''), bool(condition.get('regex')))
@@ -182,14 +196,27 @@ def _condition(frame: np.ndarray, condition: dict, ocr_cache: dict) -> float:
                 passed = actual.endswith(expected)
             else:
                 passed = expected in actual
+        if observation is not None:
+            observation['explanation'] = (
+                f'OCR recognized {len(found)} characters (contents hidden)'
+                if found.strip() else 'OCR recognized no text')
     elif kind == 'pixel':
         x, y = map(int, condition['point'])
         if not 0 <= x < SIZE[0] or not 0 <= y < SIZE[1]:
             raise WorkflowError('Pixel point is outside the normalized screen')
         expect = np.asarray(condition['bgr'], dtype=np.float32)
-        passed = np.max(np.abs(frame[y, x].astype(float) - expect)) <= float(condition.get('tolerance', 25))
+        difference = float(np.max(np.abs(frame[y, x].astype(float) - expect)))
+        tolerance = float(condition.get('tolerance', 25))
+        passed = difference <= tolerance
+        if observation is not None:
+            observation['explanation'] = (
+                f'Pixel max color difference {difference:.1f}; tolerance {tolerance:g}')
     else:
         raise WorkflowError(f'Unknown detector type: {kind}')
+    if observation is not None:
+        observation['explanation'] += (
+            f'; base check {"passed" if passed else "failed"}'
+            + ('; NOT reversed result' if condition.get('negate') else ''))
     if condition.get('negate'):
         passed = not passed
     return 1.0 if passed else 0.0
@@ -398,6 +425,7 @@ class OmniDetector:
                 'template_confidence': float(confidence),
                 'threshold': threshold,
                 'condition_results': None,
+                'condition_evidence': None,
                 'status': 'template below threshold',
             } if explain else None
             if confidence < threshold:
@@ -407,7 +435,16 @@ class OmniDetector:
             if not probes and not conditions:
                 raise WorkflowError(f'State {key} needs a template or a condition')
             if conditions:
-                outcomes = [_condition(image, cond, cache) for cond in conditions]
+                if explain:
+                    evidence = []
+                    outcomes = []
+                    for cond in conditions:
+                        observation = {}
+                        outcomes.append(_condition(image, cond, cache, observation))
+                        evidence.append(observation['explanation'])
+                    detail['condition_evidence'] = evidence
+                else:
+                    outcomes = [_condition(image, cond, cache) for cond in conditions]
                 passed = (all(outcomes) if action.get('condition_match', 'all') == 'all'
                           else any(outcomes))
                 confidence = min(confidence, float(passed))

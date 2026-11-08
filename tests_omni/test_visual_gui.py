@@ -229,6 +229,9 @@ class VisualStudioGuiTests(unittest.TestCase):
                 self.assertIn('1/2 conditions match', message)
                 self.assertIn('PASS', message)
                 self.assertIn('FAIL', message)
+                self.assertIn('Max color difference 0.0; tolerance 0', message)
+                self.assertIn('Pixel max color difference 0.0; tolerance 0', message)
+                self.assertIn('NOT reversed result', message)
                 self.assertIn('nothing was saved or tapped', message)
                 self.assertEqual((folder / 'manifest.json').read_bytes(), manifest)
             finally:

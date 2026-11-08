@@ -62,8 +62,13 @@ def describe_recognition_evidence(detector: OmniDetector,
         if rules and outcomes is None:
             lines.append('  Conditions not evaluated: image threshold failed')
         elif outcomes is not None:
-            for passed, rule in zip(outcomes, rules):
-                lines.append(f"  {'PASS' if passed else 'FAIL'} — {condition_summary(rule)}")
+            evidence = state.get('condition_evidence') or []
+            for index, (passed, rule) in enumerate(zip(outcomes, rules)):
+                explanation = (f' ({evidence[index]})'
+                               if index < len(evidence) else '')
+                lines.append(
+                    f"  {'PASS' if passed else 'FAIL'} — "
+                    f"{condition_summary(rule)}{explanation}")
     return lines
 
 

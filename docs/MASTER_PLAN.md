@@ -914,3 +914,16 @@ replay share the same evaluator and human-readable condition descriptions.
 Source and offscreen Qt tests cover successful/negative comparisons, OCR
 caching, legacy regex, visual editing and persisted condition-only matching.
 No physical acceptance or protected-branch claim is implied.
+
+**Read-only recognition measurements (current Studio iteration):** Unsaved
+WHEN checks and saved screenshot replay now explain numeric pixel/zone
+maximum color difference versus configured tolerance and report whether OCR
+returned no text or recognized a bounded-length count of characters.
+These observations are derived from the *same* image and OCR cache used for
+the actual pass/fail decision; NOT-rule explanations identify the base check
+and reversal. Raw recognized OCR text is never included in diagnostics.
+Saved-state inspection uses production matcher priority/selection rules;
+unsaved previews still do not claim to select a state. New source and
+offscreen Qt regressions cover status/explanations, negation, OCR caching,
+no secret text in trace output and read-only no-input behavior. No physical
+acceptance or required-check enforcement claim is implied.

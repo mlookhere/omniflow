@@ -55,6 +55,27 @@ class SavedReplayTests(unittest.TestCase):
             before, {file.relative_to(self.folder): file.read_bytes()
                      for file in self.folder.rglob('*') if file.is_file()})
 
+    def test_replay_inspection_explains_rule_measurements_without_exposing_ocr(self):
+        record_step(
+            self.folder, 'Read cue', self.frame, [],
+            condition_only=True,
+            conditions=[
+                {'type': 'ocr', 'rect': [95, 125, 245, 260],
+                 'text': 'ready'},
+                {'type': 'color', 'rect': [95, 125, 245, 260],
+                 'bgr': [0, 0, 0], 'tolerance': 0},
+            ],
+            action_chain=[{'kind': 'tap', 'point': [150, 210]}])
+        with patch('omniflow.engine.OCREngine.read',
+                   return_value='Private READY Session'):
+            result = replay_saved_captures(self.folder)[0]
+        evidence = '\n'.join(result['evidence'])
+        self.assertIn('OCR recognized 21 characters', evidence)
+        self.assertIn('Max color difference', evidence)
+        self.assertIn('base check failed', evidence)
+        self.assertNotIn('Private READY Session', repr(result))
+        self.assertEqual(result['status'], 'unknown')
+
     def test_replay_explains_any_condition_logic(self):
         key = record_step(
             self.folder, 'Either cue', self.frame, [],

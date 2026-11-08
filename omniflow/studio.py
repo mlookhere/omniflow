@@ -1308,7 +1308,7 @@ class OmniStudio(RecorderDialog):
         if not self.extra_conditions:
             self.rule_test_status.setText('Add a recognition condition to test.')
             return
-        from .engine import WorkflowError, preview_conditions, validate_condition
+        from .engine import WorkflowError, preview_condition_details, validate_condition
         try:
             # Reject malformed unsaved rules before live screenshot capture,
             # which can replace a legacy preview and mark the editor dirty.
@@ -1327,13 +1327,15 @@ class OmniStudio(RecorderDialog):
                 'Condition test unavailable: no valid screenshot was captured.')
             return
         try:
-            outcomes = preview_conditions(image, self.extra_conditions)
+            results = preview_condition_details(image, self.extra_conditions)
+            outcomes = [item['passed'] for item in results]
         except (WorkflowError, ValueError, TypeError, KeyError, cv2.error) as exc:
             self.rule_test_status.setText(f'Condition test failed: {exc}')
             return
         details = [
-            f'{"PASS" if ok else "FAIL"} — {condition_summary(rule)}'
-            for ok, rule in zip(outcomes, self.extra_conditions)
+            f'{"PASS" if item["passed"] else "FAIL"} — '
+            f'{condition_summary(rule)} ({item["explanation"]})'
+            for item, rule in zip(results, self.extra_conditions)
         ]
         mode = self.condition_logic.currentData()
         matched = all(outcomes) if mode == 'all' else any(outcomes)

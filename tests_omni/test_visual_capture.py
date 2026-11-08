@@ -142,6 +142,34 @@ class VisualCaptureTests(unittest.TestCase):
                        return_value='Start Game'):
                 self.assertEqual(OmniDetector(folder).detect(self.frame).key, key)
 
+    def test_read_only_rule_details_explain_color_ocr_and_negation_without_text_leak(self):
+        from omniflow.engine import preview_condition_details
+        rules = [
+            {'type': 'color', 'rect': [300, 300, 320, 320],
+             'bgr': [5, 50, 180], 'tolerance': 0},
+            {'type': 'pixel', 'rect': [80, 100, 220, 170],
+             'point': [120, 110], 'bgr': [0, 0, 0],
+             'tolerance': 1, 'negate': True},
+            {'type': 'ocr', 'rect': [80, 100, 220, 170],
+             'text': 'CLAIM', 'text_match': 'contains'},
+            {'type': 'ocr', 'rect': [80, 100, 220, 170],
+             'text': 'secret', 'text_match': 'starts_with', 'negate': True},
+        ]
+        with patch('omniflow.engine.OCREngine.read',
+                   return_value='Private SECRET Code') as ocr:
+            details = preview_condition_details(self.frame, rules)
+        self.assertEqual([item['passed'] for item in details],
+                         [True, True, False, True])
+        self.assertIn('Max color difference 0.0; tolerance 0',
+                      details[0]['explanation'])
+        self.assertIn('Pixel max color difference', details[1]['explanation'])
+        self.assertIn('NOT reversed result', details[1]['explanation'])
+        self.assertIn('OCR recognized 19 characters', details[2]['explanation'])
+        self.assertIn('base check failed', details[2]['explanation'])
+        self.assertNotIn('Private', str(details))
+        self.assertNotIn('SECRET', str(details))
+        ocr.assert_called_once()
+
     def test_bad_ocr_regex_is_actionable_workflow_error(self):
         from omniflow.engine import WorkflowError, preview_conditions
         rule = {'type': 'ocr', 'rect': [80, 100, 220, 170],
