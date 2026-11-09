@@ -49,9 +49,9 @@ class MovingImageTests(unittest.TestCase):
 
     def test_detector_returns_actual_location_with_one_pass_and_no_ocr(self):
         detector = OmniDetector(self.folder)
-        with patch('omniflow.engine.OCREngine.read') as ocr, \\
-             patch('omniflow.engine.cv2.matchTemplate',
-                   wraps=cv2.matchTemplate) as matching:
+        with (patch('omniflow.engine.OCREngine.read') as ocr,
+              patch('omniflow.engine.cv2.matchTemplate',
+                    wraps=cv2.matchTemplate) as matching):
             found = detector.detect(self.device.frame)
         self.assertEqual(found.key, self.key)
         self.assertEqual(found.location, (340, 620, 400, 665))
