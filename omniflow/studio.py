@@ -910,6 +910,7 @@ class OmniStudio(RecorderDialog):
         self.action_preset = QComboBox()
         for label, spec in (
                 ('Tap a button', {'kind': 'tap'}),
+                ('Tap a moving image', {'kind': 'tap_match'}),
                 ('Double tap a button', {'kind': 'double_tap'}),
                 ('Swipe or drag', {'kind': 'swipe'}),
                 ('Press and hold', {'kind': 'hold'}),
@@ -1757,6 +1758,11 @@ class OmniStudio(RecorderDialog):
         """Shared fail-closed validation for text and screenshot previews."""
         from .engine import WorkflowError, resolve_action_chain, validate_action
         from .replay import describe_action_plan
+        if (self.extra_chain and
+                any(item.get('kind') == 'tap_match' for item in self.extra_chain) and
+                (self.rules_only.isChecked() or not self.search_enabled.isChecked())):
+            raise WorkflowError(
+                'Tap detected image requires the moving-image search option in WHEN')
         action = {'passive': self.passive.isChecked(),
                   'pre_tap_delay_seconds': self._delay_seconds()}
         if self.extra_chain is not None:
@@ -1890,9 +1896,16 @@ class OmniStudio(RecorderDialog):
             frame = self.canvas.frame
             image = frame if frame.shape == (SIZE[1], SIZE[0], 3) else normalize(frame)
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            scores = [detector._match_template(gray, probe) for probe in probes]
+            area = self._search_rect_option()
+            results = ([detector._find_movable_template(gray, probe, area)
+                        for probe in probes] if area is not None else
+                       [(detector._match_template(gray, probe), None)
+                        for probe in probes])
+            scores = [score for score, _ in results]
             mode = detector.actions[self.editing_key].get('match', 'all')
-            similarity = max(scores) if mode == 'any' else min(scores)
+            index = scores.index(max(scores) if mode == 'any' else min(scores))
+            similarity = scores[index]
+            where = results[index][1]
             threshold = (self._image_threshold_override()
                          if self.image_custom.isChecked()
                          else detector.threshold)
@@ -1903,6 +1916,7 @@ class OmniStudio(RecorderDialog):
         self.image_test_status.setText(
             f'{"MATCH" if similarity >= threshold else "NO MATCH"}: '
             f'Image similarity {similarity:.1%}; required {threshold:.1%}. '
+            + (f'Found at {where}. ' if where is not None else '') +
             'Read-only saved-template check; unsaved region changes and '
             'WHEN conditions were not tested. Nothing was saved or tapped.')
 
@@ -1988,7 +2002,8 @@ class OmniStudio(RecorderDialog):
                     detector, self.editing_key,
                     conditions=self.extra_conditions, condition_match=mode,
                     condition_only=condition_only,
-                    threshold=self._image_threshold_override())
+                    threshold=self._image_threshold_override(),
+                    search_rect=self._search_rect_option())
         except (WorkflowError, ValueError, TypeError, KeyError,
                 OSError, cv2.error) as exc:
             status.setText(f'Combined draft test unavailable: {exc}. '
@@ -2053,7 +2068,8 @@ class OmniStudio(RecorderDialog):
                 conditions=self.extra_conditions,
                 condition_match=self.condition_logic.currentData(),
                 condition_only=self.rules_only.isChecked(),
-                threshold=self._image_threshold_override())
+                threshold=self._image_threshold_override(),
+                search_rect=self._search_rect_option())
         except (WorkflowError, OSError, ValueError, TypeError, KeyError,
                 cv2.error) as exc:
             self.batch_test_status.setText(

@@ -21,7 +21,7 @@ from .visual import MAX_SAVED_IMAGE_BYTES, action_summary, condition_summary
 def draft_recognition_inspector(
         detector: OmniDetector, key: str, *, conditions: list[dict],
         condition_match: str, condition_only: bool,
-        threshold: float | None) -> OmniDetector:
+        threshold: float | None, search_rect=...) -> OmniDetector:
     """Build an in-memory single-state inspector using the production matcher.
 
     Fail closed on invalid unsaved rules before requesting a screenshot.
@@ -34,6 +34,11 @@ def draft_recognition_inspector(
     action['conditions'] = conditions
     action['condition_match'] = condition_match
     action['skip_template'] = condition_only
+    if search_rect is not ...:
+        if search_rect is None:
+            action.pop('search_rect', None)
+        else:
+            action['search_rect'] = list(search_rect)
     # Removing a saved override means use the workflow default, matching the
     # unchecked custom-confidence control in Studio.
     action.pop('threshold', None)
@@ -84,7 +89,10 @@ def describe_action_trace(chain: list[dict], *, passive: bool = False,
     for index, action in enumerate(chain, 1):
         kind = validate_action(action)
         label = action_summary(action)
-        if kind in ('tap', 'double_tap'):
+        if kind == 'tap_match':
+            effect = ('Tap center of the currently matched image after two '
+                      'consistent fresh screenshots; no fixed target')
+        elif kind in ('tap', 'double_tap'):
             point = action['point']
             count = 2 if kind == 'double_tap' else 1
             effect = (f'{count} Android tap(s) at normalized '
@@ -164,7 +172,7 @@ def describe_recognition_evidence(detector: OmniDetector,
 def audit_draft_saved_captures(
         folder: Path, key: str | None, *, conditions: list[dict],
         condition_match: str, condition_only: bool,
-        threshold: float | None) -> list[dict]:
+        threshold: float | None, search_rect=...) -> list[dict]:
     """Cross-check unsaved WHEN recognition against recorded screenshot examples.
 
     This tests only the draft state against each image, not the final winning
@@ -176,7 +184,7 @@ def audit_draft_saved_captures(
         draft = draft_recognition_inspector(
             detector, key, conditions=conditions,
             condition_match=condition_match, condition_only=condition_only,
-            threshold=threshold)
+            threshold=threshold, search_rect=search_rect)
         draft_key = key
     else:
         if not condition_only:
@@ -286,6 +294,16 @@ def replay_saved_action_map(
         action, len(detector.manifest['states'].get(winner.key, [])),
         winner.trigger)
     describe_action_plan(action, chain)  # Revalidate the selected commands.
+    if any(step.get('kind') == 'tap_match' for step in chain):
+        if winner.location is None:
+            raise WorkflowError('Moving image position unavailable on this screenshot')
+        # Only the read-only overlay uses a point; persisted steps and live
+        # execution retain the dynamic target and fresh-frame confirmation.
+        x1, y1, x2, y2 = winner.location
+        preview_point = [round((x1 + x2) / 2), round((y1 + y2) / 2)]
+        chain = [({'kind': 'tap', 'point': preview_point}
+                  if step.get('kind') == 'tap_match' else step)
+                 for step in chain]
     return (frame, chain, bool(action.get('passive')), winner.label,
             int(action.get('pre_tap_delay_seconds', 0)))
 
