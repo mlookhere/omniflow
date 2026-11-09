@@ -672,6 +672,7 @@ class OmniRunner:
         self._streak = 0
         self._acted = False
         self.wait_remaining: float | None = None
+        self.last_decision = 'Waiting for first screenshot; no input'
 
     def _chain(self, key: str, trigger: int) -> list[dict]:
         return resolve_action_chain(
@@ -818,6 +819,7 @@ class OmniRunner:
         self.last_observation = UNKNOWN
         self.last_capture_latency_ms = None
         self.last_capture_stages_ms = None
+        self.last_decision = 'Screenshot invalidated; reconfirming before input'
 
     def resume_after_pause(self, now: float) -> None:
         """Discard visual evidence and incomplete actions from before a pause."""
@@ -825,7 +827,8 @@ class OmniRunner:
         self.last_frame = None
         self.last_observation = UNKNOWN
         self.wait_remaining = None
-        self.log('Session resumed; reconfirming state before input')
+        self.last_decision = 'Session resumed; reconfirming state before input'
+        self.log(self.last_decision)
 
     def step(self, now: float | None = None) -> Match:
         now = time.monotonic() if now is None else now
@@ -917,6 +920,7 @@ class OmniRunner:
         # Stabilize recognition before sending any input. A transient unknown
         # frame does not unlock a toggle/queue state.
         if self._streak < 2:
+            self.last_decision = 'Confirming screen (1/2); no input'
             return observation
         if observation.key != self.current:
             if self.current and self.end_pending and not self.dry_run:
@@ -931,6 +935,7 @@ class OmniRunner:
             if observation.key:
                 self.log(f'State: {observation.label} ({observation.confidence:.0%})')
         if not observation.key:
+            self.last_decision = 'Unknown screen; no input'
             self.unknown_count += 1
             if self.unknown_count >= 3:
                 try:
@@ -945,9 +950,11 @@ class OmniRunner:
         self.unknown_count = 0
         action = self.detector.actions[observation.key]
         if observation.passive:
+            self.last_decision = 'Passive WAIT state; no input'
             return observation
         chain = self._chain(observation.key, observation.trigger)
         if not chain:
+            self.last_decision = 'No configured actions; no input'
             return observation
         retry = bool(action.get('retry', False))
         retry_mode = action.get('retry_mode', 'interval')
@@ -963,9 +970,11 @@ class OmniRunner:
             # takes precedence in the detector; returning to Match re-arms it.
             if (not retry or retry_mode != 'interval' or
                     self.attempts >= max_attempts):
+                self.last_decision = 'Action sequence complete; awaiting screen change'
                 return observation
             if now < self.action_at + retry_delay:
                 self.wait_remaining = self.action_at + retry_delay - now
+                self.last_decision = f'Bounded retry in {self.wait_remaining:.1f}s; no input'
                 return observation
             self.chain_index = 0
             self.chain_wait_until = 0
@@ -973,13 +982,17 @@ class OmniRunner:
         elif not self.attempts:
             if now < self.entered_at + delay:
                 self.wait_remaining = self.entered_at + delay - now
+                self.last_decision = f'Initial action delay: {self.wait_remaining:.1f}s; no input'
                 return observation
             self.attempts = 1
         elif now < self.chain_wait_until:
             self.wait_remaining = self.chain_wait_until - now
+            self.last_decision = f'Between-action wait: {self.wait_remaining:.1f}s; no input'
             return observation
         if self.chain_index == 0:
             self.action_at = now
+        step_index = self.chain_index
+        step_kind = chain[step_index]['kind']
         try:
             executed = self._execute(chain[self.chain_index], now)
         except (ADBError, OSError):
@@ -991,6 +1004,10 @@ class OmniRunner:
             raise
         if executed:
             self._acted = True
+        input_marker = ('no input' if self.dry_run or step_kind in ('wait', 'count_run')
+                        else 'command issued')
+        self.last_decision = (f'Action {step_index + 1}/{len(chain)}: '
+                              f'{step_kind} ({input_marker})')
         if self.chain_index >= len(chain):
             self.end_pending = bool(action.get('end') and not any(step.get('kind') == 'count_run' for step in chain))
             self.chain_wait_until = now + 0.1

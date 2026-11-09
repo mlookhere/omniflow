@@ -38,6 +38,7 @@ class Session:
     worker: threading.Thread | None = None
     status: str = 'Connecting'
     current: str = 'Waiting for image'
+    decision: str = 'Waiting for first screenshot; no input'
     confidence: float = 0
     image: np.ndarray | None = None
     image_at: float = 0.0
@@ -225,6 +226,7 @@ class InstanceManager:
                         paused_at = now
                         session.stats.pause(now)
                     session.status = 'Paused'
+                    session.decision = 'Paused; no input'
                     session.stop_event.wait(0.15)
                     continue
                 if paused_at is not None:
@@ -234,8 +236,10 @@ class InstanceManager:
                     session.stats.resume(now)
                     paused_at = None
                     session.status = 'Running'
+                    session.decision = runner.last_decision
                 try:
                     runner.step(now)
+                    session.decision = runner.last_decision
                     if recovery_requested:
                         recovery_requested = False
                         session.log('MuMu connected; game recovery active')
@@ -248,9 +252,11 @@ class InstanceManager:
                         paused_at = time.monotonic()
                         session.stats.pause(paused_at)
                     session.status = 'Paused'
+                    session.decision = 'Paused; no input'
                     continue
                 except (ADBError, OSError) as exc:
                     session.failures += 1
+                    session.decision = 'ADB/capture or input failed; awaiting fresh screen'
                     session.log(f'ADB/capture issue ({session.failures}): {exc}')
                     if session.failures % 3 == 0 and hasattr(device,'ensure_connected'):
                         try:device.ensure_connected()
@@ -266,6 +272,7 @@ class InstanceManager:
                                 recovery_requested = True
                                 runner.resume_after_pause(time.monotonic())
                                 session.status = 'Recovering emulator'
+                                session.decision = 'Waiting for MuMu to boot and reconnect; no input'
                                 session.log('MuMu instance launch requested; waiting for ADB')
                             else:
                                 session.log('MuMu auto-start unavailable for this device/installation')

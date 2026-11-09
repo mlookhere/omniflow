@@ -1425,3 +1425,15 @@ a target map or request ADB/manifest writes, while modern sequences
 still preview successfully. Required `dev` status enforcement and
 physical Windows/MuMu acceptance remain outstanding, so PR #2
 stays draft and unmerged.
+
+**Live single-workflow decision feedback (November 8, 2026):** The
+runtime runner now exposes a read-only, text-redacted decision on each step:
+screen confirmation, unknown/no-input, passive WAIT, initial or between-step
+delay, bounded retry countdown, action issue and action-chain completion.
+The session manager mirrors the decision to Dashboard alongside detection
+confidence and current run statistics, including paused, ADB failure and
+emulator-recovery states. No new OCR calls, video encoders, workflow writes,
+or Android commands are added for diagnostics; recognition rank, tap safety,
+retry limits, capture freshness and leases retain their prior behavior.
+Source and offscreen Qt tests cover the visible decisions and no-input paths;
+real Windows/MuMu approval and enforced `dev` required checks remain open.
