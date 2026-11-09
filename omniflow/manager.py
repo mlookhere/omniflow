@@ -236,10 +236,10 @@ class InstanceManager:
                     session.stats.resume(now)
                     paused_at = None
                     session.status = 'Running'
-                    session.decision = runner.last_decision
+                    session.decision = getattr(runner, 'last_decision', session.decision)
                 try:
                     runner.step(now)
-                    session.decision = runner.last_decision
+                    session.decision = getattr(runner, 'last_decision', session.decision)
                     if recovery_requested:
                         recovery_requested = False
                         session.log('MuMu connected; game recovery active')
