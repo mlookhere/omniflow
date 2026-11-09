@@ -93,6 +93,8 @@ def action_summary(action: dict) -> str:
     kind = action.get('kind', 'unknown')
     if kind == 'tap':
         return 'Tap location selected on screen'
+    if kind == 'tap_match':
+        return 'Tap center of matched image wherever it appears'
     if kind == 'double_tap':
         return 'Double-tap location selected on screen'
     if kind in ('hold', 'drag', 'swipe'):

@@ -308,6 +308,27 @@ def _validate_priority(value: float | None) -> None:
         raise ValueError('State priority must be a finite number')
 
 
+def _validate_search_rect(search_rect, probes) -> None:
+    """Validate a search ROI without touching saved assets or game screens."""
+    if search_rect is None:
+        return
+    if (not isinstance(search_rect, (list, tuple)) or len(search_rect) != 4 or
+            any(type(value) is not int for value in search_rect)):
+        raise ValueError('Image search area needs four integer coordinates')
+    x1, y1, x2, y2 = search_rect
+    if not (0 <= x1 < x2 <= SIZE[0] and 0 <= y1 < y2 <= SIZE[1]):
+        raise ValueError('Image search area must be inside the screen')
+    if not probes:
+        raise ValueError('Moving-image search needs at least one recorded image')
+    for probe in probes:
+        region = probe.get('rect') if isinstance(probe, dict) else probe
+        if (not isinstance(region, (list, tuple)) or len(region) != 4 or
+                any(type(value) is not int for value in region)):
+            raise ValueError('Moving-image search requires valid saved template regions')
+        if x2 - x1 < region[2] - region[0] or y2 - y1 < region[3] - region[1]:
+            raise ValueError('Search area must be at least as large as each image template')
+
+
 def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
                          retry: bool, retry_mode: str = 'interval',
                          retry_interval_seconds: int = 25,
@@ -336,6 +357,14 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
     action = content['actions'][key]
     chain = studio['action_chain'] if studio is not None else action.get('action_chain')
     if studio is not None:
+        if 'search_rect' in studio:
+            _validate_search_rect(studio['search_rect'], content['states'][key])
+            if studio['search_rect'] is not None and studio['skip_template']:
+                raise ValueError('Moving-image search cannot ignore the image template')
+            if (any(step.get('kind') == 'tap_match'
+                    for step in (chain or []) if isinstance(step, dict)) and
+                    (studio['search_rect'] is None or studio['skip_template'])):
+                raise ValueError('Tap matched image needs moving-image search enabled')
         if studio['skip_template'] and not studio['conditions']:
             raise ValueError('Condition-only states require a recognition condition')
         if not studio['skip_template'] and not content['states'][key]:
@@ -360,6 +389,11 @@ def update_step_settings(folder: Path, key: str, label: str, *, end: bool,
             action['skip_template'] = True
         else:
             action.pop('skip_template', None)
+        if 'search_rect' in studio:
+            if studio['search_rect'] is None:
+                action.pop('search_rect', None)
+            else:
+                action['search_rect'] = list(studio['search_rect'])
         mode = studio.get('condition_match', 'all')
         if mode not in ('all', 'any'):
             raise ValueError('Condition match mode must be all or any')
@@ -435,7 +469,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
                 conditions: list[dict] | None = None, condition_only: bool = False,
                 condition_match: str = 'all',
                 image_threshold: float | None = None,
-                priority: float | None = None) -> str:
+                priority: float | None = None,
+                search_rect: list[int] | None = None) -> str:
     """Save 1–2 region/gesture pairs. Gesture can be tap or timed drag.
 
     ``click`` and ``taps`` retain the v1.2 API for old workflow clients.
@@ -457,6 +492,13 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
         raise ValueError('Condition match mode must be all or any')
     _validate_image_threshold(image_threshold)
     _validate_priority(priority)
+    _validate_search_rect(search_rect, boxes)
+    if search_rect is not None and condition_only:
+        raise ValueError('Moving-image search cannot ignore the image template')
+    if (action_chain and any(step.get('kind') == 'tap_match'
+                             for step in action_chain if isinstance(step, dict)) and
+            search_rect is None):
+        raise ValueError('Tap matched image needs moving-image search enabled')
     if condition_only and not passive and not action_chain and not gestures and not taps and not click:
         raise ValueError('An action state needs a gesture or an action sequence')
     if passive:
@@ -565,6 +607,8 @@ def record_step(folder: Path, label: str, frame: np.ndarray,
             action['priority'] = priority
         if condition_only:
             action['skip_template'] = True
+        if search_rect is not None:
+            action['search_rect'] = list(search_rect)
         if gestures is not None:
             # Passive states have no gestures; others use the modern format.
             action['gestures'] = [dict(gesture) for gesture in gestures]

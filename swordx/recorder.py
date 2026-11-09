@@ -908,6 +908,8 @@ class RecorderDialog(QDialog):
                            if hasattr(self, '_image_threshold_override') else None)
         priority = (self._priority_value() if hasattr(self, '_priority_value')
                     else None)
+        search_rect = (self._search_rect_option()
+                       if hasattr(self, '_search_rect_option') else None)
         if visual_edit:
             if self.canvas.frame is None or self.needs_recapture:
                 QMessageBox.information(self, 'Screen capture',
@@ -950,7 +952,7 @@ class RecorderDialog(QDialog):
                                   condition_only=condition_only,
                                   condition_match=condition_match,
                                   image_threshold=image_threshold,
-                                  priority=priority)
+                                  priority=priority, search_rect=search_rect)
             else:
                 key = self.editing_key
                 # Studio-only fields participate in the same atomic settings
@@ -962,6 +964,7 @@ class RecorderDialog(QDialog):
                     'condition_match': condition_match,
                     'threshold': image_threshold,
                     'priority': priority,
+                    'search_rect': search_rect,
                 } if hasattr(self, 'extra_conditions') else None)
                 update_step_settings(folder, key, self.step_name.text(),
                                      end=self.terminal.isChecked(), retry=self.retry.isChecked(),
