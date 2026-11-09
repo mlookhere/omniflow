@@ -88,7 +88,8 @@ class ZoneCaptureDialog(QDialog):
 
 class ActionEditor(QDialog):
     """Touch actions are recorded visually; only timing and key text are typed."""
-    TYPES = [('Tap', 'tap'), ('Double tap', 'double_tap'), ('Swipe / drag', 'swipe'),
+    TYPES = [('Tap', 'tap'), ('Tap detected image (moving)', 'tap_match'),
+             ('Double tap', 'double_tap'), ('Swipe / drag', 'swipe'),
              ('Press & hold', 'hold'), ('Wait', 'wait'), ('Back', 'back'),
              ('Android key', 'key'), ('Type text into focused field', 'text'),
              ('Tap field and type text', 'field_text'),
@@ -220,8 +221,13 @@ class ActionEditor(QDialog):
             self.pick.setEnabled(self.frame is not None)
             if self.frame is None:
                 self.pick.setToolTip('Capture or load a screen in Studio first')
+        elif kind == 'tap_match':
+            self.summary.setText(
+                'Follows the detected image center. Enable moving image search in WHEN.')
+            self.pick.setEnabled(False)
         else:
             self.summary.setText('No screen location needed')
+            self.pick.setEnabled(False)
 
     def _pick(self):
         if self.frame is None:
@@ -273,6 +279,8 @@ class ActionEditor(QDialog):
             return original
         if kind == 'back':
             return {'kind': 'key', 'code': 4}
+        if kind == 'tap_match':
+            return {'kind': 'tap_match'}
         if kind in ('tap','double_tap','hold'):
             if kind == 'hold' and self._hold_path:
                 if not isinstance(self.selection, dict):
@@ -791,6 +799,28 @@ class OmniStudio(RecorderDialog):
         self.rules_only=QCheckBox('Use conditions only (ignore image template)')
         self.rules_only.toggled.connect(self._rule_mode_changed)
         rule_col.addWidget(self.rules_only)
+        # Small recorded image = template; a separate larger search area
+        # determines where it may move. Legacy fixed-position states omit it.
+        self._search_rect = None
+        self._search_enabled = False
+        self.search_enabled = QCheckBox('Find recorded image anywhere on screen')
+        self.search_enabled.setToolTip(
+            'Use the small recorded Region 1 image as a moving target. '
+            'Search the full screen or visually limit the scan for faster matching.')
+        self.search_enabled.toggled.connect(self._search_toggle)
+        rule_col.addWidget(self.search_enabled)
+        search_tools = QHBoxLayout()
+        self.search_pick = QPushButton('Draw larger search area…')
+        self.search_pick.clicked.connect(self._pick_search_region)
+        search_tools.addWidget(self.search_pick)
+        self.search_full = QPushButton('Entire screen')
+        self.search_full.clicked.connect(self._whole_screen_search)
+        search_tools.addWidget(self.search_full)
+        rule_col.addLayout(search_tools)
+        self.search_status = QLabel('')
+        self.search_status.setWordWrap(True)
+        rule_col.addWidget(self.search_status)
+        self._refresh_search_controls()
         image_row = QHBoxLayout()
         self.image_custom = QCheckBox('Custom image confidence')
         self.image_custom.setToolTip(
@@ -1103,6 +1133,8 @@ class OmniStudio(RecorderDialog):
             'condition_match': self.condition_logic.currentData(),
             'image_custom': self.image_custom.isChecked(),
             'image_percent': self.image_confidence.value(),
+            'search_enabled': self.search_enabled.isChecked(),
+            'search_rect': deepcopy(self._search_rect),
             'priority_text': self.priority.text(),
             'canvas_marks': self._canvas_marks(),
             'rule_row': self.rules_list.currentRow(),
@@ -1159,6 +1191,14 @@ class OmniStudio(RecorderDialog):
                     widget.blockSignals(False)
             self._last_image_custom = self.image_custom.isChecked()
             self._last_image_percent = self.image_confidence.value()
+            self.search_enabled.blockSignals(True)
+            try:
+                self.search_enabled.setChecked(snapshot['search_enabled'])
+                self._search_rect = deepcopy(snapshot['search_rect'])
+                self._search_enabled = self.search_enabled.isChecked()
+            finally:
+                self.search_enabled.blockSignals(False)
+            self._refresh_search_controls()
             self.priority.blockSignals(True)
             try:
                 self.priority.setText(snapshot['priority_text'])
@@ -1220,9 +1260,62 @@ class OmniStudio(RecorderDialog):
             'Image template enabled. Recheck saved image similarity.')
         self._field_changed()
 
+    def _search_rect_option(self):
+        return list(self._search_rect or [0, 0, 540, 960]) if self.search_enabled.isChecked() else None
+
+    def _refresh_search_controls(self):
+        enabled = self.search_enabled.isChecked()
+        self.search_pick.setEnabled(enabled and not self.rules_only.isChecked())
+        self.search_full.setEnabled(enabled and not self.rules_only.isChecked())
+        if not enabled:
+            self.search_status.setText('Fixed-position image matching (existing behavior).')
+        elif self.rules_only.isChecked():
+            self.search_status.setText('Moving image search requires the saved image template.')
+        else:
+            x1, y1, x2, y2 = self._search_rect_option()
+            self.search_status.setText(
+                f'Search area: ({x1}, {y1}) to ({x2}, {y2}). '
+                'Save State to use this area at runtime; smaller areas are faster.')
+
+    def _search_toggle(self, enabled):
+        if self._history_busy or enabled == self._search_enabled:
+            return
+        previous = self._edit_snapshot()
+        previous['search_enabled'] = self._search_enabled
+        self._remember_edit(previous)
+        self._search_enabled = enabled
+        if enabled and self._search_rect is None:
+            self._search_rect = [0, 0, 540, 960]
+        self._refresh_search_controls()
+        self._field_changed()
+
+    def _pick_search_region(self):
+        image = self._editor_frame()
+        if image is None:
+            return
+        dialog = ZoneCaptureDialog(
+            image, 'region', initial=self._search_rect_option(), parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            bounds = dialog.result_selection()
+            if bounds != self._search_rect_option():
+                self._remember_edit()
+                self._search_rect = bounds
+                self._refresh_search_controls()
+                self._field_changed()
+
+    def _whole_screen_search(self):
+        if not self.search_enabled.isChecked():
+            return
+        if self._search_rect != [0, 0, 540, 960]:
+            self._remember_edit()
+            self._search_rect = [0, 0, 540, 960]
+            self._refresh_search_controls()
+            self._field_changed()
+
     def _sync_image_controls(self):
         self.image_confidence.setEnabled(
             self.image_custom.isChecked() and not self.rules_only.isChecked())
+        self._refresh_search_controls()
 
     def _image_threshold_mode_changed(self, checked):
         if self._history_busy or checked == self._last_image_custom:
@@ -1288,6 +1381,7 @@ class OmniStudio(RecorderDialog):
         mode = 'all'
         override = None
         priority = None
+        search_rect = None
         default_threshold = 0.82
         if folder:
             manifest = json.loads((folder/'manifest.json').read_text(encoding='utf-8'))
@@ -1297,6 +1391,7 @@ class OmniStudio(RecorderDialog):
             mode = action.get('condition_match', 'all')
             override = action.get('threshold')
             priority = action.get('priority')
+            search_rect = action.get('search_rect')
             self.extra_chain=action.get('action_chain')
             self.extra_conditions=action.get('conditions',[])
             self.rules_only.blockSignals(True)
@@ -1312,6 +1407,14 @@ class OmniStudio(RecorderDialog):
         finally:
             self.condition_logic.blockSignals(False)
         self._last_condition_match = mode
+        self.search_enabled.blockSignals(True)
+        try:
+            self.search_enabled.setChecked(search_rect is not None)
+            self._search_rect = list(search_rect) if search_rect is not None else None
+            self._search_enabled = self.search_enabled.isChecked()
+        finally:
+            self.search_enabled.blockSignals(False)
+        self._refresh_search_controls()
         for widget, value in (
                 (self.image_custom, override is not None),
                 (self.image_confidence, round(
@@ -1355,6 +1458,17 @@ class OmniStudio(RecorderDialog):
                 validate_condition(rule)
             except WorkflowError as exc:
                 raise WorkflowError(f'Invalid saved condition {index}: {exc}') from exc
+        from .engine import SIZE, WorkflowError
+        area = action.get('search_rect')
+        if area is not None:
+            if (not isinstance(area, (list, tuple)) or len(area) != 4 or
+                    any(type(v) is not int for v in area)):
+                raise WorkflowError('Invalid saved moving-image search rectangle')
+            x1, y1, x2, y2 = area
+            if not (0 <= x1 < x2 <= SIZE[0] and 0 <= y1 < y2 <= SIZE[1]):
+                raise WorkflowError('Invalid saved moving-image search bounds')
+            if action.get('skip_template'):
+                raise WorkflowError('Moving-image search requires image matching')
         chain = action.get('action_chain')
         if chain is not None:
             if not isinstance(chain, list):
@@ -2047,6 +2161,18 @@ class OmniStudio(RecorderDialog):
         except ValueError as exc:
             QMessageBox.warning(self, 'State priority', str(exc))
             return
+        if self.search_enabled.isChecked() and self.rules_only.isChecked():
+            QMessageBox.warning(
+                self, 'Moving image search',
+                'Disable condition-only recognition to search for an image template.')
+            return
+        if (self.extra_chain and
+                any(step.get('kind') == 'tap_match' for step in self.extra_chain) and
+                not self.search_enabled.isChecked()):
+            QMessageBox.warning(
+                self, 'Tap detected image',
+                'Enable moving-image search in WHEN before using a dynamic tap.')
+            return
         # Copied/imported rules may bypass the RuleEditor dialog.
         # Fail before any manifest or screenshot writes, including for states
         # that still require an image template.
@@ -2089,6 +2215,18 @@ class OmniStudio(RecorderDialog):
                 QMessageBox.warning(
                     self, 'Image template required',
                     'Draw a detection region and recapture the screen before using image matching.')
+                return
+        # Guard a too-small scan area before either atomic save path.
+        if self.search_enabled.isChecked():
+            from swordx.workflows import _validate_search_rect
+            try:
+                if folder and self.editing_key and not self._visual_dirty:
+                    probes = data['states'][self.editing_key]
+                else:
+                    probes = [box for box in self.canvas.boxes if box is not None]
+                _validate_search_rect(self._search_rect_option(), probes)
+            except ValueError as exc:
+                QMessageBox.warning(self, 'Moving image search', str(exc))
                 return
         super()._save()
         if self._dirty or not self.editing_key:
