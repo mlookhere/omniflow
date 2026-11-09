@@ -34,6 +34,13 @@ class LiveFeedbackQtTests(unittest.TestCase):
                      patch.object(window, '_toggle_video'):
                     window._tick()
                 self.assertIn('Unknown screen; no input', window.session_info.text())
+                session.record_decision('Passive WAIT state; no input')
+                with (patch.object(window.manager, 'snapshot', return_value=[session]),
+                      patch.object(window.manager, 'tick_schedules', return_value=[]),
+                      patch.object(window, '_toggle_video')):
+                    window._tick()
+                self.assertIn('Decision · Waiting for image: Passive WAIT state; no input',
+                              window.logs.toPlainText())
             finally:
                 window.close()
 

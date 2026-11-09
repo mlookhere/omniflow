@@ -1437,3 +1437,17 @@ or Android commands are added for diagnostics; recognition rank, tap safety,
 retry limits, capture freshness and leases retain their prior behavior.
 Source and offscreen Qt tests cover the visible decisions and no-input paths;
 real Windows/MuMu approval and enforced `dev` required checks remain open.
+
+**Bounded live decision history (November 8, 2026):** User confirmed the
+live dashboard decision diagnostics work on their MuMu setup. The Activity
+Log now retains timestamped significant decision transitions beside earlier
+runtime messages, including the selected authored state and input/no-input
+outcome. Repeated polling of one decision does not flood the log; variable
+retry, initial and between-action countdowns are grouped by phase for the
+history while the current Dashboard countdown keeps updating. The bounded
+200-entry per-session log is read as a lock-protected snapshot from Qt to
+avoid concurrent-deque-iteration crashes. This is in-memory inspection only:
+no OCR text, additional device commands, captures, saved workflow changes
+or modified action decisions. Pure Session and Windows Qt regressions cover
+grouped transitions, log bounds, status visibility and concurrent reading.
+Remaining physical acceptance and required-check protection on `dev` stay open.

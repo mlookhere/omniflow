@@ -47,7 +47,9 @@ class Session:
         default_factory=lambda: deque(maxlen=120))
     capture_times: deque[float] = field(default_factory=lambda: deque(maxlen=4096))
     first_capture_at: float | None = None
-    logs: deque = field(default_factory=lambda: deque(maxlen=200))
+    logs: deque[str] = field(default_factory=lambda: deque(maxlen=200))
+    _last_decision_marker: tuple[str, str] | None = field(default=None, repr=False)
+    _log_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     failures: int = 0
     lease_lost: bool = False
     job_id: str | None = None
@@ -115,7 +117,29 @@ class Session:
         return len(samples) / span, max(gap, now - last), span
 
     def log(self, message: str) -> None:
-        self.logs.append(f'{time.strftime("%H:%M:%S")}  {message}')
+        with self._log_lock:
+            self.logs.append(f'{time.strftime("%H:%M:%S")}  {message}')
+
+    def log_snapshot(self) -> list[str]:
+        """Stable read for Qt while worker and lease threads append."""
+        with self._log_lock:
+            return list(self.logs)
+
+    def record_decision(self, message: str) -> None:
+        """Keep live countdowns current, but log transitions rather than polls."""
+        if not isinstance(message, str) or not message:
+            return
+        self.decision = message
+        phase = message
+        for prefix in ('Initial action delay:', 'Between-action wait:',
+                       'Bounded retry in '):
+            if message.startswith(prefix):
+                phase = prefix
+                break
+        marker = (self.current, phase)
+        if marker != self._last_decision_marker:
+            self._last_decision_marker = marker
+            self.log(f'Decision · {self.current}: {message}')
 
 
 class InstanceManager:
@@ -226,7 +250,7 @@ class InstanceManager:
                         paused_at = now
                         session.stats.pause(now)
                     session.status = 'Paused'
-                    session.decision = 'Paused; no input'
+                    session.record_decision('Paused; no input')
                     session.stop_event.wait(0.15)
                     continue
                 if paused_at is not None:
@@ -236,10 +260,10 @@ class InstanceManager:
                     session.stats.resume(now)
                     paused_at = None
                     session.status = 'Running'
-                    session.decision = getattr(runner, 'last_decision', session.decision)
+                    session.record_decision(getattr(runner, 'last_decision', session.decision))
                 try:
                     runner.step(now)
-                    session.decision = getattr(runner, 'last_decision', session.decision)
+                    session.record_decision(getattr(runner, 'last_decision', session.decision))
                     if recovery_requested:
                         recovery_requested = False
                         session.log('MuMu connected; game recovery active')
@@ -252,11 +276,11 @@ class InstanceManager:
                         paused_at = time.monotonic()
                         session.stats.pause(paused_at)
                     session.status = 'Paused'
-                    session.decision = 'Paused; no input'
+                    session.record_decision('Paused; no input')
                     continue
                 except (ADBError, OSError) as exc:
                     session.failures += 1
-                    session.decision = 'ADB/capture or input failed; awaiting fresh screen'
+                    session.record_decision('ADB/capture or input failed; awaiting fresh screen')
                     session.log(f'ADB/capture issue ({session.failures}): {exc}')
                     if session.failures % 3 == 0 and hasattr(device,'ensure_connected'):
                         try:device.ensure_connected()
@@ -272,7 +296,7 @@ class InstanceManager:
                                 recovery_requested = True
                                 runner.resume_after_pause(time.monotonic())
                                 session.status = 'Recovering emulator'
-                                session.decision = 'Waiting for MuMu to boot and reconnect; no input'
+                                session.record_decision('Waiting for MuMu to boot and reconnect; no input')
                                 session.log('MuMu instance launch requested; waiting for ADB')
                             else:
                                 session.log('MuMu auto-start unavailable for this device/installation')

@@ -533,7 +533,7 @@ class OmniWindow(QMainWindow):
         self.preview.setMinimumSize(270,480);self.preview.setMaximumHeight(560)
         self.preview.setAlignment(Qt.AlignCenter);self.preview.setObjectName('preview')
         r.addWidget(self.preview,1)
-        r.addWidget(QLabel('ACTIVITY LOG'))
+        r.addWidget(QLabel('ACTIVITY LOG  /  DECISION HISTORY'))
         self.logs=QPlainTextEdit();self.logs.setReadOnly(True);self.logs.setMaximumBlockCount(250)
         r.addWidget(self.logs,1)
         split.setSizes([850,450])
@@ -915,7 +915,7 @@ class OmniWindow(QMainWindow):
                     f'{sess.decision}   |   {stat.runs} runs   ·   Avg {format_duration(stat.average)}   ·   '
                     f'Fastest {format_duration(stat.fastest)}   ·   {stat.per_hour:.1f}/hr'
                     f'{capture_note}')
-            log='\n'.join(sess.logs)
+            log='\n'.join(sess.log_snapshot())
             if log!=self.last_log_text:
                 self.logs.setPlainText(log)
                 self.logs.verticalScrollBar().setValue(self.logs.verticalScrollBar().maximum())
