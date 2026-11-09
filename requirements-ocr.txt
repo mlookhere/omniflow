@@ -1,0 +1,2 @@
+# Backwards-compatible alias: the full install now includes OCR by default.
+-r requirements.txt
