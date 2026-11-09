@@ -70,6 +70,7 @@ class Match:
     confidence: float
     passive: bool = False
     trigger: int = 0
+    location: tuple[int, int, int, int] | None = None
 
 
 UNKNOWN = Match('', 'Unknown screen', 0.0)
@@ -254,6 +255,25 @@ def validate_recognition_manifest(manifest: dict) -> None:
             raise WorkflowError(f'State {key!r} must define action and image probe data')
         label = action.get('label', key)
         prefix = f'State {label!r}'
+        search = action.get('search_rect')
+        if search is not None:
+            if (not isinstance(search, (list, tuple)) or len(search) != 4 or
+                    any(type(v) is not int for v in search)):
+                raise WorkflowError(f'{prefix}: image search area needs four integer coordinates')
+            sx1, sy1, sx2, sy2 = search
+            if not (0 <= sx1 < sx2 <= SIZE[0] and
+                    0 <= sy1 < sy2 <= SIZE[1]):
+                raise WorkflowError(f'{prefix}: image search area is outside the screen')
+            if action.get('skip_template') or not probes:
+                raise WorkflowError(f'{prefix}: moving image search requires a saved template')
+            for probe in probes:
+                rect = probe.get('rect') if isinstance(probe, dict) else None
+                if (isinstance(rect, (list, tuple)) and len(rect) == 4 and
+                        all(type(v) is int for v in rect) and
+                        (sx2 - sx1 < rect[2] - rect[0] or
+                         sy2 - sy1 < rect[3] - rect[1])):
+                    raise WorkflowError(
+                        f'{prefix}: image search area is smaller than the saved template')
         for flag in ('passive', 'skip_template', 'retry', 'end'):
             if flag in action and type(action[flag]) is not bool:
                 raise WorkflowError(f'{prefix}: {flag} must be true or false')
@@ -397,6 +417,28 @@ class OmniDetector:
         rmse = (max(0.0, float(cv2.minMaxLoc(squared)[0])) / anchor.gray.size) ** 0.5
         return max(0.0, 1.0 - rmse / 80.0)
 
+    @staticmethod
+    def _find_movable_template(frame: np.ndarray, anchor, region: list[int]
+                               ) -> tuple[float, tuple[int, int, int, int]]:
+        """One OpenCV search in a selected ROI; return score and actual bounds."""
+        x1, y1, x2, y2 = region
+        roi = frame[y1:y2, x1:x2]
+        h, w = anchor.gray.shape
+        if roi.shape[0] < h or roi.shape[1] < w:
+            return 0.0, (x1, y1, x1 + w, y1 + h)
+        if float(anchor.gray.std()) >= 2.0:
+            scores = cv2.matchTemplate(roi, anchor.gray, cv2.TM_CCOEFF_NORMED)
+            _, confidence, _, (dx, dy) = cv2.minMaxLoc(scores)
+            confidence = max(0.0, float(confidence))
+        else:
+            # OpenCV's normalized correlation returns false positives on
+            # constant artwork. Compare absolute pixel error instead.
+            scores = cv2.matchTemplate(roi, anchor.gray, cv2.TM_SQDIFF)
+            minimum, _, (dx, dy), _ = cv2.minMaxLoc(scores)
+            rmse = (max(0.0, float(minimum)) / anchor.gray.size) ** 0.5
+            confidence = max(0.0, 1.0 - rmse / 80.0)
+        return confidence, (x1 + dx, y1 + dy, x1 + dx + w, y1 + dy + h)
+
     def detect(self, frame: np.ndarray) -> Match:
         """Fast production recognition; no trace allocation or extra OCR."""
         return self._evaluate(frame, explain=False)[0]
@@ -427,8 +469,16 @@ class OmniDetector:
         details: list[dict] = []
         for key, action in self.actions.items():
             probes = () if action.get('skip_template') else self.templates.get(key, ())
+            locations = []
             if probes:
-                scores = [self._match_template(gray, anchor) for anchor in probes]
+                search_rect = action.get('search_rect')
+                if search_rect is not None:
+                    results = [self._find_movable_template(gray, anchor, search_rect)
+                               for anchor in probes]
+                    scores = [score for score, _ in results]
+                    locations = [bounds for _, bounds in results]
+                else:
+                    scores = [self._match_template(gray, anchor) for anchor in probes]
                 if action.get('match', 'all') == 'any':
                     trigger = int(np.argmax(scores))
                     confidence = scores[trigger]
@@ -445,6 +495,7 @@ class OmniDetector:
                 'passive': bool(action.get('passive', False)),
                 'has_template': bool(probes),
                 'template_confidence': float(confidence),
+                'matched_bounds': (locations[trigger] if locations else None),
                 'threshold': threshold,
                 'condition_results': None,
                 'condition_evidence': None,
@@ -480,7 +531,8 @@ class OmniDetector:
                         details.append(detail)
                     continue
             candidates.append(Match(key, action.get('label', key), confidence,
-                                    bool(action.get('passive', False)), trigger))
+                                    bool(action.get('passive', False)), trigger,
+                                    locations[trigger] if locations else None))
             if explain:
                 detail['status'] = 'matched'
                 detail['match_confidence'] = float(confidence)
@@ -563,7 +615,12 @@ def validate_action(action: dict) -> str:
         raise WorkflowError('Action step must be an object')
     kind = action.get('kind')
     try:
-        if kind in ('tap', 'double_tap'):
+        if kind == 'tap_match':
+            # Center is supplied by a freshly recognized template, never a
+            # stored/stale coordinate or OCR text.
+            if set(action) != {'kind'}:
+                raise WorkflowError('Tap matched image does not accept fixed coordinates')
+        elif kind in ('tap', 'double_tap'):
             _target(action['point'], SIZE)
         elif kind in ('hold', 'drag', 'swipe'):
             _target(action.get('start', action.get('point')), SIZE)
@@ -623,7 +680,12 @@ def validate_saved_action_chains(manifest: dict) -> None:
                 f'State {label!r}: actionable state needs at least one action')
         for index, step in enumerate(steps, 1):
             try:
-                validate_action(step)
+                kind = validate_action(step)
+                if kind == 'tap_match' and (not action.get('search_rect') or
+                                           action.get('skip_template') or
+                                           not manifest['states'].get(key)):
+                    raise WorkflowError(
+                        'Tap matched image requires a saved template and moving image search')
             except WorkflowError as exc:
                 raise WorkflowError(
                     f'State {label!r}, action {index}: {exc}') from exc
@@ -669,6 +731,7 @@ class OmniRunner:
         self.last_capture_latency_ms: float | None = None
         self.last_capture_stages_ms: dict[str, float] | None = None
         self._stable_key = ''
+        self._stable_location: tuple[int, int, int, int] | None = None
         self._streak = 0
         self._acted = False
         self.wait_remaining: float | None = None
@@ -721,7 +784,15 @@ class OmniRunner:
                      f'{self.last_observation.label}: {kind} (no input)')
             self.chain_index += 1
             return True
-        if kind in ('tap', 'double_tap'):
+        if kind == 'tap_match':
+            bounds = self.last_observation.location
+            if bounds is None:
+                raise WorkflowError('Moving image location unavailable; refusing tap')
+            x, y = self._map_point(((bounds[0] + bounds[2]) / 2,
+                                     (bounds[1] + bounds[3]) / 2))
+            self._require_device_input()
+            self.device.tap(x, y)
+        elif kind in ('tap', 'double_tap'):
             x, y = self._map_point(action['point'])
             self._require_device_input()
             self.device.tap(x, y)
@@ -801,6 +872,7 @@ class OmniRunner:
         complete a run based on a screen transition that was not observed.
         """
         self._stable_key = ''
+        self._stable_location = None
         self._streak = 0
         self.current = ''
         self.entered_at = now
@@ -913,10 +985,20 @@ class OmniRunner:
             raise ADBError(f'Screenshot preview processing failed: {exc}') from exc
         # A slow preview callback must not authorize input from stale pixels.
         require_fresh_observation()
+        moved = (observation.location is not None and
+                 self._stable_location is not None and
+                 max(abs(a - b) for a, b in
+                     zip(observation.location, self._stable_location)) > 8)
+        if moved and observation.key == self._stable_key:
+            # A target may have teleported while the state and pending action
+            # chain remain the same. Never tap a different location on the
+            # strength of the old confirmation, retry or delay.
+            self._invalidate_visual_state(now)
         if observation.key != self._stable_key:
             self._stable_key, self._streak = observation.key, 1
         else:
             self._streak += 1
+        self._stable_location = observation.location
         # Stabilize recognition before sending any input. A transient unknown
         # frame does not unlock a toggle/queue state.
         if self._streak < 2:
