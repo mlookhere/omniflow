@@ -138,6 +138,33 @@ class MovingImageTests(unittest.TestCase):
                                  end=False, retry=False, studio=bad)
         self.assertEqual(manifest.read_bytes(), saved)
 
+    def test_saved_action_map_uses_current_image_center_without_device_io(self):
+        from omniflow.replay import replay_saved_action_map
+        frame, chain, passive, label, delay = replay_saved_action_map(
+            self.folder, self.key)
+        self.assertFalse(passive)
+        self.assertEqual(chain, [{'kind': 'tap', 'point': [95, 138]}])
+        self.assertEqual(self.device.taps, [])
+        self.assertEqual(frame.shape, self.original.shape)
+
+    def test_unsaved_draft_search_area_is_honored_without_disk_write(self):
+        from omniflow.replay import draft_recognition_inspector
+        detector = OmniDetector(self.folder)
+        before = (self.folder / 'manifest.json').read_bytes()
+        narrow = draft_recognition_inspector(
+            detector, self.key, conditions=[], condition_match='all',
+            condition_only=False, threshold=None,
+            search_rect=[0, 0, 190, 240])
+        wide = draft_recognition_inspector(
+            detector, self.key, conditions=[], condition_match='all',
+            condition_only=False, threshold=None,
+            search_rect=[0, 0, 540, 960])
+        self.assertEqual(narrow.detect(self.device.frame).key, '')
+        self.assertEqual(wide.detect(self.device.frame).location,
+                         (340, 620, 400, 665))
+        self.assertEqual((self.folder / 'manifest.json').read_bytes(), before)
+        self.assertEqual(self.device.taps, [])
+
     def test_dry_run_never_taps_dynamic_image(self):
         runner = OmniRunner(self.device, self.folder, 'com.example.game', dry_run=True)
         runner.step(100)

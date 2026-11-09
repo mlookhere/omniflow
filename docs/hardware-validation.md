@@ -451,3 +451,31 @@ window counts and inconsistent accounting, even if the original diagnostic
 reported `passed: true`. Reports written before this field existed must be
 recollected using the updated diagnostic; do not infer recovery from legacy
 logs or from screenshot fallback alone.
+
+### Movable-image Studio acceptance (new; not yet hardware verified)
+
+On a genuine Windows/MuMu device, create a test state in **Studio**:
+draw **Region 1** tightly around a distinctive movable icon/button,
+enable **Find recorded image anywhere on screen**, choose entire screen
+(or draw a larger bounded search area), and select the THEN action
+**Tap detected image (moving)**. Save, then run against an icon that
+appears at multiple separated positions (including a region edge).
+
+Record the matched bounding box, actual tap location, whether the image
+was found when moved, capture-start-to-input latency, matches/taps
+outside the chosen search rectangle, and false positives on screens
+without the icon. A moved image must be confirmed on two fresh frames;
+a change of location must invalidate prior action progress. Test the
+same image with a smaller search region, a WAIT-state override, Pause,
+and emulator recovery. Reopen the state in Studio and confirm the
+search scope and dynamic action survive Save/reload; legacy fixed
+targets must continue to work.
+
+**Speed acceptance:** report screenshot acquisition time separately
+from `cv2.matchTemplate` time and from H.264 UI preview FPS. The
+previous genuine single-MuMu screenshot result of 0.719 FPS is still
+below the 0.8 FPS capture gate; adding a fast image template matcher
+does not resolve the acquisition bottleneck. Do not infer full-screen
+moving-target response times from the ~20 FPS *preview* rate. Keep
+actual live target correctness and latency **unverified** until measured
+and preserve the evidence in Issue #1.
