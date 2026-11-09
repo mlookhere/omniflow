@@ -21,7 +21,7 @@ class LiveFeedbackQtTests(unittest.TestCase):
 
     def test_dashboard_shows_selected_session_decision(self):
         with tempfile.TemporaryDirectory() as path:
-            with patch('omniflow.ui.root_dir', return_value=Path(path)), \\
+            with patch('omniflow.ui.root_dir', return_value=Path(path)), \
                  patch('omniflow.ui.DeviceScan.start'):
                 window = OmniWindow()
             try:
@@ -29,8 +29,8 @@ class LiveFeedbackQtTests(unittest.TestCase):
                                   'Workflow', Path(path), 'owner')
                 session.status = 'Running'
                 session.decision = 'Unknown screen; no input'
-                with patch.object(window.manager, 'snapshot', return_value=[session]), \\
-                     patch.object(window.manager, 'tick_schedules', return_value=[]), \\
+                with patch.object(window.manager, 'snapshot', return_value=[session]), \
+                     patch.object(window.manager, 'tick_schedules', return_value=[]), \
                      patch.object(window, '_toggle_video'):
                     window._tick()
                 self.assertIn('Unknown screen; no input', window.session_info.text())
