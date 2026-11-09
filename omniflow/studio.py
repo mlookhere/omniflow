@@ -1759,7 +1759,8 @@ class OmniStudio(RecorderDialog):
         from .engine import WorkflowError, resolve_action_chain, validate_action
         from .replay import describe_action_plan
         if (self.extra_chain and
-                any(item.get('kind') == 'tap_match' for item in self.extra_chain) and
+                any(isinstance(item, dict) and item.get('kind') == 'tap_match'
+                    for item in self.extra_chain) and
                 (self.rules_only.isChecked() or not self.search_enabled.isChecked())):
             raise WorkflowError(
                 'Tap detected image requires the moving-image search option in WHEN')
