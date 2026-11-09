@@ -1451,3 +1451,23 @@ no OCR text, additional device commands, captures, saved workflow changes
 or modified action decisions. Pure Session and Windows Qt regressions cover
 grouped transitions, log bounds, status visibility and concurrent reading.
 Remaining physical acceptance and required-check protection on `dev` stay open.
+
+**Movable image recognition (November 9, 2026):** User requested one
+fast, location-independent image-targeting workflow. Studio can now keep
+a small saved image template, optionally scan the full normalized screen
+or a visually drawn larger search area, and use a `Tap detected image
+(moving)` action that targets the current matched image center instead of
+recorded coordinates. Runtime uses the same normalized screenshot and one
+OpenCV template-matching pass per anchor (no extra OCR or device capture);
+the OCR text rules remain separate. Search rectangles and actions save
+atomically with legacy workflow data. Two consecutive fresh observations
+must agree within 8 normalized pixels before a movable target can authorize
+input. Moving the target materially resets incomplete action progress and
+requires confirmation anew; pause/lease/fresh-frame rules remain.
+Unsaved search-area choices participate in Studio's Undo/Redo; static
+workflows without a search area retain their original fixed-position match.
+Unit and Windows Qt regressions cover detection position, moved target,
+no-input, saved settings, area validation and editor persistence. This
+increment is not yet live Windows/MuMu hardware acceptance; validate
+actual target hit rate and recognition/capture latency separately. Never
+equate screenshot preview FPS with actionable capture FPS.
