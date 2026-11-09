@@ -2184,7 +2184,8 @@ class OmniStudio(RecorderDialog):
                 'Disable condition-only recognition to search for an image template.')
             return
         if (self.extra_chain and
-                any(step.get('kind') == 'tap_match' for step in self.extra_chain) and
+                any(isinstance(step, dict) and step.get('kind') == 'tap_match'
+                    for step in self.extra_chain) and
                 not self.search_enabled.isChecked()):
             QMessageBox.warning(
                 self, 'Tap detected image',
