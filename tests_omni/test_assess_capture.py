@@ -1,0 +1,239 @@
+"""Capture reports only support decisions when their measurements agree."""
+from __future__ import annotations
+
+import copy
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from tools import assess_capture as assessment
+
+
+def profile(kind: str, fps: float, p95: float) -> dict:
+    seconds = 120.0
+    frames = round(seconds * fps)
+    observed = frames / seconds
+    return {
+        'serial': '127.0.0.1:16640', 'read_only': True,
+        'capture_format': kind,
+        'adb_timeout_seconds': 6.0 if kind == 'png' else 15.0,
+        'capture_source': ('ADB exec-out screencap -p (PNG)' if kind == 'png'
+                           else 'ADB exec-out screencap (raw framebuffer)'),
+        'requested_seconds': seconds, 'elapsed_seconds': seconds,
+        'min_fps': .8, 'frames': frames, 'errors': 0,
+        'source_shape': [960, 540, 3], 'source_shapes': [[960, 540, 3]],
+        'max_capture_gap_seconds': 1.9,
+        'max_capture_gap_limit_seconds': 6.0,
+        'effective_fps': round(observed, 3),
+        'payload_bytes_mean': 124000 if kind == 'png' else 4000000,
+        'timings_ms': {name: {'mean': 150, 'p95': p95 if name == 'total_ms' else p95 * .8}
+                       for name in ('adb_exec_ms', 'decode_ms', 'normalize_ms', 'total_ms')},
+        'passed': observed >= .8,
+        'failures': [] if observed >= .8 else [
+            f'Capture {observed:.3f} FPS below 0.800 FPS target'],
+    }
+
+
+def fidelity() -> dict:
+    return {
+        'serial': 'localhost:16640', 'read_only': True,
+        'passed': True, 'hardware_acceptance_complete': False,
+        'quality_equivalence_verified': True,
+        'capture_order': ['png', 'raw', 'png'],
+        'comparison_pixel_space': 'native_source',
+        'triplets_requested': 3, 'triplets_checked': 3,
+        'pixel_tolerance': 8, 'max_changed_fraction': .005,
+        'results': [
+            {'index': i, 'stable_png_controls': True, 'equivalent': True,
+             'png_motion_fraction': 0.0, 'raw_delta_before_fraction': 0.0,
+             'raw_delta_after_fraction': 0.0, 'source_shape': [960, 540, 3]}
+            for i in (1, 2, 3)],
+        'failures': [],
+    }
+
+
+class CaptureAssessmentTests(unittest.TestCase):
+    def setUp(self):
+        self.png = profile('png', .725, 1719)
+        self.raw = profile('raw', 1.125, 980)
+        self.fidelity = fidelity()
+
+    def test_valid_raw_candidate_is_not_production_or_hardware_acceptance(self):
+        result = assessment.assess(self.png, self.raw, self.fidelity)
+        self.assertTrue(result['passed'])
+        self.assertTrue(result['comparison_complete'])
+        self.assertTrue(result['raw_candidate_for_further_validation'])
+        self.assertFalse(result['hardware_acceptance_complete'])
+        self.assertFalse(result['production_capture_changed'])
+        self.assertGreater(result['metrics']['raw_relative_fps_gain'], .1)
+        self.assertEqual(result['metrics']['serial'], '127.0.0.1:16640')
+
+    def test_slower_raw_is_a_valid_negative_result_not_a_candidate(self):
+        raw = profile('raw', .7, 2000)
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertTrue(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_png_timeout_must_match_production_safety_budget(self):
+        for value in (None, 15.0, 6.01, 0, -1.0, float('nan'), True):
+            with self.subTest(timeout=value):
+                png = copy.deepcopy(self.png)
+                if value is None:
+                    png.pop('adb_timeout_seconds')
+                else:
+                    png['adb_timeout_seconds'] = value
+                result = assessment.assess(png, self.raw, self.fidelity)
+                self.assertFalse(result['comparison_complete'])
+                self.assertFalse(result['raw_candidate_for_further_validation'])
+                self.assertIn('timeout', ' '.join(result['failures']).lower())
+
+    def test_raw_timeout_must_be_bounded_for_diagnostic_comparison(self):
+        raw = copy.deepcopy(self.raw)
+        raw['adb_timeout_seconds'] = 30.0
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertFalse(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_mismatched_identity_fails_closed(self):
+        self.raw['serial'] = '127.0.0.1:16384'
+        result = assessment.assess(self.png, self.raw, self.fidelity)
+        self.assertFalse(result['passed'])
+        self.assertIn('different devices', ' '.join(result['failures']))
+
+    def test_only_real_mumu_serials_and_whole_frame_counts_are_admissible(self):
+        for source in ('png', 'raw', 'fidelity'):
+            for serial in ('USB-12345', '127.0.0.1:5555', '', None):
+                with self.subTest(source=source, serial=serial):
+                    reports = [copy.deepcopy(self.png), copy.deepcopy(self.raw),
+                               copy.deepcopy(self.fidelity)]
+                    reports[('png', 'raw', 'fidelity').index(source)]['serial'] = serial
+                    result = assessment.assess(*reports)
+                    self.assertFalse(result['comparison_complete'])
+                    self.assertFalse(result['raw_candidate_for_further_validation'])
+        for source in ('png', 'raw'):
+            with self.subTest(fractional_frames=source):
+                reports = [copy.deepcopy(self.png), copy.deepcopy(self.raw),
+                           copy.deepcopy(self.fidelity)]
+                reports[('png', 'raw').index(source)]['frames'] += 0.5
+                result = assessment.assess(*reports)
+                self.assertFalse(result['comparison_complete'])
+
+    def test_report_must_cover_requested_duration_even_if_120s_elapsed(self):
+        for source in ('png', 'raw'):
+            with self.subTest(source=source):
+                reports = [copy.deepcopy(self.png), copy.deepcopy(self.raw),
+                           copy.deepcopy(self.fidelity)]
+                reports[('png', 'raw').index(source)]['requested_seconds'] = 180.0
+                result = assessment.assess(*reports)
+                self.assertFalse(result['comparison_complete'])
+                self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_95_percent_of_longer_requested_profile_is_not_full_duration(self):
+        for source in ('png', 'raw'):
+            with self.subTest(source=source):
+                png = copy.deepcopy(self.png)
+                raw = copy.deepcopy(self.raw)
+                report = png if source == 'png' else raw
+                report['requested_seconds'] = 126.0
+                # 120 seconds would satisfy the former 95% allowance.
+                result = assessment.assess(png, raw, self.fidelity)
+                self.assertFalse(result['comparison_complete'])
+                self.assertIn('full requested', ' '.join(result['failures']))
+
+    def test_short_duration_missing_frames_and_forged_fps_rejected(self):
+        for field, value in [('elapsed_seconds', 19.0), ('frames', 0),
+                             ('effective_fps', 30.0), ('errors', 1)]:
+            with self.subTest(field=field):
+                bad = copy.deepcopy(self.raw)
+                bad[field] = value
+                self.assertFalse(assessment.assess(self.png, bad, self.fidelity)['passed'])
+
+    def test_raw_success_flag_cannot_override_fps_or_errors(self):
+        raw = profile('raw', .6, 2000)
+        raw['passed'] = True
+        raw['failures'] = []
+        self.assertFalse(assessment.assess(self.png, raw, self.fidelity)['passed'])
+
+    def test_raw_must_pass_its_own_higher_configured_fps_gate(self):
+        raw = profile('raw', .9, 900)
+        raw['min_fps'] = 1.0
+        raw['passed'] = False
+        raw['failures'] = ['Capture 0.900 FPS below 1.000 FPS target']
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertTrue(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_legacy_downscaled_fidelity_reports_are_not_native_evidence(self):
+        for label, value in [('missing', None), ('old-normalized', 'normalized_540x960')]:
+            with self.subTest(label=label):
+                report = copy.deepcopy(self.fidelity)
+                if value is None:
+                    report.pop('comparison_pixel_space')
+                else:
+                    report['comparison_pixel_space'] = value
+                outcome = assessment.assess(self.png, self.raw, report)
+                self.assertFalse(outcome['comparison_complete'])
+                self.assertFalse(outcome['raw_candidate_for_further_validation'])
+
+    def test_bad_fidelity_flags_and_loose_tolerance_rejected(self):
+        for mutate in (lambda x: x.update(passed=False),
+                       lambda x: x.update(pixel_tolerance=255),
+                       lambda x: x['results'][1].update(stable_png_controls=False),
+                       lambda x: x['results'][2].update(raw_delta_before_fraction=.1),
+                       lambda x: x.update(triplets_checked=2),
+                       lambda x: x['results'][1].update(source_shape=[540, 960, 3])):
+            with self.subTest(mutate=mutate):
+                bad = copy.deepcopy(self.fidelity)
+                mutate(bad)
+                self.assertFalse(assessment.assess(self.png, self.raw, bad)['passed'])
+
+    def test_long_capture_gap_never_makes_raw_candidate(self):
+        raw = copy.deepcopy(self.raw)
+        raw['max_capture_gap_seconds'] = 7.0
+        raw['passed'] = False
+        raw['failures'] = ['Capture gap 7.000s exceeds 6.000s limit']
+        result = assessment.assess(self.png, raw, self.fidelity)
+        self.assertTrue(result['comparison_complete'])
+        self.assertFalse(result['raw_candidate_for_further_validation'])
+        self.assertFalse(result['hardware_acceptance_complete'])
+
+    def test_unreported_stall_and_relaxed_gap_limit_are_rejected(self):
+        for key, value in [('max_capture_gap_seconds', 9.0),
+                           ('max_capture_gap_limit_seconds', 10.0),
+                           ('source_shape', [540, 960, 3]),
+                           ('source_shapes', [[960, 540, 3], [540, 960, 3]])]:
+            with self.subTest(field=key):
+                altered = copy.deepcopy(self.raw)
+                altered[key] = value
+                result = assessment.assess(self.png, altered, self.fidelity)
+                self.assertFalse(result['comparison_complete'])
+                self.assertFalse(result['raw_candidate_for_further_validation'])
+
+    def test_cross_mode_geometry_must_match_stable_fidelity(self):
+        rotated = [540, 960, 3]
+        self.raw['source_shape'] = rotated
+        self.raw['source_shapes'] = [rotated]
+        result = assessment.assess(self.png, self.raw, self.fidelity)
+        self.assertFalse(result['comparison_complete'])
+        self.assertIn('geometry', ' '.join(result['failures']))
+
+    def test_absent_json_overwrites_existing_success(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            destination = root / 'assessed.json'
+            destination.write_text('{"passed": true}', encoding='utf-8')
+            for name, payload in (('png', self.png), ('raw', self.raw)):
+                (root / f'{name}.json').write_text(json.dumps(payload), encoding='utf-8')
+            self.assertEqual(assessment.main([
+                '--png', str(root / 'png.json'), '--raw', str(root / 'raw.json'),
+                '--fidelity', str(root / 'missing.json'), '--output', str(destination)]), 1)
+            data = json.loads(destination.read_text())
+            self.assertFalse(data['passed'])
+            self.assertFalse(data['raw_candidate_for_further_validation'])
+            self.assertFalse(data['hardware_acceptance_complete'])
+            self.assertIn('could not load', ' '.join(data['failures']))
+
+
+if __name__ == '__main__':
+    unittest.main()

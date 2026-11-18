@@ -1,0 +1,145 @@
+{
+  "threshold": 0.8,
+  "states": {
+    "HOME": [
+      {
+        "file": "home_0.png",
+        "rect": [
+          151,
+          903,
+          181,
+          935
+        ]
+      },
+      {
+        "file": "home_1.png",
+        "rect": [
+          242,
+          903,
+          286,
+          946
+        ]
+      }
+    ],
+    "JOURNAL": [
+      {
+        "file": "journal_0.png",
+        "rect": [
+          17,
+          116,
+          158,
+          138
+        ]
+      },
+      {
+        "file": "journal_1.png",
+        "rect": [
+          72,
+          186,
+          202,
+          282
+        ]
+      }
+    ],
+    "DUNGEON_LIST": [
+      {
+        "file": "dungeon_list_0.png",
+        "rect": [
+          32,
+          27,
+          174,
+          58
+        ]
+      },
+      {
+        "file": "dungeon_list_1.png",
+        "rect": [
+          187,
+          706,
+          288,
+          730
+        ]
+      }
+    ],
+    "DETAILS": [
+      {
+        "file": "details_0.png",
+        "rect": [
+          81,
+          812,
+          244,
+          844
+        ]
+      },
+      {
+        "file": "details_1.png",
+        "rect": [
+          382,
+          816,
+          433,
+          838
+        ]
+      }
+    ],
+    "INVITE": [
+      {
+        "file": "invite_0.png",
+        "rect": [
+          88,
+          39,
+          457,
+          73
+        ]
+      },
+      {
+        "file": "invite_1.png",
+        "rect": [
+          115,
+          816,
+          189,
+          843
+        ]
+      }
+    ],
+    "LOBBY": [
+      {
+        "file": "lobby_0.png",
+        "rect": [
+          164,
+          166,
+          327,
+          194
+        ]
+      },
+      {
+        "file": "lobby_1.png",
+        "rect": [
+          235,
+          703,
+          306,
+          730
+        ]
+      }
+    ],
+    "RESULTS": [
+      {
+        "file": "results_0.png",
+        "rect": [
+          25,
+          651,
+          81,
+          678
+        ]
+      },
+      {
+        "file": "results_1.png",
+        "rect": [
+          66,
+          27,
+          296,
+          59
+        ]
+      }
+    ]
+  }
+}

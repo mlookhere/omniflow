@@ -1,0 +1,73 @@
+name: OmniFlow CI
+on:
+  push:
+    branches: [main, dev, 'work/**']
+  pull_request:
+    branches: [main, dev]
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify full application baseline is present
+        run: |
+          test -f omniflow/engine.py
+          test -f omniflow/studio.py
+          test -f omniflow/visual.py
+          test -f swordx/workflows.py
+          test -d tests
+          test -d tests_omni
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Verify OCR model inference and core runtime dependencies
+        run: python tools/check_requirements.py
+      - name: Run old and new regression suites
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest -q tests tests_omni
+      - name: Compile all code
+        run: python -m compileall -q omniflow swordx
+
+  windows-qt-preview:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Verify full application and video tests are present
+        shell: pwsh
+        run: |
+          foreach ($path in @('omniflow/engine.py', 'omniflow/studio.py',
+                              'swordx/preview.py', 'tests_omni/test_video_reliability.py',
+                              'tests_omni/fixtures/h264_annexb.h264')) {
+            if (-not (Test-Path $path)) { throw "Required source missing: $path" }
+          }
+      - name: Install runtime and tests
+        run: python -m pip install -r requirements.txt pytest
+      - name: Verify OCR model inference and core runtime dependencies
+        run: python tools/check_requirements.py
+      - name: Run legacy and OmniFlow Qt regression suites (separate processes)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        shell: pwsh
+        run: |
+          # Qt's native shutdown must succeed for EACH full suite; never mask
+          # a nonzero exit with a later successful process.
+          python -X faulthandler -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { throw "Legacy Qt suite exited $LASTEXITCODE" }
+          python -X faulthandler -m pytest -q tests_omni
+          if ($LASTEXITCODE -ne 0) { throw "OmniFlow Qt suite exited $LASTEXITCODE" }
+      - name: Compile all code
+        run: python -m compileall -q omniflow swordx
