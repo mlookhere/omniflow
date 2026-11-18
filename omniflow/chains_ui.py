@@ -24,6 +24,7 @@ class ChainLibraryDialog(QDialog):
         self._library = read_chains(root)
         self._loading = False
         self._dirty = False
+        self._last_workflow_name = None
         self.saved = False
         self.setWindowTitle('Workflow Chains · Priority and completion')
         self.resize(780, 730)
@@ -142,11 +143,15 @@ class ChainLibraryDialog(QDialog):
         self.saved_chains.blockSignals(False)
 
     def _refresh_states(self, *_):
-        current_trigger = self.trigger.currentData()
-        current_complete = self.complete.currentData()
+        name = self.workflow.currentText()
+        # A different workflow has different state IDs. Select its first
+        # trigger and last completion by default instead of carrying stale IDs.
+        same_workflow = name == self._last_workflow_name
+        current_trigger = self.trigger.currentData() if same_workflow else None
+        current_complete = self.complete.currentData() if same_workflow else None
+        self._last_workflow_name = name
         self.trigger.clear()
         self.complete.clear()
-        name = self.workflow.currentText()
         path = self.workflows.get(name)
         if path is not None:
             try:
