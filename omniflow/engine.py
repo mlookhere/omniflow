@@ -697,9 +697,14 @@ class OmniRunner:
                  completed=lambda _: None, image=lambda *_: None,
                  auto_relaunch: bool = True, dry_run: bool = False,
                  can_act: Callable[[], bool] = lambda: True,
-                 is_paused: Callable[[], bool] = lambda: False):
-        self.detector = OmniDetector(folder)
+                 is_paused: Callable[[], bool] = lambda: False,
+                 terminal_key: str | None = None, detector: OmniDetector | None = None):
+        self.detector = detector if detector is not None else OmniDetector(folder)
         validate_saved_action_chains(self.detector.manifest)
+        if terminal_key is not None and terminal_key not in self.detector.actions:
+            raise WorkflowError('Completion state must exist in the saved workflow')
+        self.terminal_key = terminal_key
+        self._terminal_counted = False
         self.device = device
         self.package = package
         self.log, self.on_completed, self.on_image = log, completed, image
@@ -824,7 +829,10 @@ class OmniRunner:
             self._require_device_input()
             self.device.launch(self.package)
         elif kind == 'count_run':
-            self._finish_run()
+            # A chained workflow counts only its explicitly confirmed
+            # completion screen. Legacy standalone counter behavior is intact.
+            if self.terminal_key is None:
+                self._finish_run()
         else:
             raise WorkflowError(f'Unknown action: {kind}')
         self.chain_index += 1
@@ -1005,7 +1013,7 @@ class OmniRunner:
             self.last_decision = 'Confirming screen (1/2); no input'
             return observation
         if observation.key != self.current:
-            if self.current and self.end_pending and not self.dry_run:
+            if self.current and self.end_pending and not self.dry_run and self.terminal_key is None:
                 self._finish_run()
             self.current = observation.key
             self.entered_at = now
@@ -1030,6 +1038,14 @@ class OmniRunner:
                     raise
             return observation
         self.unknown_count = 0
+        if observation.key == self.terminal_key:
+            # A chain's terminal state is observational, not an action:
+            # never send its stored taps or count it again on a static screen.
+            if not self._terminal_counted and not self.dry_run:
+                self._finish_run()
+                self._terminal_counted = True
+            self.last_decision = 'Completion screen confirmed; no input'
+            return observation
         action = self.detector.actions[observation.key]
         if observation.passive:
             self.last_decision = 'Passive WAIT state; no input'
@@ -1091,6 +1107,8 @@ class OmniRunner:
         self.last_decision = (f'Action {step_index + 1}/{len(chain)}: '
                               f'{step_kind} ({input_marker})')
         if self.chain_index >= len(chain):
-            self.end_pending = bool(action.get('end') and not any(step.get('kind') == 'count_run' for step in chain))
+            self.end_pending = bool(
+                self.terminal_key is None and action.get('end') and
+                not any(step.get('kind') == 'count_run' for step in chain))
             self.chain_wait_until = now + 0.1
         return observation
