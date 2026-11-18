@@ -450,6 +450,7 @@ class OmniWindow(QMainWindow):
         self.setMinimumSize(1060,700)
         self._build()
         self._refresh_workflows()
+        self._refresh_chains()
         self._refresh_presets()
         self._refresh_jobs()
         self.timer=QTimer(self)
@@ -498,6 +499,14 @@ class OmniWindow(QMainWindow):
         row.addWidget(_button('Start',self._start,'success'))
         row.addWidget(_button('Pause / Resume',self._pause,'gold'))
         row.addWidget(_button('Stop',self._stop,'danger'))
+        chainbar=QHBoxLayout();column.addLayout(chainbar)
+        chainbar.addWidget(QLabel('Workflow chain'))
+        self.chain_combo=QComboBox()
+        self.chain_combo.setMinimumWidth(185)
+        chainbar.addWidget(self.chain_combo,2)
+        chainbar.addWidget(_button('Edit priorities / modes', self._edit_chains))
+        chainbar.addWidget(_button('Start chain', self._start_chain, 'success'))
+        chainbar.addStretch()
         presets=QHBoxLayout();column.addLayout(presets)
         presets.addWidget(QLabel('CONFIGURATION PRESET'))
         self.preset=QComboBox();self.preset.setMinimumWidth(165)
@@ -714,6 +723,53 @@ class OmniWindow(QMainWindow):
         if not ok:self._warning(msg)
         self.config.update(device=serial,package=pkg,workflow=workflow)
         save_preferences(self.config,self.root)
+
+    def _refresh_chains(self):
+        from .chains import read_chains
+        try:
+            names = list(read_chains(self.root))
+        except (OSError, ValueError, TypeError) as exc:
+            names = []
+            self._log(f'Chain library could not be read: {exc}')
+        selected = self.chain_combo.currentText() or self.config.get('chain','')
+        self.chain_combo.blockSignals(True)
+        self.chain_combo.clear()
+        self.chain_combo.addItems(names)
+        if selected in names:
+            self.chain_combo.setCurrentText(selected)
+        self.chain_combo.blockSignals(False)
+
+    def _edit_chains(self):
+        from .chains_ui import ChainLibraryDialog
+        try:
+            editor = ChainLibraryDialog(self.root, local_workflows(self.root), self)
+        except (OSError, ValueError, TypeError) as exc:
+            self._warning(f'Cannot open chains: {exc}')
+            return
+        editor.exec()
+        self._refresh_chains()
+
+    def _start_chain(self):
+        from .chains import read_chains, validate_plan
+        serial = self.serial.currentText().strip()
+        package = self.package.text().strip()
+        name = self.chain_combo.currentText()
+        workflows = local_workflows(self.root)
+        try:
+            saved = read_chains(self.root)
+            if name not in saved:
+                raise ValueError('Create and save a workflow chain first')
+            plan = validate_plan(saved[name], workflows)
+        except (OSError, ValueError, TypeError) as exc:
+            self._warning(f'Cannot start chain: {exc}')
+            return
+        ok, message = self.manager.start_chain(serial, package, plan, workflows)
+        self._log(message)
+        if not ok:
+            self._warning(message)
+        else:
+            self.config.update(device=serial, package=package, chain=name)
+            save_preferences(self.config, self.root)
 
     def _selected_serial(self):
         row=self.session_table.currentRow()
