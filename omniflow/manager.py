@@ -299,7 +299,7 @@ class InstanceManager:
                 try:
                     runner.step(now)
                     session.record_decision(getattr(runner, 'last_decision', session.decision))
-                    if getattr(runner, 'done', False):
+                    if getattr(runner, 'done', False) is True:
                         reason = 'chain_complete'
                         break
                     if recovery_requested:
