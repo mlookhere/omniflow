@@ -83,6 +83,8 @@ def validate_plan(source: dict, workflows: dict[str, Path]) -> ChainPlan:
                 trigger not in states or complete not in states or
                 trigger not in actions or complete not in actions):
             raise ValueError(f'Chain row {index}: trigger or completed state was deleted')
+        if not isinstance(actions[trigger], dict) or not isinstance(actions[complete], dict):
+            raise ValueError(f'Chain row {index}: saved state metadata is invalid')
         if actions[trigger].get('passive'):
             raise ValueError(f'Chain row {index}: trigger cannot be a passive WAIT state')
         steps.append(ChainStep(workflow, trigger, complete, mode, limit))
@@ -184,6 +186,7 @@ class ChainedRunner:
         self.deadlines: dict[int, float] = {}
         self.done = False
         self._completed_during_step = False
+        self._paused_at: float | None = None
         self.last_decision = 'Watching workflow triggers; no input'
         self.last_capture_started_at = 0.0
         self.last_capture_latency_ms: float | None = None
@@ -309,6 +312,8 @@ class ChainedRunner:
                 raise ADBError('Chain trigger capture became stale')
             self.last_capture_latency_ms = age * 1000
             candidates = self._eligible(now)
+            if self.done:
+                return
             winner = None
             for index in candidates:
                 observed = self.triggers[index].detect(frame)
@@ -352,7 +357,17 @@ class ChainedRunner:
                     f'{self.plan.steps[index].workflow}: completed; scanning next trigger')
         return observation
 
+    def pause_started(self, now: float) -> None:
+        """A manual pause freezes per-row wall-clock budgets."""
+        if self._paused_at is None:
+            self._paused_at = now
+
     def resume_after_pause(self, now: float) -> None:
+        if self._paused_at is not None:
+            elapsed = max(0.0, now - self._paused_at)
+            for index in self.deadlines:
+                self.deadlines[index] += elapsed
+            self._paused_at = None
         if self.active is not None:
             self.active.resume_after_pause(now)
         self.last_decision = 'Chain resumed; reconfirming trigger or workflow state'

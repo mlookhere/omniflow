@@ -284,6 +284,8 @@ class InstanceManager:
                     if paused_at is None:
                         paused_at = now
                         session.stats.pause(now)
+                        if session.chain_plan is not None:
+                            runner.pause_started(now)
                     session.status = 'Paused'
                     session.record_decision('Paused; no input')
                     session.stop_event.wait(0.15)
