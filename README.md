@@ -256,3 +256,8 @@ fallback errors are rate-limited in the activity log.
 For a read-only hardware report run `tools/diagnose_capture.py` as
 documented above. Encoder reliability and ten-instance throughput must
 still be validated on actual Windows/MuMu hardware.
+
+
+## Prioritized Workflow Chains
+
+Use **Dashboard → Edit priorities / modes** to combine saved workflows. Each row has an explicit start trigger and completed screen, its own **Dynamic / Timed / Run count** mode, and drag-free priority controls. **Start chain** runs them sequentially on one leased emulator without interrupting a live run. After completion the next available workflow is preferred, with Dynamic fallback to an earlier workflow if the next trigger is absent. Timed workflows finish their final run after the clock expires; counted workflows wait for the configured number of full completions. See [Workflow Chains](docs/workflow-chains.md) for setup, completion guarantees, and current backup limitations.

@@ -1471,3 +1471,12 @@ no-input, saved settings, area validation and editor persistence. This
 increment is not yet live Windows/MuMu hardware acceptance; validate
 actual target hit rate and recognition/capture latency separately. Never
 equate screenshot preview FPS with actionable capture FPS.
+
+
+### Workflow chain orchestration (November 17, 2026)
+
+**User requested** an ordered list of independently authored workflows with explicit start/completed state images, per-row **Dynamic**, **Timed (minutes)**, or **Run count** execution, and priority fallback. The existing work branch and draft PR #2 extend the roadmap's previously incomplete branching/subworkflow milestone; existing single-workflow, legacy, and scheduled operations remain compatible.
+
+Implemented `omniflow/chains.py` and `chains_ui.py`, with saved non-destructive `chains.json` definitions, GUI priority ordering, saved trigger/completion state selection, and Dashboard **Start chain**. A chain holds the existing per-device exclusive lease while scanning one fresh screenshot per poll for eligible trigger states; upon trigger it delegates all actions to the existing `OmniRunner`. The runner has an optional explicit terminal state that only counts completion on two fresh confirmations and sends no terminal-state actions. Dynamic rows can repeat after a handoff is unavailable. Timed/count rows have a bounded quota, but allow an eligible Dynamic fallback while waiting. Timed quota begins at first activation, freezes on Pause, and never preempts the active final run. Explicit chain-repeat option resets per-stage quotas after a full cycle.
+
+Automated source tests cover priority fallback, counted quota, timer expiry between runs and during final run, pause freeze, terminal action suppression, legacy count/end compatibility, persisted validation and the no-ADB-input idle state. Windows Qt tests cover editor ordering, save/load and dashboard launch. **Remaining:** full Windows/MuMu user validation of trigger collisions, overlapping workflows, completed-image accuracy and elapsed/response latency. Legacy backup ZIP does not yet include `chains.json`; document that limitation rather than claiming it does. Required CI must be successful on exact PR head and `dev` branch-policy enforcement remains a separate merge gate. See `docs/workflow-chains.md`.
