@@ -116,6 +116,17 @@ class ChainTests(unittest.TestCase):
         self.assertTrue(runner.done)
         self.assertEqual(self.finished, [1, 2, 1])
 
+    def test_completed_dynamic_can_run_while_count_stage_is_unready(self):
+        runner = self.chain([self.row('A'), self.row('B', 'count', 2)])
+        self.complete(runner, 'A', 100)
+        self.complete(runner, 'B', 110)
+        self.assertEqual(runner.locked, 1)  # B still owes one full run.
+        self.complete(runner, 'A', 120)      # B unavailable, A re-triggered.
+        self.assertEqual(runner.locked, 1)  # Do not abandon B's remaining quota.
+        self.complete(runner, 'B', 130)
+        self.assertTrue(runner.done)
+        self.assertEqual(self.finished, [1, 1, 2, 2])
+
     def test_timed_expiry_finishes_inflight_run_then_handoffs(self):
         runner = self.chain([self.row('A', 'timed', 1), self.row('B')])
         self.complete(runner, 'A', 100)
