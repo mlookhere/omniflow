@@ -220,7 +220,15 @@ class ChainedRunner:
                 self.log(f'{row.workflow}: time elapsed between runs; advancing')
                 self._advance(index)
             else:
-                return [index]
+                # Keep the unfinished quota first, but permit a previously
+                # completed Dynamic row to make progress if its trigger recurs
+                # while this count/timed row is not ready. Never exceed a
+                # configured count or time budget to fill an idle gap.
+                return [index] + [
+                    other for other, item in enumerate(self.plan.steps)
+                    if other != index and item.mode == 'dynamic'
+                    and other not in self.exhausted
+                ]
         if self.done:
             return []
         count = len(self.plan.steps)
