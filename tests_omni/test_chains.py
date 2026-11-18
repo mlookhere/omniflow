@@ -178,6 +178,37 @@ class ChainTests(unittest.TestCase):
         runner.step(6)
         self.assertEqual(self.device.taps, [(95, 138)])
 
+    def test_manual_pause_freezes_timed_budget(self):
+        runner = self.chain([self.row('A', 'timed', 1), self.row('B')])
+        self.complete(runner, 'A', 100)  # Deadline 160.
+        runner.pause_started(110)
+        runner.resume_after_pause(210)  # Deadline becomes 260.
+        self.assertEqual(runner.deadlines[0], 260)
+        self.device.frame = self.screens['A'][0]
+        runner.step(250)
+        self.assertEqual(runner.active_index, 0)
+        self.complete_selected(runner, 'A', 251)
+        self.assertEqual(runner.locked, 0)
+        self.assertEqual(self.finished, [1, 2])
+
+    def test_chain_does_not_count_legacy_count_run_before_terminal(self):
+        folder = self.workflows['A']
+        manifest = folder / 'manifest.json'
+        data = json.loads(manifest.read_text(encoding='utf-8'))
+        data['actions'][self.keys['A'][0]]['action_chain'] = [
+            {'kind': 'count_run'}]
+        manifest.write_text(json.dumps(data), encoding='utf-8')
+        runner = self.chain([self.row('A')])
+        self.device.frame = self.screens['A'][0]
+        runner.step(10)
+        runner.step(11)
+        runner.step(12)  # Legacy count_run action is not terminal.
+        self.assertEqual(self.finished, [])
+        self.device.frame = self.screens['A'][1]
+        runner.step(13)
+        runner.step(14)
+        self.assertEqual(self.finished, [1])
+
     def test_legacy_single_runner_still_counts_original_completion(self):
         folder = self.workflows['A']
         manifest = folder / 'manifest.json'
