@@ -22,6 +22,7 @@ from swordx.detection import normalize
 from .devices import Device
 from .emulator_recovery import launch_instance, instance_offline
 from .engine import OmniRunner, Match, InputPaused
+from .chains import ChainPlan, ChainedRunner
 from .schedule import LEASE_SECONDS, MAX_INSTANCES, ScheduleStore
 
 
@@ -56,6 +57,8 @@ class Session:
     intended_at: float | None = None
     max_minutes: int | None = None
     max_runs: int = 0
+    chain_plan: ChainPlan | None = None
+    chain_workflows: dict[str, Path] | None = None
     _image_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def latest(self) -> np.ndarray | None:
@@ -161,7 +164,9 @@ class InstanceManager:
 
     def start(self, serial: str, package: str, workflow: str, folder: Path,
               *, job_id: str | None = None, intended_at: float | None = None,
-              max_minutes: int | None = None, max_runs: int = 0) -> tuple[bool, str]:
+              max_minutes: int | None = None, max_runs: int = 0,
+              chain_plan: ChainPlan | None = None,
+              chain_workflows: dict[str, Path] | None = None) -> tuple[bool, str]:
         if not serial or not package or not workflow or not Path(folder, 'manifest.json').is_file():
             return False, 'Select an available device, installed package, and valid workflow'
         with self._lock:
@@ -174,7 +179,8 @@ class InstanceManager:
                 return False, f'{serial} is already controlled by another OmniFlow process'
             session = Session(serial, package, workflow, Path(folder), owner,
                               job_id=job_id, intended_at=intended_at, max_minutes=max_minutes,
-                              max_runs=max_runs)
+                              max_runs=max_runs, chain_plan=chain_plan,
+                              chain_workflows=chain_workflows)
             self.sessions[serial] = session
             session.worker = threading.Thread(target=self._run, args=(session,),
                                               name=f'OmniFlow-{serial}', daemon=True)
@@ -190,6 +196,27 @@ class InstanceManager:
                     self.events.append(f'{serial}: startup lease cleanup failed: {release_exc}')
                 return False, f'Could not start emulator worker: {exc}'
         return True, f'Started {workflow} on {serial}'
+
+    def start_chain(self, serial: str, package: str, plan: ChainPlan,
+                    workflows: dict[str, Path]) -> tuple[bool, str]:
+        """Start one prioritized chain under the same exclusive device lease."""
+        if not isinstance(plan, ChainPlan) or not plan.steps:
+            return False, 'Select a valid saved chain'
+        if any(step.workflow not in workflows for step in plan.steps):
+            return False, 'A referenced workflow was deleted; reload the chain'
+        # Preflight all references before creating any worker or lease.
+        from .chains import validate_plan
+        try:
+            validated = validate_plan({
+                'name': plan.name, 'repeat': plan.repeat,
+                'steps': [vars(step) for step in plan.steps],
+            }, workflows)
+        except (OSError, ValueError, TypeError) as exc:
+            return False, f'Invalid chain: {exc}'
+        first = workflows[validated.steps[0].workflow]
+        return self.start(
+            serial, package, f'Chain: {plan.name}', first,
+            chain_plan=validated, chain_workflows=dict(workflows))
 
     def _run(self, session: Session) -> None:
         reason = 'stopped'
@@ -224,16 +251,24 @@ class InstanceManager:
                     device.ensure_connected()
                 except ADBError as exc:
                     session.log(f'Initial device connect failed, retrying: {exc}')
-            runner = OmniRunner(device, session.folder, session.package,
-                                log=session.log, completed=lambda _: session.stats.complete(),
-                                image=lambda match, frame: self._image(
-                                    session, match, frame,
-                                    captured_at=runner.last_capture_started_at,
-                                    capture_latency_ms=runner.last_capture_latency_ms,
-                                    capture_stages_ms=runner.last_capture_stages_ms),
-                                auto_relaunch=self.auto_relaunch, dry_run=self.dry_run and session.job_id is None,
-                                can_act=lambda: not session.stop_event.is_set(),
-                                is_paused=session.pause_event.is_set)
+            options = dict(
+                log=session.log, completed=lambda _: session.stats.complete(),
+                image=lambda match, frame: self._image(
+                    session, match, frame,
+                    captured_at=runner.last_capture_started_at,
+                    capture_latency_ms=runner.last_capture_latency_ms,
+                    capture_stages_ms=runner.last_capture_stages_ms),
+                auto_relaunch=self.auto_relaunch,
+                dry_run=self.dry_run and session.job_id is None,
+                can_act=lambda: not session.stop_event.is_set(),
+                is_paused=session.pause_event.is_set,
+            )
+            if session.chain_plan is not None:
+                runner = ChainedRunner(
+                    device, session.chain_plan, session.chain_workflows,
+                    session.package, **options)
+            else:
+                runner = OmniRunner(device, session.folder, session.package, **options)
             session.status = 'Running'
             paused_at = None
             recovery_requested = False
@@ -264,6 +299,9 @@ class InstanceManager:
                 try:
                     runner.step(now)
                     session.record_decision(getattr(runner, 'last_decision', session.decision))
+                    if getattr(runner, 'done', False):
+                        reason = 'chain_complete'
+                        break
                     if recovery_requested:
                         recovery_requested = False
                         session.log('MuMu connected; game recovery active')
