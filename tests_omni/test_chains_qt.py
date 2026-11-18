@@ -73,17 +73,17 @@ class ChainGuiTests(unittest.TestCase):
         with patch('omniflow.chains_ui.QMessageBox.information'):
             first._save()
         first.close()
-        with patch('omniflow.ui.root_dir', return_value=self.root), \\
-             patch('omniflow.ui.DeviceScan.start'):
+        with (patch('omniflow.ui.root_dir', return_value=self.root),
+              patch('omniflow.ui.DeviceScan.start')):
             window = OmniWindow()
         try:
             self.assertGreaterEqual(window.chain_combo.findText('Routine'), 0)
             window.chain_combo.setCurrentText('Routine')
             window.serial.setCurrentText('127.0.0.1:16384')
             window.package.setText('com.example')
-            with patch.object(window.manager, 'start_chain',
-                              return_value=(True, 'Chain started')) as start, \\
-                 patch('omniflow.ui.save_preferences') as persist:
+            with (patch.object(window.manager, 'start_chain',
+                               return_value=(True, 'Chain started')) as start,
+                  patch('omniflow.ui.save_preferences') as persist):
                 window._start_chain()
                 self.assertEqual(start.call_count, 1)
                 self.assertEqual(start.call_args.args[2].name, 'Routine')
